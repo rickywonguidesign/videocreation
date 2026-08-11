@@ -1,0 +1,477 @@
+<style>
+  :root{
+    --bg:#14161C; --panel:#1C1F29; --panel-raised:#232635; --line:#2E3242;
+    --text:#EDEAE2; --text-dim:#9A9DAE;
+    --amber:#D9A544; --amber-dim:#8A6B2E;
+    --teal:#5BA3A0; --teal-dim:#3A6D6B;
+    --done:#7BAE7F; --err:#E07A5F;
+  }
+  *{box-sizing:border-box;}
+  body,.console{background:var(--bg);color:var(--text);font-family:'Inter',-apple-system,sans-serif;margin:0;padding:0;min-height:100%;}
+  .console{padding:28px 20px 60px;max-width:720px;margin:0 auto;}
+  .mono{font-family:'IBM Plex Mono','Courier New',monospace;}
+  h1{font-family:'Space Grotesk','Archivo',sans-serif;font-weight:700;font-size:22px;letter-spacing:-0.01em;margin:0 0 4px;}
+  .subhead{color:var(--text-dim);font-size:13px;margin:0 0 26px;}
+
+  /* form */
+  .field{margin-bottom:18px;}
+  .field label{display:block;font-family:'IBM Plex Mono',monospace;font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--text-dim);margin-bottom:6px;}
+  .hint{font-size:11px;color:var(--text-dim);margin-top:5px;line-height:1.5;}
+  textarea,input[type=text]{
+    width:100%;background:var(--panel);border:1px solid var(--line);border-radius:6px;color:var(--text);
+    font-family:'Inter',sans-serif;font-size:13px;padding:11px 12px;resize:vertical;
+  }
+  textarea:focus,input:focus{outline:none;border-color:var(--amber-dim);}
+  textarea{height:110px;}
+  .row{display:flex;gap:14px;}
+  .row .field{flex:1;}
+  .style-toggle{display:flex;gap:8px;}
+  .style-opt{
+    flex:1;text-align:center;padding:10px;border:1px solid var(--line);border-radius:6px;
+    background:var(--panel);color:var(--text-dim);font-size:13px;cursor:pointer;font-family:'IBM Plex Mono',monospace;
+  }
+  .style-opt.active{border-color:var(--amber);color:var(--amber);background:var(--panel-raised);}
+
+  .key-field{
+    background:var(--panel);border:1px solid var(--line);border-radius:8px;
+    padding:14px 16px;margin-bottom:22px;
+  }
+  .key-label-row{display:flex;align-items:center;gap:8px;margin-bottom:9px;}
+  .key-icon{font-size:15px;}
+  .key-label-row span{font-family:'Inter',sans-serif;font-size:14px;font-weight:600;color:var(--text);}
+  .key-field input[type=password],.key-field input[type=text]{
+    width:100%;background:var(--bg);border:1px solid var(--line);border-radius:6px;color:var(--text);
+    font-family:'IBM Plex Mono',monospace;font-size:13px;padding:11px 12px;
+  }
+  .key-field input::placeholder{color:#5C5F70;}
+  .key-field .hint{margin-top:8px;}
+  .key-status{font-family:'IBM Plex Mono',monospace;font-size:10px;letter-spacing:.05em;color:var(--done);margin-top:6px;display:none;}
+  .key-status.show{display:block;}
+
+  .top-settings{display:flex;gap:14px;margin-bottom:22px;align-items:stretch;}
+  .top-settings .key-field{flex:1.4;margin-bottom:0;}
+  .lang-field{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:14px 16px;flex:1;}
+  .lang-field .key-label-row{margin-bottom:9px;}
+  .lang-field select{
+    width:100%;background:var(--bg);border:1px solid var(--line);border-radius:6px;color:var(--text);
+    font-family:'IBM Plex Mono',monospace;font-size:13px;padding:11px 12px;
+  }
+  .lang-field select:focus{outline:none;border-color:var(--amber-dim);}
+
+  .generate-btn{
+    width:100%;background:var(--amber);color:#1A1200;border:none;border-radius:6px;
+    font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:14px;padding:13px;cursor:pointer;
+    display:flex;align-items:center;justify-content:center;gap:8px;margin-top:6px;
+  }
+  .generate-btn:disabled{opacity:.5;cursor:not-allowed;}
+  .spinner{width:14px;height:14px;border:2px solid rgba(0,0,0,.25);border-top-color:#1A1200;border-radius:50%;animation:spin .7s linear infinite;display:none;}
+  .generate-btn.loading .spinner{display:inline-block;}
+  @keyframes spin{to{transform:rotate(360deg);}}
+
+  .err-box{background:rgba(224,122,95,.1);border:1px solid var(--err);color:var(--err);border-radius:6px;padding:10px 12px;font-size:12px;margin-top:12px;display:none;}
+
+  /* results */
+  #resultsView{display:none;}
+  .back-btn{background:none;border:1px solid var(--line);color:var(--text-dim);font-family:'IBM Plex Mono',monospace;font-size:11px;padding:6px 10px;border-radius:5px;cursor:pointer;margin-bottom:18px;}
+  .back-btn:hover{color:var(--text);border-color:var(--text-dim);}
+
+  .char-card{background:var(--panel);border:1px solid var(--amber-dim);border-radius:8px;padding:16px;margin-bottom:22px;}
+  .char-card .tag{font-family:'IBM Plex Mono',monospace;font-size:10px;letter-spacing:.08em;text-transform:uppercase;color:var(--amber);margin-bottom:8px;}
+  .char-card p{font-size:13px;line-height:1.6;color:var(--text);margin:0 0 8px;}
+  .char-card .cd{font-size:12px;color:var(--text-dim);line-height:1.6;}
+
+  .treatment-card{background:var(--panel);border:1px solid var(--teal-dim);border-radius:8px;padding:16px;margin-bottom:16px;}
+  .treatment-card .tag{font-family:'IBM Plex Mono',monospace;font-size:10px;letter-spacing:.08em;text-transform:uppercase;color:var(--teal);margin-bottom:8px;}
+  .treatment-card .logline{font-size:14px;font-weight:600;color:var(--text);margin:0 0 10px;line-height:1.5;}
+  .treatment-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;}
+  .treatment-item{font-size:11px;color:var(--text-dim);line-height:1.5;}
+  .treatment-item b{display:block;font-family:'IBM Plex Mono',monospace;font-size:9px;text-transform:uppercase;letter-spacing:.06em;color:var(--text-dim);margin-bottom:3px;}
+  .treatment-item span{color:var(--text);}
+  .treatment-arc{grid-column:1/-1;}
+
+  .beat-pill{
+    font-family:'IBM Plex Mono',monospace;font-size:9px;letter-spacing:.06em;text-transform:uppercase;
+    padding:3px 8px;border-radius:10px;background:var(--panel-raised);color:var(--teal);border:1px solid var(--teal-dim);
+  }
+  .scene-extra{display:flex;gap:10px;font-size:11px;color:var(--text-dim);margin:8px 0 10px;flex-wrap:wrap;}
+  .scene-extra .ex-item b{color:var(--text-dim);font-weight:600;}
+
+  .scene{background:var(--panel);border:1px solid var(--line);border-radius:8px;margin-bottom:16px;overflow:hidden;}
+  .scene.done{border-color:var(--done);}
+  .scene-head{display:flex;align-items:center;justify-content:space-between;padding:12px 16px;border-bottom:1px solid var(--line);background:var(--panel-raised);}
+  .scene-num{font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:15px;}
+  .scene-num span{color:var(--text-dim);font-weight:400;}
+  .scene-tc{font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--amber);letter-spacing:.03em;}
+  .scene-meta{display:flex;gap:8px;font-family:'IBM Plex Mono',monospace;font-size:10px;color:var(--text-dim);text-transform:uppercase;letter-spacing:.05em;}
+  .scene-body{padding:14px 16px 16px;}
+  .prompt-box{background:var(--bg);border:1px solid var(--line);border-radius:5px;padding:10px 12px;font-family:'IBM Plex Mono',monospace;font-size:12px;line-height:1.55;color:var(--text-dim);max-height:130px;overflow-y:auto;margin-bottom:10px;}
+  .line-label{font-size:10px;text-transform:uppercase;letter-spacing:.08em;color:var(--text-dim);margin-bottom:3px;}
+  .quote{font-size:13px;font-style:italic;color:var(--text);border-left:2px solid var(--teal-dim);padding-left:10px;margin:0 0 12px;}
+  .btn-row{display:flex;gap:8px;flex-wrap:wrap;}
+  .btn{flex:1;min-width:150px;border:none;border-radius:5px;padding:9px 12px;font-family:'IBM Plex Mono',monospace;font-size:11px;letter-spacing:.03em;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:6px;}
+  .btn:hover{opacity:.85;}
+  .btn-video{background:var(--amber);color:#1A1200;}
+  .btn-voice{background:var(--teal);color:#08201F;}
+  .btn-check{background:none;border:1px solid var(--line);color:var(--text-dim);width:34px;flex:0 0 34px;}
+  .btn-check.on{border-color:var(--done);color:var(--done);}
+
+  .toast{position:fixed;bottom:20px;left:50%;transform:translateX(-50%);background:var(--panel-raised);border:1px solid var(--done);color:var(--text);font-family:'IBM Plex Mono',monospace;font-size:12px;padding:9px 16px;border-radius:5px;opacity:0;pointer-events:none;transition:opacity .25s;z-index:50;}
+  .toast.show{opacity:1;}
+</style>
+
+<div class="console">
+  <div id="formView">
+    <h1>New scene job</h1>
+    <p class="subhead">Paste your source, set the window and topic, then generate the character style and per-scene prompts.</p>
+
+    <div class="top-settings">
+      <div class="key-field">
+        <div class="key-label-row"><span class="key-icon">🔑</span><span>OpenAI API Key</span></div>
+        <input type="password" id="openaiKey" placeholder="sk-..." autocomplete="off" oninput="onKeyInput()">
+        <div class="hint">Used only to call OpenAI directly from your browser — never saved. Leave blank to use the built-in generator.</div>
+        <div class="key-status" id="keyStatus">Key set for this session</div>
+        <input type="text" id="backendUrl" placeholder="Optional: your backend proxy URL (avoids CORS)" style="margin-top:8px;font-size:11px;">
+      </div>
+      <div class="lang-field">
+        <div class="key-label-row"><span class="key-icon">🌐</span><span>Language</span></div>
+        <select id="language">
+          <option value="English">English</option>
+          <option value="Vietnamese">Vietnamese</option>
+          <option value="Japanese">Japanese</option>
+          <option value="Korean">Korean</option>
+          <option value="Chinese (Simplified)">Chinese (Simplified)</option>
+          <option value="Spanish">Spanish</option>
+          <option value="French">French</option>
+          <option value="Thai">Thai</option>
+          <option value="Indonesian">Indonesian</option>
+        </select>
+        <div class="hint">Dialogue & narration only — all technical prompts stay in English for VideoExpress/CloneVoice.</div>
+      </div>
+    </div>
+
+    <div class="field">
+      <label>Source — link, story, or script</label>
+      <textarea id="source" placeholder="Paste a video link, or paste the story/script text directly..."></textarea>
+      <div class="hint">Note: this can't fetch and watch a video link on its own — if you paste a link, also paste the transcript, caption text, or a description of what happens, so there's actual content to work from.</div>
+    </div>
+
+    <div class="row">
+      <div class="field">
+        <label>Minute / time window</label>
+        <input type="text" id="minute" placeholder="e.g. 2:03–2:14">
+      </div>
+      <div class="field">
+        <label>Topic</label>
+        <input type="text" id="topic" placeholder="e.g. morning skincare routine">
+      </div>
+    </div>
+
+    <div class="field">
+      <label>Character style</label>
+      <div class="style-toggle">
+        <div class="style-opt active" data-style="3D" onclick="selectStyle(this)">3D</div>
+        <div class="style-opt" data-style="Anime" onclick="selectStyle(this)">Anime</div>
+        <div class="style-opt" data-style="Realistic" onclick="selectStyle(this)">Realistic</div>
+        <div class="style-opt" data-style="Flat illustration" onclick="selectStyle(this)">Flat illustration</div>
+      </div>
+    </div>
+
+    <button class="generate-btn" id="genBtn" onclick="generateScript()">
+      <span class="spinner"></span><span id="genLabel">Generate script</span>
+    </button>
+    <div class="err-box" id="errBox"></div>
+  </div>
+
+  <div id="resultsView">
+    <button class="back-btn" onclick="backToForm()">← New job</button>
+    <div id="charCardWrap"></div>
+    <div id="scenesWrap"></div>
+  </div>
+</div>
+
+<div class="toast mono" id="toast"></div>
+
+<script>
+const VIDEOEXPRESS_URL = "https://app.videoexpress.ai/";
+const CLONEVOICE_URL = "https://app.clonevoice.ai/";
+let currentStyle = "3D";
+let job = null;
+let doneMap = {};
+
+function onKeyInput(){
+  const val = document.getElementById('openaiKey').value.trim();
+  document.getElementById('keyStatus').classList.toggle('show', val.length > 0);
+}
+
+function selectStyle(el){
+  document.querySelectorAll('.style-opt').forEach(o=>o.classList.remove('active'));
+  el.classList.add('active');
+  currentStyle = el.dataset.style;
+}
+
+function showToast(msg){
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.classList.add('show');
+  clearTimeout(t._timer);
+  t._timer = setTimeout(()=>t.classList.remove('show'), 1800);
+}
+
+async function copyText(text){
+  try{ await navigator.clipboard.writeText(text); }
+  catch(e){
+    const ta=document.createElement('textarea');ta.value=text;ta.style.position='fixed';ta.style.opacity='0';
+    document.body.appendChild(ta);ta.select();
+    try{document.execCommand('copy');}catch(_){}
+    document.body.removeChild(ta);
+  }
+}
+
+function setLoading(on){
+  const btn = document.getElementById('genBtn');
+  btn.disabled = on;
+  btn.classList.toggle('loading', on);
+  document.getElementById('genLabel').textContent = on ? 'Generating…' : 'Generate script';
+}
+
+function showError(msg){
+  const box = document.getElementById('errBox');
+  box.textContent = msg;
+  box.style.display = 'block';
+}
+
+async function generateScript(){
+  const source = document.getElementById('source').value.trim();
+  const minute = document.getElementById('minute').value.trim();
+  const topic = document.getElementById('topic').value.trim();
+  document.getElementById('errBox').style.display = 'none';
+
+  if(!source || !topic){
+    showError('Add at least a source and a topic before generating.');
+    return;
+  }
+
+  setLoading(true);
+  try{
+    const systemPrompt = `You are a professional film director and cinematographer breaking down a short video into a shot list, the way you would for a real shoot — not just filling in a template.
+
+Think in three passes before writing scenes:
+1. TREATMENT: Decide the logline (one sentence, what happens and why it matters), the tone/mood, and the narrative arc across the clip (hook → build → payoff — what grabs attention first, what develops it, what lands it).
+2. COVERAGE: Plan shot variety on purpose. Do not repeat the same shot size and camera movement back to back. Alternate wide/medium/close, static/moving, to create rhythm. Choose a lens feel for each shot (e.g. "35mm wide, slight distortion" vs "85mm compressed, shallow depth") that matches its emotional job.
+3. CONTINUITY: Keep one consistent color grade note and lighting logic across all scenes so they look like the same shoot, not disconnected renders.
+
+Output ONLY raw JSON, no markdown fences, no preamble. Schema:
+{
+  "topic": string,
+  "characterStyle": string,
+  "treatment": {
+    "logline": string,
+    "tone": string,
+    "colorGrade": string,
+    "narrativeArc": string (one sentence describing hook/build/payoff shape)
+  },
+  "styleBlock": { "description": string, "characterDescription": string },
+  "scenes": [
+    {
+      "sceneNumber": number,
+      "timeRange": string,
+      "durationSeconds": number (between 8 and 10),
+      "beat": string (one of: "Hook", "Build", "Payoff", or a short custom label),
+      "shotType": string,
+      "cameraMovement": string,
+      "lens": string,
+      "lighting": string,
+      "videoExpressPrompt": string (style description + character description + shot/lens/camera/lighting + action, fully self-contained),
+      "transitionOut": string (e.g. "hard cut", "cross dissolve", "match cut on motion"),
+      "soundCue": string (e.g. "soft piano swell", "ambient room tone", "beat drop"),
+      "dialogue": string or null,
+      "narrationLine": string or null
+    }
+  ]
+}
+Rules: styleBlock.description must reflect the requested character style. Break the given time window into consecutive scenes, each 8-10 seconds. Keep total scenes between 2 and 5, but make sure the sequence covers Hook, Build, and Payoff across them. Vary shot size and camera movement scene to scene — never repeat the same combination twice in a row. Keep prose concise so the whole response fits in the token budget.
+
+LANGUAGE RULE: Every field except "dialogue" and "narrationLine" must be written in English, regardless of the requested output language — this includes videoExpressPrompt, styleBlock, lens, lighting, transitionOut, soundCue, beat, tone, colorGrade, narrativeArc, and logline, since these feed English-only AI video tools. Only "dialogue" and "narrationLine" should be written in the requested output language, sounding natural and idiomatic for a native speaker — not a literal translation.`;
+
+    const userPrompt = `Source material:\n${source}\n\nTime window: ${minute || "not specified, use your judgment for a short clip"}\nTopic to reframe the scenes around: ${topic}\nCharacter style: ${currentStyle}\nOutput language for dialogue/narration: ${document.getElementById('language').value}`;
+
+    const openaiKey = document.getElementById('openaiKey').value.trim();
+    const backendUrl = document.getElementById('backendUrl').value.trim();
+    let rawText;
+
+    if(openaiKey && backendUrl){
+      const response = await fetch(`${backendUrl.replace(/\/$/,'')}/generate-script`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          openaiKey, systemPrompt, userPrompt, model: "gpt-5.6-terra"
+        })
+      });
+      if(!response.ok){
+        const errBody = await response.text();
+        throw new Error(`Backend returned ${response.status}. ${errBody.slice(0,150)}`);
+      }
+      const data = await response.json();
+      rawText = data.content;
+      if(!rawText) throw new Error("No content in backend response");
+    }else if(openaiKey){
+      const response = await fetch("https://api.openai.com/v1/chat/completions", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${openaiKey}`
+        },
+        body: JSON.stringify({
+          model: "gpt-5.6-terra",
+          messages: [
+            { role: "system", content: systemPrompt },
+            { role: "user", content: userPrompt }
+          ],
+          response_format: { type: "json_object" }
+        })
+      });
+      if(!response.ok){
+        const errBody = await response.text();
+        throw new Error(`OpenAI returned ${response.status} — check your key. ${errBody.slice(0,120)}`);
+      }
+      const data = await response.json();
+      rawText = data.choices && data.choices[0] && data.choices[0].message && data.choices[0].message.content;
+      if(!rawText) throw new Error("No content in OpenAI response");
+    }else{
+      const response = await fetch("https://api.anthropic.com/v1/messages", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          model: "claude-sonnet-4-6",
+          max_tokens: 1000,
+          system: systemPrompt,
+          messages: [{ role: "user", content: userPrompt }]
+        })
+      });
+      if(!response.ok){
+        throw new Error(`API returned ${response.status}`);
+      }
+      const data = await response.json();
+      const textBlock = (data.content || []).find(b => b.type === "text");
+      if(!textBlock) throw new Error("No text in response");
+      rawText = textBlock.text;
+    }
+
+    let clean = rawText.trim().replace(/^```json/,'').replace(/^```/,'').replace(/```$/,'').trim();
+    const parsed = JSON.parse(clean);
+
+    job = {
+      jobId: 'job_' + Date.now(),
+      topic: parsed.topic || topic,
+      characterStyle: parsed.characterStyle || currentStyle,
+      treatment: parsed.treatment || null,
+      styleBlock: parsed.styleBlock,
+      scenes: parsed.scenes
+    };
+    doneMap = {};
+    await loadProgress();
+    renderResults();
+    document.getElementById('formView').style.display = 'none';
+    document.getElementById('resultsView').style.display = 'block';
+  }catch(e){
+    showError('Generation failed: ' + e.message + '. Try trimming the source text or simplifying the topic, then generate again.');
+  }finally{
+    setLoading(false);
+  }
+}
+
+function backToForm(){
+  document.getElementById('resultsView').style.display = 'none';
+  document.getElementById('formView').style.display = 'block';
+}
+
+function storageKey(){ return `progress:${job.jobId}`; }
+async function loadProgress(){
+  try{
+    const res = await window.storage.get(storageKey());
+    doneMap = res ? JSON.parse(res.value) : {};
+  }catch(e){ doneMap = {}; }
+}
+async function saveProgress(){
+  try{ await window.storage.set(storageKey(), JSON.stringify(doneMap)); }catch(e){}
+}
+async function toggleDone(n){
+  doneMap[n] = !doneMap[n];
+  await saveProgress();
+  renderResults();
+}
+
+function scriptLine(scene){
+  return scene.dialogue || scene.narrationLine || "";
+}
+
+async function copyAndOpenVideo(scene){
+  await copyText(scene.videoExpressPrompt);
+  window.open(VIDEOEXPRESS_URL, '_blank');
+  showToast(`Scene ${scene.sceneNumber} prompt copied — VideoExpress opened`);
+}
+async function copyAndOpenVoice(scene){
+  const line = scriptLine(scene);
+  if(!line){ showToast('No dialogue or narration for this scene'); return; }
+  await copyText(line);
+  window.open(CLONEVOICE_URL, '_blank');
+  showToast(`Scene ${scene.sceneNumber} line copied — CloneVoice opened`);
+}
+
+function renderResults(){
+  const t = job.treatment || {};
+  document.getElementById('charCardWrap').innerHTML = `
+    ${t.logline ? `
+    <div class="treatment-card">
+      <div class="tag">Director's treatment</div>
+      <p class="logline">${t.logline}</p>
+      <div class="treatment-grid">
+        <div class="treatment-item"><b>Tone</b><span>${t.tone || '—'}</span></div>
+        <div class="treatment-item"><b>Color grade</b><span>${t.colorGrade || '—'}</span></div>
+        <div class="treatment-item treatment-arc"><b>Narrative arc</b><span>${t.narrativeArc || '—'}</span></div>
+      </div>
+    </div>` : ''}
+    <div class="char-card">
+      <div class="tag">Character style prompt · ${job.characterStyle}</div>
+      <p>${job.styleBlock.description}</p>
+      <div class="cd">${job.styleBlock.characterDescription}</div>
+    </div>
+  `;
+
+  document.getElementById('scenesWrap').innerHTML = job.scenes.map(scene => {
+    const isDone = !!doneMap[scene.sceneNumber];
+    const line = scriptLine(scene);
+    return `
+      <div class="scene ${isDone?'done':''}">
+        <div class="scene-head">
+          <div>
+            <span class="scene-num">SCENE <span>${String(scene.sceneNumber).padStart(2,'0')}</span></span>
+            <div class="scene-tc mono">${scene.timeRange} · ${scene.durationSeconds}s</div>
+          </div>
+          <span class="beat-pill">${scene.beat || ''}</span>
+        </div>
+        <div class="scene-body">
+          <div class="scene-extra">
+            <span class="ex-item"><b>${scene.shotType}</b></span>
+            <span class="ex-item">${scene.cameraMovement}</span>
+            <span class="ex-item">${scene.lens || ''}</span>
+            <span class="ex-item">${scene.lighting}</span>
+          </div>
+          <div class="line-label">Prompt</div>
+          <div class="prompt-box">${scene.videoExpressPrompt}</div>
+          ${line ? `<div class="line-label">${scene.dialogue?'Dialogue':'Narration'}</div><p class="quote">"${line}"</p>` : ''}
+          <div class="scene-extra">
+            <span class="ex-item">🎬 <b>Cut:</b> ${scene.transitionOut || '—'}</span>
+            <span class="ex-item">🔊 <b>Sound:</b> ${scene.soundCue || '—'}</span>
+          </div>
+          <div class="btn-row">
+            <button class="btn btn-video" onclick='copyAndOpenVideo(job.scenes[${scene.sceneNumber-1}])'>Copy → VideoExpress</button>
+            ${line ? `<button class="btn btn-voice" onclick='copyAndOpenVoice(job.scenes[${scene.sceneNumber-1}])'>Copy → CloneVoice</button>` : ''}
+            <button class="btn btn-check ${isDone?'on':''}" onclick="toggleDone(${scene.sceneNumber})">${isDone?'✓':'○'}</button>
+          </div>
+        </div>
+      </div>
+    `;
+  }).join('');
+}
+</script>
