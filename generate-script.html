@@ -117,13 +117,33 @@
 
   .toast{position:fixed;bottom:20px;left:50%;transform:translateX(-50%);background:var(--panel-raised);border:1px solid var(--done);color:var(--text);font-family:'IBM Plex Mono',monospace;font-size:12px;padding:9px 16px;border-radius:5px;opacity:0;pointer-events:none;transition:opacity .25s;z-index:50;}
   .toast.show{opacity:1;}
+
+  .modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,.6);display:none;align-items:center;justify-content:center;z-index:100;padding:20px;}
+  .modal-overlay.open{display:flex;}
+  .modal-panel{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:18px;width:100%;max-width:480px;max-height:70vh;overflow-y:auto;}
+  .modal-panel h3{margin:0 0 12px;font-family:'Space Grotesk',sans-serif;font-size:15px;}
+  .saved-item{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:10px 0;border-bottom:1px solid var(--line);}
+  .saved-item:last-child{border-bottom:none;}
+  .saved-info{font-size:12px;color:var(--text-dim);}
+  .saved-info b{color:var(--text);font-size:13px;display:block;margin-bottom:2px;}
+  .saved-actions{display:flex;gap:6px;flex-shrink:0;}
+  .saved-actions button{font-family:'IBM Plex Mono',monospace;font-size:10px;padding:5px 9px;border-radius:4px;cursor:pointer;border:1px solid var(--line);background:none;color:var(--text-dim);}
+  .saved-actions button:hover{color:var(--text);}
+  .modal-close{width:100%;margin-top:14px;background:none;border:1px solid var(--line);color:var(--text-dim);font-family:'IBM Plex Mono',monospace;font-size:12px;padding:9px;border-radius:5px;cursor:pointer;}
+  .empty-note{font-size:12px;color:var(--text-dim);text-align:center;padding:20px 0;}
 </style>
 
 <div class="console">
   <div id="formView">
     <h1>New scene job</h1>
-    <p class="subhead">Paste your source, set the window and topic, then
-      generate the character style and per-scene prompts.</p>
+    <div
+      style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:6px;">
+      <p class="subhead" style="margin-bottom:0;">Paste your source, set the
+        window and topic, then generate the character style and per-scene
+        prompts.</p>
+      <button class="back-btn" onclick="openSavedModal()">📂 Load saved
+        job</button>
+    </div>
 
     <div class="top-settings">
       <div class="key-field">
@@ -220,8 +240,14 @@
                       </div>
 
                       <div id="resultsView">
-                        <button class="back-btn" onclick="backToForm()">← New
-                          job</button>
+                        <div
+                          style="display:flex;justify-content:space-between;align-items:center;margin-bottom:18px;">
+                          <button class="back-btn" onclick="backToForm()"
+                            style="margin-bottom:0;">← New job</button>
+                          <button class="back-btn" onclick="saveJobToStorage()"
+                            style="margin-bottom:0;border-color:var(--done);color:var(--done);">💾
+                            Save job</button>
+                        </div>
                         <div id="charCardWrap"></div>
                         <div id="scenesWrap"></div>
                         <button class="generate-btn" id="continueBtn"
@@ -232,6 +258,15 @@
                     </div>
 
                     <div class="toast mono" id="toast"></div>
+
+                    <div class="modal-overlay" id="savedModal">
+                      <div class="modal-panel">
+                        <h3>Saved jobs</h3>
+                        <div id="savedList"></div>
+                        <button class="modal-close"
+                          onclick="closeSavedModal()">Close</button>
+                      </div>
+                    </div>
 
                     <script>
 const VIDEOEXPRESS_URL = "https://app.videoexpress.ai/";
@@ -345,7 +380,7 @@ function baseSystemPrompt(){
 Think in three passes before writing scenes:
 1. TREATMENT: Decide the logline (one sentence, what happens and why it matters), the tone/mood, and the narrative arc across the clip (hook → build → payoff — what grabs attention first, what develops it, what lands it).
 2. COVERAGE: Plan shot variety on purpose. Do not repeat the same shot size and camera movement back to back. Alternate wide/medium/close, static/moving, to create rhythm. Choose a lens feel for each shot (e.g. "35mm wide, slight distortion" vs "85mm compressed, shallow depth") that matches its emotional job.
-3. CONTINUITY: Keep one consistent color grade note and lighting logic across all scenes so they look like the same shoot, not disconnected renders.
+3. CONTINUITY: Decide one environment and one time-of-day/weather condition for the whole sequence, and keep them locked across every scene — same location details, same light quality, same weather — unless the source material clearly moves the story to a new place or a later time. If it does genuinely shift, treat that shift deliberately (a new establishing beat), not as drift. Also keep one consistent color grade note and lighting logic throughout so all scenes look like the same shoot, not disconnected renders.
 
 Output ONLY raw JSON, no markdown fences, no preamble. Schema:
 {
@@ -355,11 +390,19 @@ Output ONLY raw JSON, no markdown fences, no preamble. Schema:
     "logline": string,
     "tone": string,
     "colorGrade": string,
-    "narrativeArc": string (one sentence describing hook/build/payoff shape)
+    "narrativeArc": string (one sentence describing hook/build/payoff shape),
+    "environment": string (the physical setting/location for this sequence, described concretely — e.g. "a narrow street-side café in Saigon, plastic stools, tin awning, motorbikes passing"),
+    "timeOfDay": string (the time of day and weather/light condition for this sequence — e.g. "late afternoon, overcast, light rain")
   },
   "styleBlock": {
-    "description": string (render/medium style only — e.g. lighting model, material qualities, color palette, overall art direction),
-    "characterDescription": string (a full character-design-bible entry, professional animation/VFX studio level of detail — must include: approximate age, build/body type, facial structure and distinguishing features, exact hair color/length/style, eye color and shape, skin tone and texture quality, complete wardrobe described with fabric type and how it behaves/moves, color palette of the outfit, any signature accessory, and a note on posture/expression that conveys personality. Write it as a spec someone could hand to an animator to draw the same character every time, not a casual one-line description.)
+    "description": string (render/medium style only — e.g. lighting model, material qualities, color palette, overall art direction. This applies to every character and every scene.),
+    "characters": [
+      {
+        "name": string (a short label, e.g. "Woman at the food stall", used to reference this character in scenes — invent a name/label even if the source material doesn't name them),
+        "role": string (their function in the story, e.g. "Primary observer", "Old vendor", "Passerby"),
+        "description": string (a full character-design-bible entry, professional animation/VFX studio level of detail — must include: approximate age, build/body type, facial structure and distinguishing features, exact hair color/length/style, eye color and shape, skin tone and texture quality, complete wardrobe described with fabric type and how it behaves/moves, color palette of the outfit, any signature accessory, and a note on posture/expression that conveys personality. Write it as a spec someone could hand to an animator to draw the same character every time, not a casual one-line description.)
+      }
+    ]
   },
   "scenes": [
     {
@@ -367,12 +410,13 @@ Output ONLY raw JSON, no markdown fences, no preamble. Schema:
       "timeRange": string,
       "durationSeconds": number (between 8 and 10),
       "beat": string (one of: "Hook", "Build", "Payoff", or a short custom label),
+      "charactersInScene": array of strings (the "name" of every character from styleBlock.characters who physically appears in this scene — can be one, several, or even none if it's an empty environment shot),
       "shotType": string,
       "cameraMovement": string,
       "lens": string,
       "lighting": string,
-      "imagePrompt": string (the STARTING FRAME prompt for an image generator. Written as one flowing cinematic paragraph, professional-director level, that blends: the full character description so the character renders consistently every time, the environment/setting in rich physical detail, precise lighting description (source, quality, direction, color temperature), camera framing and lens (shot size, angle, depth of field), and overall color/mood. This is a still-frame brief — describe the moment frozen, not action.),
-      "videoAudioPrompt": string (the MOTION+SOUND prompt that animates the still frame into video. Describe: the character's specific physical action/performance beat-by-beat, any camera movement during the shot, the ambient/environmental sound (weather, room tone, background noise, specific and concrete — not generic), and if there is dialogue or narration, quote the EXACT line directly inside this prompt, in the requested output language, e.g. he says, "..." — the surrounding direction stays in English, but the quoted line itself must always be pasted in verbatim, in the selected language, matching the "dialogue"/"narrationLine" field exactly. Never paraphrase or translate it back to English.),
+      "imagePrompt": string (the STARTING FRAME prompt for an image generator. Written as one flowing cinematic paragraph, professional-director level, that blends: the full description of every character listed in charactersInScene (pulled from styleBlock.characters) so each renders consistently every time, the environment and time-of-day/weather EXACTLY as set in treatment.environment and treatment.timeOfDay (do not silently vary these between scenes), precise lighting description consistent with that time-of-day (source, quality, direction, color temperature), camera framing and lens (shot size, angle, depth of field), and overall color/mood. This is a still-frame brief — describe the moment frozen, not action.),
+      "videoAudioPrompt": string (the MOTION+SOUND prompt that animates the still frame into video. Describe: each character's specific physical action/performance beat-by-beat and how they interact with each other if more than one is present, any camera movement during the shot, the ambient/environmental sound (weather, room tone, background noise, specific and concrete — not generic), and if there is dialogue or narration, quote the EXACT line directly inside this prompt, in the requested output language, e.g. she says, "..." — the surrounding direction stays in English, but the quoted line itself must always be pasted in verbatim, in the selected language, matching the "dialogue"/"narrationLine" field exactly. Never paraphrase or translate it back to English. If there's dialogue, also specify which character speaks it by name.),
       "transitionOut": string (e.g. "hard cut", "cross dissolve", "match cut on motion"),
       "soundCue": string (e.g. "soft piano swell", "ambient room tone", "beat drop"),
       "dialogue": string or null,
@@ -380,6 +424,7 @@ Output ONLY raw JSON, no markdown fences, no preamble. Schema:
     }
   ]
 }
+CHARACTER COUNT RULE: Analyze the source material and topic to determine how many distinct characters actually appear across the whole sequence — do not default to exactly one. If the story is about a single person alone, write one character. If it involves an interaction (a vendor and a customer, a parent and a child, two friends), write a full bible entry for each one who appears, even side characters — anyone who's visible and described doing something needs a consistent character entry so they don't visually change scene to scene.
 LANGUAGE RULE: Every field must be written in English, regardless of the requested output language — this includes imagePrompt, styleBlock, lens, lighting, transitionOut, soundCue, beat, tone, colorGrade, narrativeArc, and logline, since these feed English-only AI video tools. The two exceptions: "dialogue" and "narrationLine" must always be written in the requested output language, sounding natural and idiomatic for a native speaker — not a literal translation. And inside "videoAudioPrompt", if a line is spoken, quote that exact same line verbatim in the requested output language (matching "dialogue"/"narrationLine" word for word) even though the rest of that field's direction stays in English — never translate the quoted line back to English.`;
 }
 
@@ -436,7 +481,7 @@ async function continueScript(){
 
     const systemPrompt = baseSystemPrompt() + `\nRules: This CONTINUES an existing shot list — do not repeat earlier scenes. Start scene numbering at ${job.scenes.length + 1} and start the time range at ${formatTime(lastEndSeconds)}. Generate the next 3-5 consecutive scenes. ${remaining !== null && remaining <= 60 ? 'This is likely the final batch — land the "Payoff" beat by the end of the video.' : 'Continue developing the "Build" beat, saving "Payoff" for a later batch.'} Vary shot size and camera movement, and don't repeat the immediately preceding scene's combination. Keep prose concise so the whole response fits in the token budget.`;
 
-    const userPrompt = `Source material:\n${job.source}\n\nTopic: ${job.currentTopic}\nCharacter style: ${job.characterStyle}\nOutput language for dialogue/narration: ${document.getElementById('language').value}\n\nContinuing from the character/style already established:\nStyle: ${job.styleBlock.description}\nCharacter: ${job.styleBlock.characterDescription}\n\nPrevious scene ended at ${formatTime(lastEndSeconds)}. ${job.totalSeconds ? `Total video length is ${job.totalSeconds}s.` : ''}`;
+    const userPrompt = `Source material:\n${job.source}\n\nTopic: ${job.currentTopic}\nCharacter style: ${job.characterStyle}\nOutput language for dialogue/narration: ${document.getElementById('language').value}\n\nContinuing from the style, environment, and characters already established — reuse these exactly, do not invent new characters, and do not change the environment or time-of-day unless the story clearly moves to a new place or later time:\nStyle: ${job.styleBlock.description}\nEnvironment: ${job.treatment?.environment || 'not specified — infer from earlier scenes'}\nTime of day: ${job.treatment?.timeOfDay || 'not specified — infer from earlier scenes'}\nCharacters:\n${job.styleBlock.characters.map(c => `- ${c.name} (${c.role}): ${c.description}`).join('\n')}\n\nPrevious scene ended at ${formatTime(lastEndSeconds)}. ${job.totalSeconds ? `Total video length is ${job.totalSeconds}s.` : ''}`;
 
     const parsed = await callGeneration(systemPrompt, userPrompt);
     job.scenes = job.scenes.concat(parsed.scenes || []);
@@ -480,6 +525,84 @@ async function toggleDone(n){
   renderResults();
 }
 
+async function saveJobToStorage(){
+  try{
+    await window.storage.set(`job:${job.jobId}`, JSON.stringify(job));
+
+    let index = [];
+    try{
+      const res = await window.storage.get('savedJobsIndex');
+      index = res ? JSON.parse(res.value) : [];
+    }catch(e){ index = []; }
+
+    index = index.filter(item => item.jobId !== job.jobId);
+    index.unshift({ jobId: job.jobId, topic: job.topic, sceneCount: job.scenes.length, savedAt: new Date().toISOString() });
+    await window.storage.set('savedJobsIndex', JSON.stringify(index));
+
+    showToast('Job saved — reload it anytime from "Load saved job", no credits used');
+  }catch(e){
+    showToast('Could not save: ' + e.message);
+  }
+}
+
+async function getSavedJobsIndex(){
+  try{
+    const res = await window.storage.get('savedJobsIndex');
+    return res ? JSON.parse(res.value) : [];
+  }catch(e){ return []; }
+}
+
+async function openSavedModal(){
+  const index = await getSavedJobsIndex();
+  const listEl = document.getElementById('savedList');
+  if(!index.length){
+    listEl.innerHTML = `<div class="empty-note">No saved jobs yet. Generate one, then hit "Save job" to keep it here.</div>`;
+  }else{
+    listEl.innerHTML = index.map(item => `
+      <div class="saved-item">
+        <div class="saved-info">
+          <b>${item.topic}</b>
+          ${item.sceneCount} scenes · saved ${new Date(item.savedAt).toLocaleDateString()}
+        </div>
+        <div class="saved-actions">
+          <button onclick="loadSavedJob('${item.jobId}')">Load</button>
+          <button onclick="deleteSavedJob('${item.jobId}')">Delete</button>
+        </div>
+      </div>
+    `).join('');
+  }
+  document.getElementById('savedModal').classList.add('open');
+}
+function closeSavedModal(){
+  document.getElementById('savedModal').classList.remove('open');
+}
+
+async function loadSavedJob(jobId){
+  try{
+    const res = await window.storage.get(`job:${jobId}`);
+    if(!res){ showToast('That saved job could not be found'); return; }
+    job = JSON.parse(res.value);
+    await loadProgress();
+    renderResults();
+    closeSavedModal();
+    document.getElementById('formView').style.display = 'none';
+    document.getElementById('resultsView').style.display = 'block';
+  }catch(e){
+    showToast('Could not load that job: ' + e.message);
+  }
+}
+
+async function deleteSavedJob(jobId){
+  try{
+    await window.storage.delete(`job:${jobId}`);
+    const index = (await getSavedJobsIndex()).filter(item => item.jobId !== jobId);
+    await window.storage.set('savedJobsIndex', JSON.stringify(index));
+    openSavedModal();
+  }catch(e){
+    showToast('Could not delete: ' + e.message);
+  }
+}
+
 function scriptLine(scene){
   return scene.dialogue || scene.narrationLine || "";
 }
@@ -502,14 +625,15 @@ async function copyAndOpenVoice(scene){
   window.open(CLONEVOICE_URL, '_blank');
   showToast(`Scene ${scene.sceneNumber} line copied — CloneVoice opened`);
 }
-async function copyCharacter(){
-  const sb = job.styleBlock;
-  await copyText(`${sb.description}\n\n${sb.characterDescription}`);
-  showToast('Character style & description copied');
+async function copyCharacter(index){
+  const c = job.styleBlock.characters[index];
+  await copyText(`${job.styleBlock.description}\n\n${c.name} (${c.role}): ${c.description}`);
+  showToast(`${c.name} description copied`);
 }
 
 function renderResults(){
   const t = job.treatment || {};
+  const characters = job.styleBlock.characters || [];
   document.getElementById('charCardWrap').innerHTML = `
     ${t.logline ? `
     <div class="treatment-card">
@@ -518,17 +642,24 @@ function renderResults(){
       <div class="treatment-grid">
         <div class="treatment-item"><b>Tone</b><span>${t.tone || '—'}</span></div>
         <div class="treatment-item"><b>Color grade</b><span>${t.colorGrade || '—'}</span></div>
+        <div class="treatment-item"><b>Environment</b><span>${t.environment || '—'}</span></div>
+        <div class="treatment-item"><b>Time of day</b><span>${t.timeOfDay || '—'}</span></div>
         <div class="treatment-item treatment-arc"><b>Narrative arc</b><span>${t.narrativeArc || '—'}</span></div>
       </div>
     </div>` : ''}
+    <div class="char-card" style="margin-bottom:8px;">
+      <div class="tag">Render style · ${job.characterStyle}</div>
+      <p style="margin:0;">${job.styleBlock.description}</p>
+    </div>
+    ${characters.map((c, i) => `
     <div class="char-card">
-      <div class="tag">Character style prompt · ${job.characterStyle}</div>
-      <p>${job.styleBlock.description}</p>
-      <div class="cd">${job.styleBlock.characterDescription}</div>
+      <div class="tag">${c.name} · ${c.role}</div>
+      <div class="cd">${c.description}</div>
       <div class="btn-row" style="margin-top:12px;">
-        <button class="btn btn-video" onclick="copyCharacter()">Copy character description</button>
+        <button class="btn btn-video" onclick="copyCharacter(${i})">Copy Prompt</button>
       </div>
     </div>
+    `).join('')}
   `;
 
   document.getElementById('scenesWrap').innerHTML = job.scenes.map(scene => {
@@ -544,6 +675,9 @@ function renderResults(){
           <span class="beat-pill">${scene.beat || ''}</span>
         </div>
         <div class="scene-body">
+          <div class="scene-extra">
+            <span class="ex-item">👤 <b>${(scene.charactersInScene || []).join(', ') || 'No characters'}</b></span>
+          </div>
           <div class="scene-extra">
             <span class="ex-item"><b>${scene.shotType}</b></span>
             <span class="ex-item">${scene.cameraMovement}</span>
