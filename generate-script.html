@@ -131,6 +131,12 @@
   .saved-actions button:hover{color:var(--text);}
   .modal-close{width:100%;margin-top:14px;background:none;border:1px solid var(--line);color:var(--text-dim);font-family:'IBM Plex Mono',monospace;font-size:12px;padding:9px;border-radius:5px;cursor:pointer;}
   .empty-note{font-size:12px;color:var(--text-dim);text-align:center;padding:20px 0;}
+
+  .char-picker{display:flex;gap:6px;align-items:center;flex-wrap:wrap;}
+  .char-picker select{
+    background:var(--bg);border:1px solid var(--line);border-radius:4px;color:var(--text);
+    font-family:'IBM Plex Mono',monospace;font-size:11px;padding:4px 6px;max-width:160px;
+  }
 </style>
 
 <div class="console">
@@ -269,6 +275,30 @@
                     </div>
 
                     <script>
+// window.storage only exists inside Claude.ai's artifact sandbox — this page now runs
+// standalone on your own server, so we back the same API with localStorage instead.
+if(!window.storage){
+  window.storage = {
+    async get(key){
+      const val = localStorage.getItem(key);
+      if(val === null) throw new Error('key not found');
+      return { key, value: val, shared: false };
+    },
+    async set(key, value){
+      localStorage.setItem(key, value);
+      return { key, value, shared: false };
+    },
+    async delete(key){
+      localStorage.removeItem(key);
+      return { key, deleted: true, shared: false };
+    },
+    async list(prefix){
+      const keys = Object.keys(localStorage).filter(k => !prefix || k.startsWith(prefix));
+      return { keys, prefix, shared: false };
+    }
+  };
+}
+
 const VIDEOEXPRESS_URL = "https://app.videoexpress.ai/";
 const CLONEVOICE_URL = "https://app.clonevoice.ai/";
 let currentStyle = "3D";
@@ -381,6 +411,8 @@ Think in three passes before writing scenes:
 1. TREATMENT: Decide the logline (one sentence, what happens and why it matters), the tone/mood, and the narrative arc across the clip (hook → build → payoff — what grabs attention first, what develops it, what lands it).
 2. COVERAGE: Plan shot variety on purpose. Do not repeat the same shot size and camera movement back to back. Alternate wide/medium/close, static/moving, to create rhythm. Choose a lens feel for each shot (e.g. "35mm wide, slight distortion" vs "85mm compressed, shallow depth") that matches its emotional job.
 3. CONTINUITY: Decide one environment and one time-of-day/weather condition for the whole sequence, and keep them locked across every scene — same location details, same light quality, same weather — unless the source material clearly moves the story to a new place or a later time. If it does genuinely shift, treat that shift deliberately (a new establishing beat), not as drift. Also keep one consistent color grade note and lighting logic throughout so all scenes look like the same shoot, not disconnected renders.
+4. ACTION CONTINUITY: Treat the sequence as one unfolding event, not disconnected snapshots. Each scene's action should pick up from wherever the previous scene physically and emotionally left off — same body position, same object in hand, same emotional beat continuing or turning — so cutting between them feels like a real edit within one continuous scene, not a jump to something unrelated.
+5. NATURAL BLOCKING: Do not default to characters facing straight into the camera — that reads as a posed portrait, not cinematic footage. Give each character a natural eye-line: looking at another character, at an object or task, or off into the environment, matching what they're actually doing in that moment. Only have a character look directly into the lens if it's a deliberate storytelling choice (e.g. a knowing glance breaking the fourth wall), and say so explicitly in the prompt when that's the intent.
 
 Output ONLY raw JSON, no markdown fences, no preamble. Schema:
 {
@@ -425,6 +457,8 @@ Output ONLY raw JSON, no markdown fences, no preamble. Schema:
   ]
 }
 CHARACTER COUNT RULE: Analyze the source material and topic to determine how many distinct characters actually appear across the whole sequence — do not default to exactly one. If the story is about a single person alone, write one character. If it involves an interaction (a vendor and a customer, a parent and a child, two friends), write a full bible entry for each one who appears, even side characters — anyone who's visible and described doing something needs a consistent character entry so they don't visually change scene to scene.
+
+SCENE CASTING RULE: No matter how many characters exist in the full roster, each individual scene's "charactersInScene" must list at most 2 of them — never crowd a shot with the whole cast at once. If the roster has more than 2 characters total, choose whichever 2 are most narratively relevant to that specific beat (the two actually interacting or focused on in that moment), and rotate the pairing scene to scene as the story calls for it. Direct the interaction between those 2 naturally — real eye contact, physical proximity, believable reactions to each other — rather than two people posed side by side.
 LANGUAGE RULE: Every field must be written in English, regardless of the requested output language — this includes imagePrompt, styleBlock, lens, lighting, transitionOut, soundCue, beat, tone, colorGrade, narrativeArc, and logline, since these feed English-only AI video tools. The two exceptions: "dialogue" and "narrationLine" must always be written in the requested output language, sounding natural and idiomatic for a native speaker — not a literal translation. And inside "videoAudioPrompt", if a line is spoken, quote that exact same line verbatim in the requested output language (matching "dialogue"/"narrationLine" word for word) even though the rest of that field's direction stays in English — never translate the quoted line back to English.`;
 }
 
@@ -481,7 +515,7 @@ async function continueScript(){
 
     const systemPrompt = baseSystemPrompt() + `\nRules: This CONTINUES an existing shot list — do not repeat earlier scenes. Start scene numbering at ${job.scenes.length + 1} and start the time range at ${formatTime(lastEndSeconds)}. Generate the next 3-5 consecutive scenes. ${remaining !== null && remaining <= 60 ? 'This is likely the final batch — land the "Payoff" beat by the end of the video.' : 'Continue developing the "Build" beat, saving "Payoff" for a later batch.'} Vary shot size and camera movement, and don't repeat the immediately preceding scene's combination. Keep prose concise so the whole response fits in the token budget.`;
 
-    const userPrompt = `Source material:\n${job.source}\n\nTopic: ${job.currentTopic}\nCharacter style: ${job.characterStyle}\nOutput language for dialogue/narration: ${document.getElementById('language').value}\n\nContinuing from the style, environment, and characters already established — reuse these exactly, do not invent new characters, and do not change the environment or time-of-day unless the story clearly moves to a new place or later time:\nStyle: ${job.styleBlock.description}\nEnvironment: ${job.treatment?.environment || 'not specified — infer from earlier scenes'}\nTime of day: ${job.treatment?.timeOfDay || 'not specified — infer from earlier scenes'}\nCharacters:\n${job.styleBlock.characters.map(c => `- ${c.name} (${c.role}): ${c.description}`).join('\n')}\n\nPrevious scene ended at ${formatTime(lastEndSeconds)}. ${job.totalSeconds ? `Total video length is ${job.totalSeconds}s.` : ''}`;
+    const userPrompt = `Source material:\n${job.source}\n\nTopic: ${job.currentTopic}\nCharacter style: ${job.characterStyle}\nOutput language for dialogue/narration: ${document.getElementById('language').value}\n\nContinuing from the style, environment, and characters already established — reuse these exactly, do not invent new characters, and do not change the environment or time-of-day unless the story clearly moves to a new place or later time:\nStyle: ${job.styleBlock.description}\nEnvironment: ${job.treatment?.environment || 'not specified — infer from earlier scenes'}\nTime of day: ${job.treatment?.timeOfDay || 'not specified — infer from earlier scenes'}\nCharacters:\n${job.styleBlock.characters.map(c => `- ${c.name} (${c.role}): ${c.description}`).join('\n')}\n\nThe previous scene ended at ${formatTime(lastEndSeconds)}. Here is exactly what was happening at that moment, so the next scene can continue the action naturally rather than jumping to something unrelated:\n"${lastScene ? lastScene.videoAudioPrompt : 'opening of the video'}"\n${job.totalSeconds ? `Total video length is ${job.totalSeconds}s.` : ''}`;
 
     const parsed = await callGeneration(systemPrompt, userPrompt);
     job.scenes = job.scenes.concat(parsed.scenes || []);
@@ -607,6 +641,37 @@ function scriptLine(scene){
   return scene.dialogue || scene.narrationLine || "";
 }
 
+function buildCharacterPicker(scene){
+  const roster = (job.styleBlock.characters || []).map(c => c.name);
+  const current = scene.charactersInScene || [];
+
+  if(roster.length <= 2){
+    return `<span class="ex-item">👤 <b>${current.join(', ') || 'No characters'}</b></span>`;
+  }
+
+  const noneOpt = '<option value="">— none —</option>';
+  const optsFor = (selected) => noneOpt + roster.map(name =>
+    `<option value="${name}" ${name === selected ? 'selected' : ''}>${name}</option>`
+  ).join('');
+
+  return `
+    <span class="ex-item">👤</span>
+    <div class="char-picker">
+      <select onchange="updateSceneCharacter(${scene.sceneNumber}, 0, this.value)">${optsFor(current[0] || '')}</select>
+      <select onchange="updateSceneCharacter(${scene.sceneNumber}, 1, this.value)">${optsFor(current[1] || '')}</select>
+    </div>
+  `;
+}
+
+function updateSceneCharacter(sceneNumber, slot, value){
+  const scene = job.scenes.find(s => s.sceneNumber === sceneNumber);
+  if(!scene) return;
+  const current = scene.charactersInScene || [];
+  current[slot] = value || null;
+  scene.charactersInScene = current.filter(Boolean);
+  showToast(`Scene ${sceneNumber} cast updated — remember to update the prompt text yourself if you change who's in the shot`);
+}
+
 async function copyImagePrompt(scene){
   await copyText(scene.imagePrompt);
   showToast(`Scene ${scene.sceneNumber} image prompt copied`);
@@ -676,7 +741,7 @@ function renderResults(){
         </div>
         <div class="scene-body">
           <div class="scene-extra">
-            <span class="ex-item">👤 <b>${(scene.charactersInScene || []).join(', ') || 'No characters'}</b></span>
+            ${buildCharacterPicker(scene)}
           </div>
           <div class="scene-extra">
             <span class="ex-item"><b>${scene.shotType}</b></span>
