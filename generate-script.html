@@ -237,6 +237,21 @@
                           </div>
                         </div>
 
+                        <div class="field">
+                          <label
+                            style="display:flex;align-items:center;gap:8px;cursor:pointer;"
+                            onclick="document.getElementById('addStorytelling').click()">
+                            <input type="checkbox" id="addStorytelling"
+                              style="width:16px;height:16px;accent-color:var(--amber);cursor:pointer;">
+                            <span
+                              style="text-transform:none;font-size:13px;letter-spacing:0;color:var(--text);">Add
+                              storytelling to the no-speak scenes</span>
+                          </label>
+                          <div class="hint">When checked, any scene with no
+                            dialogue gets a short narration line instead of
+                            staying silent, ready to copy for CloneVoice.</div>
+                        </div>
+
                         <button class="generate-btn" id="genBtn"
                           onclick="generateScript()">
                           <span class="spinner"></span><span
@@ -404,6 +419,13 @@ async function callGeneration(systemPrompt, userPrompt){
   return JSON.parse(clean);
 }
 
+function storytellingRule(){
+  const enabled = document.getElementById('addStorytelling').checked;
+  return enabled
+    ? `\nSTORYTELLING RULE: The user wants every scene to have something spoken. For any scene that wouldn't naturally have dialogue, write a short, evocative storytelling narration line in the "narrationLine" field instead of leaving it null — a warm storyteller's voiceover sentence that fits the moment (scene-setting, emotional context, or a small observation), not just a literal description of the action.`
+    : `\nSTORYTELLING RULE: Leave "dialogue" and "narrationLine" as null for any scene that wouldn't naturally have speech — do not invent narration for silent scenes.`;
+}
+
 function baseSystemPrompt(){
   return `You are a professional film director and cinematographer breaking down a short video into a shot list, the way you would for a real shoot — not just filling in a template.
 
@@ -476,7 +498,7 @@ async function generateScript(){
   setLoading(true);
   try{
     const totalSeconds = minuteVal ? Math.round(minuteVal * 60) : null;
-    const systemPrompt = baseSystemPrompt() + `\nRules: styleBlock.description must reflect the requested character style. This is the OPENING batch of a longer video — cover only roughly the first 40-50 seconds as consecutive 8-10 second scenes, starting at 0:00, and make sure this batch covers the "Hook" and the start of "Build". Keep total scenes in this batch between 3 and 5. Vary shot size and camera movement scene to scene — never repeat the same combination twice in a row. Keep prose concise so the whole response fits in the token budget.`;
+    const systemPrompt = baseSystemPrompt() + `\nRules: styleBlock.description must reflect the requested character style. This is the OPENING batch of a longer video — cover only roughly the first 40-50 seconds as consecutive 8-10 second scenes, starting at 0:00, and make sure this batch covers the "Hook" and the start of "Build". Keep total scenes in this batch between 3 and 5. Vary shot size and camera movement scene to scene — never repeat the same combination twice in a row. Keep prose concise so the whole response fits in the token budget.` + storytellingRule();
 
     const userPrompt = `Source material:\n${source}\n\n${totalSeconds ? `Total video length: ${minuteVal} minutes (${totalSeconds}s)` : "Length not specified — treat as a short clip"}\nTopic to reframe the scenes around: ${topic}\nCharacter style: ${currentStyle}\nOutput language for dialogue/narration: ${document.getElementById('language').value}`;
 
@@ -513,7 +535,7 @@ async function continueScript(){
     const lastEndSeconds = lastScene ? parseTimeEnd(lastScene.timeRange) : 0;
     const remaining = job.totalSeconds ? job.totalSeconds - lastEndSeconds : null;
 
-    const systemPrompt = baseSystemPrompt() + `\nRules: This CONTINUES an existing shot list — do not repeat earlier scenes. Start scene numbering at ${job.scenes.length + 1} and start the time range at ${formatTime(lastEndSeconds)}. Generate the next 3-5 consecutive scenes. ${remaining !== null && remaining <= 60 ? 'This is likely the final batch — land the "Payoff" beat by the end of the video.' : 'Continue developing the "Build" beat, saving "Payoff" for a later batch.'} Vary shot size and camera movement, and don't repeat the immediately preceding scene's combination. Keep prose concise so the whole response fits in the token budget.`;
+    const systemPrompt = baseSystemPrompt() + `\nRules: This CONTINUES an existing shot list — do not repeat earlier scenes. Start scene numbering at ${job.scenes.length + 1} and start the time range at ${formatTime(lastEndSeconds)}. Generate the next 3-5 consecutive scenes. ${remaining !== null && remaining <= 60 ? 'This is likely the final batch — land the "Payoff" beat by the end of the video.' : 'Continue developing the "Build" beat, saving "Payoff" for a later batch.'} Vary shot size and camera movement, and don't repeat the immediately preceding scene's combination. Keep prose concise so the whole response fits in the token budget.` + storytellingRule();
 
     const userPrompt = `Source material:\n${job.source}\n\nTopic: ${job.currentTopic}\nCharacter style: ${job.characterStyle}\nOutput language for dialogue/narration: ${document.getElementById('language').value}\n\nContinuing from the style, environment, and characters already established — reuse these exactly, do not invent new characters, and do not change the environment or time-of-day unless the story clearly moves to a new place or later time:\nStyle: ${job.styleBlock.description}\nEnvironment: ${job.treatment?.environment || 'not specified — infer from earlier scenes'}\nTime of day: ${job.treatment?.timeOfDay || 'not specified — infer from earlier scenes'}\nCharacters:\n${job.styleBlock.characters.map(c => `- ${c.name} (${c.role}): ${c.description}`).join('\n')}\n\nThe previous scene ended at ${formatTime(lastEndSeconds)}. Here is exactly what was happening at that moment, so the next scene can continue the action naturally rather than jumping to something unrelated:\n"${lastScene ? lastScene.videoAudioPrompt : 'opening of the video'}"\n${job.totalSeconds ? `Total video length is ${job.totalSeconds}s.` : ''}`;
 
@@ -676,8 +698,13 @@ async function copyImagePrompt(scene){
   await copyText(scene.imagePrompt);
   showToast(`Scene ${scene.sceneNumber} image prompt copied`);
 }
+const NEGATIVE_SUFFIX = "no text, no texture, no gore, no lip-sync, no watermark";
+function fullVideoAudioPrompt(scene){
+  return `${scene.videoAudioPrompt} ${NEGATIVE_SUFFIX}.`;
+}
+
 async function copyVideoAudioPrompt(scene){
-  await copyText(scene.videoAudioPrompt);
+  await copyText(fullVideoAudioPrompt(scene));
   showToast(`Scene ${scene.sceneNumber} video/audio prompt copied`);
 }
 function openVideoExpress(){
@@ -757,7 +784,7 @@ function renderResults(){
           </div>
 
           <div class="line-label">Video and Audio Prompt (motion + sound)</div>
-          <div class="prompt-box">${scene.videoAudioPrompt}</div>
+          <div class="prompt-box">${fullVideoAudioPrompt(scene)}</div>
           <div class="btn-row">
             <button class="btn btn-video" onclick='copyVideoAudioPrompt(job.scenes[${scene.sceneNumber-1}])'>Copy Video/Audio Prompt</button>
           </div>
