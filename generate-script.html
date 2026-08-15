@@ -709,6 +709,17 @@ async function copyVideoAudioPrompt(scene){
 function openVideoExpress(){
   window.open(VIDEOEXPRESS_URL, '_blank');
 }
+async function copyAllForAutomation(scene){
+  const payload = {
+    image: scene.imagePrompt,
+    videoAudio: fullVideoAudioPrompt(scene),
+    duration: scene.durationSeconds,
+    characterStyle: job.characterStyle
+  };
+  await copyText(JSON.stringify(payload));
+  window.open(VIDEOEXPRESS_URL, '_blank');
+  showToast(`Scene ${scene.sceneNumber} data copied — paste with the userscript's floating button on VideoExpress`);
+}
 async function copyAndOpenVoice(scene){
   const line = scriptLine(scene);
   if(!line){ showToast('No dialogue or narration for this scene'); return; }
@@ -794,7 +805,7 @@ function renderResults(){
             <span class="ex-item">🔊 <b>Sound:</b> ${scene.soundCue || '—'}</span>
           </div>
           <div class="btn-row">
-            <button class="btn btn-video" onclick="openVideoExpress()">Open VideoExpress</button>
+            <button class="btn btn-video" onclick='copyAllForAutomation(job.scenes[${scene.sceneNumber-1}])' style="background:var(--done);color:#0A1F0D;">⚡ Copy All → VideoExpress</button>
             ${line ? `<button class="btn btn-voice" onclick='copyAndOpenVoice(job.scenes[${scene.sceneNumber-1}])'>Copy → CloneVoice</button>` : ''}
             <button class="btn btn-check ${isDone?'on':''}" onclick="toggleDone(${scene.sceneNumber})">${isDone?'✓':'○'}</button>
           </div>
