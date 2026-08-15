@@ -150,6 +150,13 @@
       <button class="back-btn" onclick="openSavedModal()">📂 Load saved
         job</button>
     </div>
+    <div style="display:flex;gap:8px;margin-bottom:18px;">
+      <button class="back-btn" style="margin-bottom:0;"
+        onclick="enableNotifications()">🔔 Enable notifications (for
+        VideoExpress automation)</button>
+      <button class="back-btn" style="margin-bottom:0;"
+        onclick="testAutomationSignal()">🧪 Test tab-return signal</button>
+    </div>
 
     <div class="top-settings">
       <div class="key-field">
@@ -323,24 +330,42 @@ const _originalTitle = document.title;
 let _titleFlashInterval = null;
 
 window.addEventListener('message', (event) => {
+  console.log('[Generator] Received postMessage:', event.data, 'from origin:', event.origin);
   if (event.data && event.data.type === 've-automation-complete') {
     onAutomationComplete();
   }
 });
 
 function onAutomationComplete(){
+  console.log('[Generator] onAutomationComplete fired');
   showToast('VideoExpress finished this scene — switch back when ready');
   flashTitle('✅ Scene ready — click to return');
 
-  if('Notification' in window){
-    if(Notification.permission === 'granted'){
-      showCompletionNotification();
-    }else if(Notification.permission !== 'denied'){
-      Notification.requestPermission().then(perm => {
-        if(perm === 'granted') showCompletionNotification();
-      });
-    }
+  if('Notification' in window && Notification.permission === 'granted'){
+    showCompletionNotification();
   }
+  // Note: we deliberately do NOT call Notification.requestPermission() here.
+  // Browsers require that call to happen inside a real click handler or they
+  // silently ignore it — use the "🔔 Enable notifications" button instead,
+  // once, ahead of time.
+}
+
+async function enableNotifications(){
+  if(!('Notification' in window)){
+    showToast('Notifications are not supported in this browser');
+    return;
+  }
+  const perm = await Notification.requestPermission();
+  if(perm === 'granted'){
+    showToast('Notifications enabled — you\'ll get one when a scene finishes on VideoExpress');
+  }else{
+    showToast('Notifications ' + perm + ' — you can still rely on the flashing tab title instead');
+  }
+}
+
+function testAutomationSignal(){
+  console.log('[Generator] Manual test: simulating automation-complete signal');
+  onAutomationComplete();
 }
 
 function showCompletionNotification(){
@@ -352,7 +377,9 @@ function showCompletionNotification(){
       window.focus();
       n.close();
     };
-  }catch(e){ /* Notification unsupported or blocked — title flash still covers it */ }
+  }catch(e){
+    console.error('[Generator] Notification failed:', e);
+  }
 }
 
 function flashTitle(msg){
