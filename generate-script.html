@@ -423,7 +423,7 @@ function flashTitle(msg){
   window.addEventListener('focus', stop);
 }
 
-const CLONEVOICE_URL = "https://app.clonevoice.ai/";
+const CLONEVOICE_URL = "https://app.clonevoice.ai/audio";
 let currentStyle = "3D";
 let job = null;
 let doneMap = {};
@@ -590,7 +590,8 @@ Output ONLY raw JSON, no markdown fences, no preamble. Schema:
       "transitionOut": string (e.g. "hard cut", "cross dissolve", "match cut on motion"),
       "soundCue": string (e.g. "soft piano swell", "ambient room tone", "beat drop"),
       "dialogue": string or null,
-      "narrationLine": string or null
+      "narrationLine": string or null,
+      "emotionStyle": string (one of exactly: "default", "calm", "happy", "confident", "warm" — the delivery tone that best fits this scene's dialogue or narration line, based on what's actually being said and the emotional beat of the moment. Use "default" only when the line is genuinely neutral/matter-of-fact — otherwise pick whichever of the other four best matches. If there's no dialogue or narration in this scene, still include a best-guess value here in case narration gets added later, but it won't be used.)
     }
   ]
 }
@@ -827,6 +828,7 @@ function openVideoExpress(){
   window.open(VIDEOEXPRESS_URL, '_blank');
 }
 let veTabRef = null; // reference to the VideoExpress tab we opened, so repeat clicks reuse it instead of opening new ones
+let cvTabRef = null; // same idea, for the CloneVoice tab
 
 function openOrFocusVideoExpress(){
   if(veTabRef && !veTabRef.closed){
@@ -834,6 +836,14 @@ function openOrFocusVideoExpress(){
     return;
   }
   veTabRef = window.open(VIDEOEXPRESS_URL, '_blank');
+}
+
+function openOrFocusCloneVoice(){
+  if(cvTabRef && !cvTabRef.closed){
+    cvTabRef.focus();
+    return;
+  }
+  cvTabRef = window.open(CLONEVOICE_URL, '_blank');
 }
 
 async function copyAllForAutomation(scene){
@@ -857,9 +867,20 @@ async function copyAllForAutomation(scene){
 async function copyAndOpenVoice(scene){
   const line = scriptLine(scene);
   if(!line){ showToast('No dialogue or narration for this scene'); return; }
-  await copyText(line);
-  window.open(CLONEVOICE_URL, '_blank');
-  showToast(`Scene ${scene.sceneNumber} line copied — CloneVoice opened`);
+
+  if('Notification' in window && Notification.permission === 'default'){
+    Notification.requestPermission();
+  }
+
+  const payload = {
+    sceneNumber: scene.sceneNumber,
+    script: line,
+    language: document.getElementById('language').value,
+    emotionStyle: scene.emotionStyle || 'default' // AI-determined delivery tone for this scene's line, falls back to "default" if not set
+  };
+  await copyText(JSON.stringify(payload));
+  openOrFocusCloneVoice();
+  showToast(`Scene ${scene.sceneNumber} data copied — paste with the userscript's floating button on CloneVoice`);
 }
 async function copyCharacter(index){
   const c = job.styleBlock.characters[index];
@@ -934,7 +955,7 @@ function renderResults(){
             <button class="btn btn-video" onclick='copyVideoAudioPrompt(job.scenes[${scene.sceneNumber-1}])'>Copy Video/Audio Prompt</button>
           </div>
 
-          ${line ? `<div class="line-label" style="margin-top:12px;">${scene.dialogue?'Dialogue':'Narration'} (for CloneVoice)</div><p class="quote">"${line}"</p>` : ''}
+          ${line ? `<div class="line-label" style="margin-top:12px;">${scene.dialogue?'Dialogue':'Narration'} (for CloneVoice) · <span style="color:var(--teal);text-transform:capitalize;">${scene.emotionStyle || 'default'}</span></div><p class="quote">"${line}"</p>` : ''}
           <div class="scene-extra">
             <span class="ex-item">🎬 <b>Cut:</b> ${scene.transitionOut || '—'}</span>
             <span class="ex-item">🔊 <b>Sound:</b> ${scene.soundCue || '—'}</span>
