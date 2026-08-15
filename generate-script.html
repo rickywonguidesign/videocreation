@@ -314,6 +314,67 @@ if(!window.storage){
 }
 
 const VIDEOEXPRESS_URL = "https://app.videoexpress.ai/";
+
+// Listens for the VideoExpress automation userscript signaling it finished a
+// scene. Browsers block a background tab from stealing focus back — but a
+// real Notification IS allowed to bring this tab to front when clicked, so
+// that's the actual mechanism here rather than fighting the focus restriction.
+const _originalTitle = document.title;
+let _titleFlashInterval = null;
+
+window.addEventListener('message', (event) => {
+  if (event.data && event.data.type === 've-automation-complete') {
+    onAutomationComplete();
+  }
+});
+
+function onAutomationComplete(){
+  showToast('VideoExpress finished this scene — switch back when ready');
+  flashTitle('✅ Scene ready — click to return');
+
+  if('Notification' in window){
+    if(Notification.permission === 'granted'){
+      showCompletionNotification();
+    }else if(Notification.permission !== 'denied'){
+      Notification.requestPermission().then(perm => {
+        if(perm === 'granted') showCompletionNotification();
+      });
+    }
+  }
+}
+
+function showCompletionNotification(){
+  try{
+    const n = new Notification('VideoExpress scene ready', {
+      body: 'Click to return to your scene generator'
+    });
+    n.onclick = () => {
+      window.focus();
+      n.close();
+    };
+  }catch(e){ /* Notification unsupported or blocked — title flash still covers it */ }
+}
+
+function flashTitle(msg){
+  if(_titleFlashInterval) return; // already flashing
+  let on = true;
+  _titleFlashInterval = setInterval(() => {
+    document.title = on ? msg : _originalTitle;
+    on = !on;
+  }, 1000);
+  const stop = () => {
+    if(!document.hidden){
+      clearInterval(_titleFlashInterval);
+      _titleFlashInterval = null;
+      document.title = _originalTitle;
+      document.removeEventListener('visibilitychange', stop);
+      window.removeEventListener('focus', stop);
+    }
+  };
+  document.addEventListener('visibilitychange', stop);
+  window.addEventListener('focus', stop);
+}
+
 const CLONEVOICE_URL = "https://app.clonevoice.ai/";
 let currentStyle = "3D";
 let job = null;
