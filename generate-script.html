@@ -425,6 +425,41 @@ function flashTitle(msg){
 
 const CLONEVOICE_URL = "https://app.clonevoice.ai/audio";
 let currentStyle = "3D";
+
+// Pulled directly from CloneVoice's voice selector results for Vietnamese —
+// each id matches the UUID in that site's data-agent-id="action.voice.select.<uuid>"
+// exactly, so the automation script can click the right one without needing
+// you to manually browse and pick it every single time.
+const VOICE_LIST_VI = [
+  { id: "47a216ea-9654-47ec-a141-9892f54bd61c", name: "Đỗ Minh Trí" },
+  { id: "94b73ebd-ab63-4f96-941b-108151c65f0d", name: "Bùi Hữu Phước" },
+  { id: "ccedcfef-9426-4143-85fb-70e5b80c7b3b", name: "Bùi Phương Anh" },
+  { id: "42522384-35ad-4ef2-8dba-df2ee9709015", name: "Vũ Thảo Nguyên" },
+  { id: "7a14df4e-c94a-4e08-9e7f-3722d48b5713", name: "Vũ Đình Khoa" },
+  { id: "4f98295c-5123-425a-992a-b56b0eadcad0", name: "Đặng Phương Thảo" },
+  { id: "f4916d2d-3721-4116-8074-4bed20c1df9c", name: "Đặng Quang Minh" },
+  { id: "28a57eb2-5aa0-4eeb-bd90-8687ac838d7d", name: "Đỗ Linh Chi" },
+  { id: "76ff9b73-693e-4294-a07a-665925538f9c", name: "Agus Wijaya" },
+  { id: "276462b2-c908-4870-b289-6518f0bac6a0", name: "Hoàng Anh Tuấn" },
+  { id: "cd255788-2f88-484e-9a1c-ac6fb1f8c8a4", name: "Hoàng Khánh Linh" },
+  { id: "46012c9b-edd1-4e38-9c50-d5bc6df3ef3f", name: "Lê Quốc Anh" },
+  { id: "1c23acd6-83f5-4d76-80da-aaa45010be58", name: "Lê Thu Trang" },
+  { id: "07dd522f-7f8f-48c6-90b0-0e053ada39e1", name: "Nguyễn Thị Mai" },
+  { id: "ad8636b1-b16d-42d5-ad5c-fd8885993680", name: "Nguyễn Văn Minh" },
+  { id: "0b8b629e-d3db-4497-a994-ce747cbd13b4", name: "Ngô Hải Yến" },
+  { id: "ce2d0d73-c334-4d77-b6c9-2ac09f3e2c8b", name: "Ngô Thanh Tùng" },
+  { id: "2d1f7cd2-9b1c-4968-a621-d1366814568c", name: "Phạm Thanh Hà" },
+  { id: "c6fea508-7cb5-4f12-bca5-5e14d32928bb", name: "Phạm Đức Huy" },
+  { id: "dd1aa5d6-9899-4670-a42e-ad997292e9ea", name: "Sari Wijaya" },
+  { id: "a7595cca-9e50-4f5f-b0c9-5f0bdfdd009a", name: "Trần Hoàng Nam" },
+  { id: "1cb215de-71eb-43da-b261-9167577aae32", name: "Trần Ngọc Anh" },
+  { id: "36902a5b-0a3e-4401-ba35-140cf8da6e2b", name: "Hoanganh" },
+  { id: "eb1631d1-6e3a-4e24-9ac8-d39a5a1b1600", name: "Maiphuong" },
+  { id: "19c5dc78-0efb-406a-9e31-5ff7d5a982f5", name: "Vuduc" },
+  { id: "b3387899-dcf7-4482-96da-0b023eda79d4", name: "Lanhuong" },
+  { id: "deed604c-0137-4f3b-a8e4-88bd38e599c6", name: "Thanhlinh" },
+  { id: "8f89bc38-5c0b-422c-87dc-48d209f8c154", name: "Tranminh" }
+];
 let job = null;
 let doneMap = {};
 
@@ -625,6 +660,8 @@ async function generateScript(){
       jobId: 'job_' + Date.now(),
       topic: parsed.topic || topic,
       characterStyle: currentStyle, // NOT parsed.characterStyle — the AI can echo back a descriptive sentence instead of the exact label (seen in practice), which breaks anything mapping against the fixed "3D"/"Anime"/"Realistic"/"Flat illustration" values. currentStyle is always exactly one of those 4, since it's set directly from the button click.
+      language: document.getElementById('language').value,
+      selectedVoiceId: null,
       treatment: parsed.treatment || null,
       styleBlock: parsed.styleBlock,
       scenes: parsed.scenes,
@@ -876,7 +913,8 @@ async function copyAndOpenVoice(scene){
     sceneNumber: scene.sceneNumber,
     script: line,
     language: document.getElementById('language').value,
-    emotionStyle: scene.emotionStyle || 'default' // AI-determined delivery tone for this scene's line, falls back to "default" if not set
+    emotionStyle: scene.emotionStyle || 'default', // AI-determined delivery tone for this scene's line, falls back to "default" if not set
+    voiceId: job.selectedVoiceId || null // if set, the automation clicks this exact voice instead of waiting for manual selection
   };
   await copyText(JSON.stringify(payload));
   openOrFocusCloneVoice();
@@ -918,6 +956,16 @@ function renderResults(){
       </div>
     </div>
     `).join('')}
+    ${job.language === 'Vietnamese' ? `
+    <div class="field" style="margin-top:8px;margin-bottom:22px;">
+      <label>Narrator voice (CloneVoice)</label>
+      <select id="voiceSelect" onchange="job.selectedVoiceId = this.value || null;" style="width:100%;background:var(--panel);border:1px solid var(--line);border-radius:6px;color:var(--text);font-family:'IBM Plex Mono',monospace;font-size:13px;padding:11px 12px;">
+        <option value="">— Let me pick manually in CloneVoice —</option>
+        ${VOICE_LIST_VI.map(v => `<option value="${v.id}" ${job.selectedVoiceId === v.id ? 'selected' : ''}>${v.name}</option>`).join('')}
+      </select>
+      <div class="hint">Pick a voice here and the automation clicks it directly in CloneVoice — no manual selection needed. Leave on the default option to keep choosing manually.</div>
+    </div>
+    ` : ''}
   `;
 
   document.getElementById('scenesWrap').innerHTML = job.scenes.map(scene => {
