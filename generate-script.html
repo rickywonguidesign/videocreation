@@ -260,6 +260,23 @@
                             staying silent, ready to copy for CloneVoice.</div>
                         </div>
 
+                        <div class="field">
+                          <label
+                            style="display:flex;align-items:center;gap:8px;cursor:pointer;">
+                            <input type="checkbox" id="narrationFirst"
+                              style="width:16px;height:16px;accent-color:var(--amber);cursor:pointer;">
+                            <span
+                              style="text-transform:none;font-size:13px;letter-spacing:0;color:var(--text);">Narration-first
+                              storytelling mode</span>
+                          </label>
+                          <div class="hint">Defaults every scene to voiceover
+                            narration instead of dialogue. Dialogue only appears
+                            when the story genuinely needs two characters
+                            talking to each other — a confession, a refusal, a
+                            question that changes what happens next — not just
+                            because someone's on screen.</div>
+                        </div>
+
                         <button class="generate-btn" id="genBtn"
                           onclick="generateScript()">
                           <span class="spinner"></span><span
@@ -518,6 +535,12 @@ function storytellingRule(){
     : `\nSTORYTELLING RULE: Leave "dialogue" and "narrationLine" as null for any scene that wouldn't naturally have speech — do not invent narration for silent scenes.`;
 }
 
+function narrationFirstRule(){
+  const enabled = document.getElementById('narrationFirst').checked;
+  if(!enabled) return '';
+  return `\nNARRATION-FIRST MODE: This piece is voiceover-led, like a short documentary or fable, not a dialogue-driven scene. Default every scene to a narration line in "narrationLine" rather than "dialogue". Only use "dialogue" instead when the scene's entire point is two characters exchanging words that change the story — a confession, a refusal, a question that turns the plot — never just because a character is visible or doing something. Most scenes in this mode should have zero characters speaking to each other on camera. Narration must add what the image can't show — the character's interior thought, context, or emotional turn — never just restate what's visually obvious in the frame. Keep each narration line short enough to comfortably read aloud within the scene's 8-10 second duration — err toward one clear sentence, not two crammed together. Also add a "narratorVoice" field to the treatment object: a short description of the narrator's tone (e.g. "warm, unhurried, a little wistful — like someone recalling a memory fondly") that stays consistent across every scene's narration, the same way environment and time-of-day stay locked.`;
+}
+
 function baseSystemPrompt(){
   return `You are a professional film director and cinematographer breaking down a short video into a shot list, the way you would for a real shoot — not just filling in a template.
 
@@ -538,7 +561,8 @@ Output ONLY raw JSON, no markdown fences, no preamble. Schema:
     "colorGrade": string,
     "narrativeArc": string (one sentence describing hook/build/payoff shape),
     "environment": string (the physical setting/location for this sequence, described concretely — e.g. "a narrow street-side café in Saigon, plastic stools, tin awning, motorbikes passing"),
-    "timeOfDay": string (the time of day and weather/light condition for this sequence — e.g. "late afternoon, overcast, light rain")
+    "timeOfDay": string (the time of day and weather/light condition for this sequence — e.g. "late afternoon, overcast, light rain"),
+    "narratorVoice": string or null (only include if in narration-first mode — a short description of the narrator's consistent tone, e.g. "warm, unhurried, a little wistful")
   },
   "styleBlock": {
     "description": string (render/medium style only — e.g. lighting model, material qualities, color palette, overall art direction. This applies to every character and every scene.),
@@ -590,7 +614,7 @@ async function generateScript(){
   setLoading(true);
   try{
     const totalSeconds = minuteVal ? Math.round(minuteVal * 60) : null;
-    const systemPrompt = baseSystemPrompt() + `\nRules: styleBlock.description must reflect the requested character style. This is the OPENING batch of a longer video — cover only roughly the first 40-50 seconds as consecutive 8-10 second scenes, starting at 0:00, and make sure this batch covers the "Hook" and the start of "Build". Keep total scenes in this batch between 3 and 5. Vary shot size and camera movement scene to scene — never repeat the same combination twice in a row. Keep prose concise so the whole response fits in the token budget.` + storytellingRule();
+    const systemPrompt = baseSystemPrompt() + `\nRules: styleBlock.description must reflect the requested character style. This is the OPENING batch of a longer video — cover only roughly the first 40-50 seconds as consecutive 8-10 second scenes, starting at 0:00, and make sure this batch covers the "Hook" and the start of "Build". Keep total scenes in this batch between 3 and 5. Vary shot size and camera movement scene to scene — never repeat the same combination twice in a row. Keep prose concise so the whole response fits in the token budget.` + storytellingRule() + narrationFirstRule();
 
     const userPrompt = `Source material:\n${source}\n\n${totalSeconds ? `Total video length: ${minuteVal} minutes (${totalSeconds}s)` : "Length not specified — treat as a short clip"}\nTopic to reframe the scenes around: ${topic}\nCharacter style: ${currentStyle}\nOutput language for dialogue/narration: ${document.getElementById('language').value}`;
 
@@ -627,7 +651,7 @@ async function continueScript(){
     const lastEndSeconds = lastScene ? parseTimeEnd(lastScene.timeRange) : 0;
     const remaining = job.totalSeconds ? job.totalSeconds - lastEndSeconds : null;
 
-    const systemPrompt = baseSystemPrompt() + `\nRules: This CONTINUES an existing shot list — do not repeat earlier scenes. Start scene numbering at ${job.scenes.length + 1} and start the time range at ${formatTime(lastEndSeconds)}. Generate the next 3-5 consecutive scenes. ${remaining !== null && remaining <= 60 ? 'This is likely the final batch — land the "Payoff" beat by the end of the video.' : 'Continue developing the "Build" beat, saving "Payoff" for a later batch.'} Vary shot size and camera movement, and don't repeat the immediately preceding scene's combination. Keep prose concise so the whole response fits in the token budget.` + storytellingRule();
+    const systemPrompt = baseSystemPrompt() + `\nRules: This CONTINUES an existing shot list — do not repeat earlier scenes. Start scene numbering at ${job.scenes.length + 1} and start the time range at ${formatTime(lastEndSeconds)}. Generate the next 3-5 consecutive scenes. ${remaining !== null && remaining <= 60 ? 'This is likely the final batch — land the "Payoff" beat by the end of the video.' : 'Continue developing the "Build" beat, saving "Payoff" for a later batch.'} Vary shot size and camera movement, and don't repeat the immediately preceding scene's combination. Keep prose concise so the whole response fits in the token budget.` + storytellingRule() + narrationFirstRule();
 
     const userPrompt = `Source material:\n${job.source}\n\nTopic: ${job.currentTopic}\nCharacter style: ${job.characterStyle}\nOutput language for dialogue/narration: ${document.getElementById('language').value}\n\nContinuing from the style, environment, and characters already established — reuse these exactly, do not invent new characters, and do not change the environment or time-of-day unless the story clearly moves to a new place or later time:\nStyle: ${job.styleBlock.description}\nEnvironment: ${job.treatment?.environment || 'not specified — infer from earlier scenes'}\nTime of day: ${job.treatment?.timeOfDay || 'not specified — infer from earlier scenes'}\nCharacters:\n${job.styleBlock.characters.map(c => `- ${c.name} (${c.role}): ${c.description}`).join('\n')}\n\nThe previous scene ended at ${formatTime(lastEndSeconds)}. Here is exactly what was happening at that moment, so the next scene can continue the action naturally rather than jumping to something unrelated:\n"${lastScene ? lastScene.videoAudioPrompt : 'opening of the video'}"\n${job.totalSeconds ? `Total video length is ${job.totalSeconds}s.` : ''}`;
 
@@ -856,6 +880,7 @@ function renderResults(){
         <div class="treatment-item"><b>Color grade</b><span>${t.colorGrade || '—'}</span></div>
         <div class="treatment-item"><b>Environment</b><span>${t.environment || '—'}</span></div>
         <div class="treatment-item"><b>Time of day</b><span>${t.timeOfDay || '—'}</span></div>
+        ${t.narratorVoice ? `<div class="treatment-item"><b>Narrator voice</b><span>${t.narratorVoice}</span></div>` : ''}
         <div class="treatment-item treatment-arc"><b>Narrative arc</b><span>${t.narrativeArc || '—'}</span></div>
       </div>
     </div>` : ''}
