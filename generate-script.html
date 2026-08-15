@@ -150,13 +150,6 @@
       <button class="back-btn" onclick="openSavedModal()">📂 Load saved
         job</button>
     </div>
-    <div style="display:flex;gap:8px;margin-bottom:18px;">
-      <button class="back-btn" style="margin-bottom:0;"
-        onclick="enableNotifications()">🔔 Enable notifications (for
-        VideoExpress automation)</button>
-      <button class="back-btn" style="margin-bottom:0;"
-        onclick="testAutomationSignal()">🧪 Test tab-return signal</button>
-    </div>
 
     <div class="top-settings">
       <div class="key-field">
@@ -170,6 +163,13 @@
         <input type="text" id="backendUrl"
           placeholder="Optional: your backend proxy URL (avoids CORS)"
           style="margin-top:8px;font-size:11px;">
+        <select id="openaiModel"
+          style="width:100%;margin-top:8px;background:var(--bg);border:1px solid var(--line);border-radius:6px;color:var(--text);font-family:'IBM Plex Mono',monospace;font-size:12px;padding:9px 10px;">
+          <option value="gpt-5.6-terra">gpt-5.6-terra (balanced —
+            recommended)</option>
+          <option value="gpt-4o-mini">gpt-4o-mini (cheaper/faster,
+            older)</option>
+        </select>
       </div>
       <div class="lang-field">
         <div class="key-label-row"><span
@@ -358,33 +358,15 @@ function onAutomationComplete(){
     if('Notification' in window && Notification.permission === 'granted'){
       showCompletionNotification();
     }else{
-      console.log('[Generator] Skipping notification — permission not granted. Click "🔔 Enable notifications" first.');
+      console.log('[Generator] Skipping notification — permission not yet granted (requested on next "Copy All -> VideoExpress" click).');
     }
   }catch(e){
     console.error('[Generator] Notification block threw:', e);
   }
   // Note: we deliberately do NOT call Notification.requestPermission() here.
   // Browsers require that call to happen inside a real click handler or they
-  // silently ignore it — use the "🔔 Enable notifications" button instead,
-  // once, ahead of time.
-}
-
-async function enableNotifications(){
-  if(!('Notification' in window)){
-    showToast('Notifications are not supported in this browser');
-    return;
-  }
-  const perm = await Notification.requestPermission();
-  if(perm === 'granted'){
-    showToast('Notifications enabled — you\'ll get one when a scene finishes on VideoExpress');
-  }else{
-    showToast('Notifications ' + perm + ' — you can still rely on the flashing tab title instead');
-  }
-}
-
-function testAutomationSignal(){
-  console.log('[Generator] Manual test: simulating automation-complete signal');
-  onAutomationComplete();
+  // silently ignore it — permission is requested opportunistically on the
+  // "Copy All -> VideoExpress" click instead, since that's already a real gesture.
 }
 
 function showCompletionNotification(){
@@ -472,13 +454,14 @@ function showError(msg){
 async function callGeneration(systemPrompt, userPrompt){
   const openaiKey = document.getElementById('openaiKey').value.trim();
   const backendUrl = document.getElementById('backendUrl').value.trim();
+  const selectedModel = document.getElementById('openaiModel').value;
   let rawText;
 
   if(openaiKey && backendUrl){
     const response = await fetch(`${backendUrl.replace(/\/$/,'')}/generate-script`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ openaiKey, systemPrompt, userPrompt, model: "gpt-5.6-terra" })
+      body: JSON.stringify({ openaiKey, systemPrompt, userPrompt, model: selectedModel })
     });
     if(!response.ok){
       const errBody = await response.text();
@@ -492,7 +475,7 @@ async function callGeneration(systemPrompt, userPrompt){
       method: "POST",
       headers: { "Content-Type": "application/json", "Authorization": `Bearer ${openaiKey}` },
       body: JSON.stringify({
-        model: "gpt-5.6-terra",
+        model: selectedModel,
         messages: [{ role: "system", content: systemPrompt }, { role: "user", content: userPrompt }],
         response_format: { type: "json_object" }
       })
@@ -817,7 +800,24 @@ async function copyVideoAudioPrompt(scene){
 function openVideoExpress(){
   window.open(VIDEOEXPRESS_URL, '_blank');
 }
+let veTabRef = null; // reference to the VideoExpress tab we opened, so repeat clicks reuse it instead of opening new ones
+
+function openOrFocusVideoExpress(){
+  if(veTabRef && !veTabRef.closed){
+    veTabRef.focus(); // works reliably here since it's a direct click handler — a real user gesture
+    return;
+  }
+  veTabRef = window.open(VIDEOEXPRESS_URL, '_blank');
+}
+
 async function copyAllForAutomation(scene){
+  // Piggyback the notification permission request on this genuine click —
+  // browsers only honor requestPermission() inside a real user gesture, and
+  // this button already is one, so no separate "enable notifications" button needed.
+  if('Notification' in window && Notification.permission === 'default'){
+    Notification.requestPermission();
+  }
+
   const payload = {
     image: scene.imagePrompt,
     videoAudio: fullVideoAudioPrompt(scene),
@@ -825,7 +825,7 @@ async function copyAllForAutomation(scene){
     characterStyle: job.characterStyle
   };
   await copyText(JSON.stringify(payload));
-  window.open(VIDEOEXPRESS_URL, '_blank');
+  openOrFocusVideoExpress();
   showToast(`Scene ${scene.sceneNumber} data copied — paste with the userscript's floating button on VideoExpress`);
 }
 async function copyAndOpenVoice(scene){
