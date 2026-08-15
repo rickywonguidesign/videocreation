@@ -338,11 +338,30 @@ window.addEventListener('message', (event) => {
 
 function onAutomationComplete(){
   console.log('[Generator] onAutomationComplete fired');
-  showToast('VideoExpress finished this scene — switch back when ready');
-  flashTitle('✅ Scene ready — click to return');
 
-  if('Notification' in window && Notification.permission === 'granted'){
-    showCompletionNotification();
+  try{
+    showToast('VideoExpress finished this scene — switch back when ready');
+    console.log('[Generator] showToast() called OK');
+  }catch(e){
+    console.error('[Generator] showToast() threw:', e);
+  }
+
+  try{
+    flashTitle('✅ Scene ready — click to return');
+    console.log('[Generator] flashTitle() called OK, document.title is now:', document.title);
+  }catch(e){
+    console.error('[Generator] flashTitle() threw:', e);
+  }
+
+  try{
+    console.log('[Generator] Notification support:', 'Notification' in window, '- permission:', ('Notification' in window) ? Notification.permission : 'n/a');
+    if('Notification' in window && Notification.permission === 'granted'){
+      showCompletionNotification();
+    }else{
+      console.log('[Generator] Skipping notification — permission not granted. Click "🔔 Enable notifications" first.');
+    }
+  }catch(e){
+    console.error('[Generator] Notification block threw:', e);
   }
   // Note: we deliberately do NOT call Notification.requestPermission() here.
   // Browsers require that call to happen inside a real click handler or they
@@ -373,12 +392,13 @@ function showCompletionNotification(){
     const n = new Notification('VideoExpress scene ready', {
       body: 'Click to return to your scene generator'
     });
+    console.log('[Generator] Notification constructed successfully:', n);
     n.onclick = () => {
       window.focus();
       n.close();
     };
   }catch(e){
-    console.error('[Generator] Notification failed:', e);
+    console.error('[Generator] Notification constructor threw:', e);
   }
 }
 
