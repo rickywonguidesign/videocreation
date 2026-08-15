@@ -25,10 +25,10 @@
   textarea{height:110px;}
   .row{display:flex;gap:14px;}
   .row .field{flex:1;}
-  .style-toggle{display:flex;gap:8px;}
+  .style-toggle{display:flex;gap:8px;flex-wrap:wrap;}
   .style-opt{
-    flex:1;text-align:center;padding:10px;border:1px solid var(--line);border-radius:6px;
-    background:var(--panel);color:var(--text-dim);font-size:13px;cursor:pointer;font-family:'IBM Plex Mono',monospace;
+    flex:1 1 auto;min-width:90px;text-align:center;padding:10px 12px;border:1px solid var(--line);border-radius:6px;
+    background:var(--panel);color:var(--text-dim);font-size:13px;cursor:pointer;font-family:'IBM Plex Mono',monospace;white-space:nowrap;
   }
   .style-opt.active{border-color:var(--amber);color:var(--amber);background:var(--panel-raised);}
 
@@ -231,16 +231,18 @@
                         <div class="field">
                           <label>Character style</label>
                           <div class="style-toggle">
+                            <div class="style-opt" data-style="Human"
+                              onclick="selectStyle(this)">Human</div>
+                            <div class="style-opt" data-style="2D"
+                              onclick="selectStyle(this)">2D</div>
                             <div class="style-opt active" data-style="3D"
                               onclick="selectStyle(this)">3D</div>
-                            <div class="style-opt" data-style="Anime"
-                              onclick="selectStyle(this)">Anime</div>
-                            <div class="style-opt" data-style="Realistic"
-                              onclick="selectStyle(this)">Realistic</div>
                             <div class="style-opt"
-                              data-style="Flat illustration"
-                              onclick="selectStyle(this)">Flat
-                              illustration</div>
+                              data-style="Photorealistic (Cinematic)"
+                              onclick="selectStyle(this)">Photorealistic
+                              (Cinematic)</div>
+                            <div class="style-opt" data-style="Other"
+                              onclick="selectStyle(this)">Other</div>
                           </div>
                         </div>
 
@@ -597,7 +599,7 @@ async function generateScript(){
     job = {
       jobId: 'job_' + Date.now(),
       topic: parsed.topic || topic,
-      characterStyle: parsed.characterStyle || currentStyle,
+      characterStyle: currentStyle, // NOT parsed.characterStyle — the AI can echo back a descriptive sentence instead of the exact label (seen in practice), which breaks anything mapping against the fixed "3D"/"Anime"/"Realistic"/"Flat illustration" values. currentStyle is always exactly one of those 4, since it's set directly from the button click.
       treatment: parsed.treatment || null,
       styleBlock: parsed.styleBlock,
       scenes: parsed.scenes,
