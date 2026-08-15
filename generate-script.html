@@ -249,15 +249,17 @@
                         <div class="field">
                           <label
                             style="display:flex;align-items:center;gap:8px;cursor:pointer;">
-                            <input type="checkbox" id="addStorytelling"
+                            <input type="checkbox" id="dialogueMode"
                               style="width:16px;height:16px;accent-color:var(--amber);cursor:pointer;">
                             <span
-                              style="text-transform:none;font-size:13px;letter-spacing:0;color:var(--text);">Add
-                              storytelling to the no-speak scenes</span>
+                              style="text-transform:none;font-size:13px;letter-spacing:0;color:var(--text);">Dialogue
+                              Mode</span>
                           </label>
-                          <div class="hint">When checked, any scene with no
-                            dialogue gets a short narration line instead of
-                            staying silent, ready to copy for CloneVoice.</div>
+                          <div class="hint">Every scene gets a spoken dialogue
+                            line, quoted directly inside the Video/Audio Prompt
+                            for VideoExpress. Combine with Narration-first below
+                            to get both — dialogue in the video prompt,
+                            narration separately for CloneVoice.</div>
                         </div>
 
                         <div class="field">
@@ -269,12 +271,12 @@
                               style="text-transform:none;font-size:13px;letter-spacing:0;color:var(--text);">Narration-first
                               storytelling mode</span>
                           </label>
-                          <div class="hint">Defaults every scene to voiceover
-                            narration instead of dialogue. Dialogue only appears
-                            when the story genuinely needs two characters
-                            talking to each other — a confession, a refusal, a
-                            question that changes what happens next — not just
-                            because someone's on screen.</div>
+                          <div class="hint">Every scene gets a voiceover
+                            narration line, kept entirely separate from the
+                            Video/Audio Prompt — generated for CloneVoice, not
+                            VideoExpress. Check only this for a pure narration
+                            piece; check both for narration + dialogue
+                            together.</div>
                         </div>
 
                         <button class="generate-btn" id="genBtn"
@@ -563,17 +565,21 @@ async function callGeneration(systemPrompt, userPrompt){
   return JSON.parse(clean);
 }
 
-function storytellingRule(){
-  const enabled = document.getElementById('addStorytelling').checked;
-  return enabled
-    ? `\nSTORYTELLING RULE: The user wants every scene to have something spoken. For any scene that wouldn't naturally have dialogue, write an evocative storytelling narration line in the "narrationLine" field instead of leaving it null — a warm storyteller's voiceover sentence that fits the moment (scene-setting, emotional context, or a small observation), filling the scene's full 8-10 second duration (roughly 20-25 words at natural pace), not just a literal description of the action.`
-    : `\nSTORYTELLING RULE: Leave "dialogue" and "narrationLine" as null for any scene that wouldn't naturally have speech — do not invent narration for silent scenes.`;
-}
+function speechModeRule(){
+  const dialogueMode = document.getElementById('dialogueMode').checked;
+  const narrationMode = document.getElementById('narrationFirst').checked;
+  const durationNote = `fill the scene's full 8-10 second duration — roughly 20-25 words at natural speaking pace, a complete, well-built line, not a short fragment`;
 
-function narrationFirstRule(){
-  const enabled = document.getElementById('narrationFirst').checked;
-  if(!enabled) return '';
-  return `\nNARRATION-FIRST MODE: This piece is voiceover-led, like a short documentary or fable, not a dialogue-driven scene. Default every scene to a narration line in "narrationLine" rather than "dialogue". Only use "dialogue" instead when the scene's entire point is two characters exchanging words that change the story — a confession, a refusal, a question that turns the plot — never just because a character is visible or doing something. Most scenes in this mode should have zero characters speaking to each other on camera. Narration must add what the image can't show — the character's interior thought, context, or emotional turn — never just restate what's visually obvious in the frame. Each narration line needs to genuinely fill the scene's full 8-10 second duration — that's roughly 20-25 words at natural narrator pace, a complete, well-built sentence with real narrative weight, not a short fragment. Also add a "narratorVoice" field to the treatment object: a short description of the narrator's tone (e.g. "warm, unhurried, a little wistful — like someone recalling a memory fondly") that stays consistent across every scene's narration, the same way environment and time-of-day stay locked.`;
+  if(dialogueMode && narrationMode){
+    return `\nSPEECH MODE — DIALOGUE + NARRATION: Every scene must have BOTH a "dialogue" line (a character speaking on screen, quoted inside videoAudioPrompt per that field's rule) AND a "narrationLine" (voiceover, kept entirely separate from videoAudioPrompt, generated for CloneVoice). These go to two different platforms — dialogue plays inside the VideoExpress video itself, narration is a separate voiceover track from CloneVoice — so write them as two distinct layers that complement each other rather than repeating the same words: the narration can supply context, interior thought, or scene-setting the dialogue doesn't cover. Both must ${durationNote}. Also add a "narratorVoice" field to the treatment object: a short description of the narrator's tone that stays consistent across every scene.`;
+  }
+  if(dialogueMode && !narrationMode){
+    return `\nSPEECH MODE — DIALOGUE ONLY: Every scene must have a "dialogue" line — a character speaking on screen, quoted inside videoAudioPrompt per that field's rule. Set "narrationLine" to null for every scene; do not add narration at all in this mode. Give even quieter or establishing scenes a natural line from whichever character is most relevant — avoid leaving scenes silent in this mode. Dialogue must ${durationNote}.`;
+  }
+  if(!dialogueMode && narrationMode){
+    return `\nSPEECH MODE — NARRATION ONLY: This piece is voiceover-led, like a short documentary or fable. Every scene must have a "narrationLine" (voiceover) and none should have "dialogue" — set "dialogue" to null for every scene in this mode, even if characters are shown interacting; narration alone carries the story. Narration must add what the image can't show — interior thought, context, emotional turn — never just restate what's visually obvious. Narration must ${durationNote}. Also add a "narratorVoice" field to the treatment object: a short description of the narrator's tone that stays consistent across every scene.`;
+  }
+  return `\nSPEECH MODE — DEFAULT: Decide naturally, scene by scene, whether dialogue, narration, or silence best fits the moment — do not force either one. Leave both "dialogue" and "narrationLine" null for any scene that wouldn't naturally have speech. Whichever you do use must ${durationNote}.`;
 }
 
 function baseSystemPrompt(){
@@ -650,7 +656,7 @@ async function generateScript(){
   setLoading(true);
   try{
     const totalSeconds = minuteVal ? Math.round(minuteVal * 60) : null;
-    const systemPrompt = baseSystemPrompt() + `\nRules: styleBlock.description must reflect the requested character style. This is the OPENING batch of a longer video — cover only roughly the first 40-50 seconds as consecutive 8-10 second scenes, starting at 0:00, and make sure this batch covers the "Hook" and the start of "Build". Keep total scenes in this batch between 3 and 5. Vary shot size and camera movement scene to scene — never repeat the same combination twice in a row. Keep prose concise so the whole response fits in the token budget.` + storytellingRule() + narrationFirstRule();
+    const systemPrompt = baseSystemPrompt() + `\nRules: styleBlock.description must reflect the requested character style. This is the OPENING batch of a longer video — cover only roughly the first 40-50 seconds as consecutive 8-10 second scenes, starting at 0:00, and make sure this batch covers the "Hook" and the start of "Build". Keep total scenes in this batch between 3 and 5. Vary shot size and camera movement scene to scene — never repeat the same combination twice in a row. Keep prose concise so the whole response fits in the token budget.` + speechModeRule();
 
     const userPrompt = `Source material:\n${source}\n\n${totalSeconds ? `Total video length: ${minuteVal} minutes (${totalSeconds}s)` : "Length not specified — treat as a short clip"}\nTopic to reframe the scenes around: ${topic}\nCharacter style: ${currentStyle}\nOutput language for dialogue/narration: ${document.getElementById('language').value}`;
 
@@ -689,7 +695,7 @@ async function continueScript(){
     const lastEndSeconds = lastScene ? parseTimeEnd(lastScene.timeRange) : 0;
     const remaining = job.totalSeconds ? job.totalSeconds - lastEndSeconds : null;
 
-    const systemPrompt = baseSystemPrompt() + `\nRules: This CONTINUES an existing shot list — do not repeat earlier scenes. Start scene numbering at ${job.scenes.length + 1} and start the time range at ${formatTime(lastEndSeconds)}. Generate the next 3-5 consecutive scenes. ${remaining !== null && remaining <= 60 ? 'This is likely the final batch — land the "Payoff" beat by the end of the video.' : 'Continue developing the "Build" beat, saving "Payoff" for a later batch.'} Vary shot size and camera movement, and don't repeat the immediately preceding scene's combination. Keep prose concise so the whole response fits in the token budget.` + storytellingRule() + narrationFirstRule();
+    const systemPrompt = baseSystemPrompt() + `\nRules: This CONTINUES an existing shot list — do not repeat earlier scenes. Start scene numbering at ${job.scenes.length + 1} and start the time range at ${formatTime(lastEndSeconds)}. Generate the next 3-5 consecutive scenes. ${remaining !== null && remaining <= 60 ? 'This is likely the final batch — land the "Payoff" beat by the end of the video.' : 'Continue developing the "Build" beat, saving "Payoff" for a later batch.'} Vary shot size and camera movement, and don't repeat the immediately preceding scene's combination. Keep prose concise so the whole response fits in the token budget.` + speechModeRule();
 
     const userPrompt = `Source material:\n${job.source}\n\nTopic: ${job.currentTopic}\nCharacter style: ${job.characterStyle}\nOutput language for dialogue/narration: ${document.getElementById('language').value}\n\nContinuing from the style, environment, and characters already established — reuse these exactly, do not invent new characters, and do not change the environment or time-of-day unless the story clearly moves to a new place or later time:\nStyle: ${job.styleBlock.description}\nEnvironment: ${job.treatment?.environment || 'not specified — infer from earlier scenes'}\nTime of day: ${job.treatment?.timeOfDay || 'not specified — infer from earlier scenes'}\nCharacters:\n${job.styleBlock.characters.map(c => `- ${c.name} (${c.role}): ${c.description}`).join('\n')}\n\nThe previous scene ended at ${formatTime(lastEndSeconds)}. Here is exactly what was happening at that moment, so the next scene can continue the action naturally rather than jumping to something unrelated:\n"${lastScene ? lastScene.videoAudioPrompt : 'opening of the video'}"\n${job.totalSeconds ? `Total video length is ${job.totalSeconds}s.` : ''}`;
 
