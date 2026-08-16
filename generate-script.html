@@ -93,6 +93,12 @@
     font-family:'IBM Plex Mono',monospace;font-size:9px;letter-spacing:.06em;text-transform:uppercase;
     padding:3px 8px;border-radius:10px;background:var(--panel-raised);color:var(--teal);border:1px solid var(--teal-dim);
   }
+  .speech-badge{
+    font-family:'IBM Plex Mono',monospace;font-size:9px;letter-spacing:.06em;text-transform:uppercase;
+    padding:3px 8px;border-radius:10px;margin-left:6px;
+  }
+  .speech-badge.narration{background:rgba(91,163,160,.15);color:var(--teal);border:1px solid var(--teal-dim);}
+  .speech-badge.dialogue{background:rgba(217,165,68,.15);color:var(--amber);border:1px solid var(--amber-dim);}
   .scene-extra{display:flex;gap:10px;font-size:11px;color:var(--text-dim);margin:8px 0 10px;flex-wrap:wrap;}
   .scene-extra .ex-item b{color:var(--text-dim);font-weight:600;}
 
@@ -571,7 +577,7 @@ function speechModeRule(){
   const durationNote = `fill the scene's full 8-10 second duration — roughly 20-25 words at natural speaking pace, a complete, well-built line, not a short fragment`;
 
   if(dialogueMode && narrationMode){
-    return `\nSPEECH MODE — DIALOGUE + NARRATION: Every scene must have BOTH a "dialogue" line (a character speaking on screen, quoted inside videoAudioPrompt per that field's rule) AND a "narrationLine" (voiceover, kept entirely separate from videoAudioPrompt, generated for CloneVoice). These go to two different platforms — dialogue plays inside the VideoExpress video itself, narration is a separate voiceover track from CloneVoice — so write them as two distinct layers that complement each other rather than repeating the same words: the narration can supply context, interior thought, or scene-setting the dialogue doesn't cover. Both must ${durationNote}. Also add a "narratorVoice" field to the treatment object: a short description of the narrator's tone that stays consistent across every scene.`;
+    return `\nSPEECH MODE — MIXED NARRATION/DIALOGUE: Split the scenes in this batch by TYPE — each scene is either a narration scene OR a dialogue scene, never both at once. Across the whole batch, roughly 70% of scenes should be narration scenes (a "narrationLine" set, "dialogue" left null) and roughly 30% should be dialogue scenes (a "dialogue" line set, "narrationLine" left null). Use dialogue scenes for the moments that genuinely call for two characters speaking to each other or a character voicing something in the moment — a reaction, a request, an exchange. Use narration scenes for everything else — scene-setting, transitions, interior thought, emotional context. Don't alternate mechanically (not literally every third scene) — let the story's actual beats decide which few scenes deserve dialogue, while narration carries the rest. Whichever field is used must ${durationNote}. Also add a "narratorVoice" field to the treatment object: a short description of the narrator's tone that stays consistent across every narration scene.`;
   }
   if(dialogueMode && !narrationMode){
     return `\nSPEECH MODE — DIALOGUE ONLY: Every scene must have a "dialogue" line — a character speaking on screen, quoted inside videoAudioPrompt per that field's rule. Set "narrationLine" to null for every scene; do not add narration at all in this mode. Give even quieter or establishing scenes a natural line from whichever character is most relevant — avoid leaving scenes silent in this mode. Dialogue must ${durationNote}.`;
@@ -985,7 +991,11 @@ function renderResults(){
             <span class="scene-num">SCENE <span>${String(scene.sceneNumber).padStart(2,'0')}</span></span>
             <div class="scene-tc mono">${scene.timeRange} · ${scene.durationSeconds}s</div>
           </div>
-          <span class="beat-pill">${scene.beat || ''}</span>
+          <div>
+            <span class="beat-pill">${scene.beat || ''}</span>
+            ${scene.narrationLine ? `<span class="speech-badge narration">🎙️ Narration</span>` : ''}
+            ${scene.dialogue ? `<span class="speech-badge dialogue">💬 Dialogue</span>` : ''}
+          </div>
         </div>
         <div class="scene-body">
           <div class="scene-extra">
