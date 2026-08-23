@@ -867,7 +867,18 @@ async function copyImagePrompt(scene){
 }
 const NEGATIVE_SUFFIX = "no text, no texture, no gore, no lip-sync, no watermark";
 function fullVideoAudioPrompt(scene){
-  return `${scene.videoAudioPrompt} ${NEGATIVE_SUFFIX}.`;
+  let prompt = scene.videoAudioPrompt || '';
+
+  // Safety net: the model is instructed to fold dialogue into the prompt, but
+  // doesn't always actually do it (seen in practice — marked as a dialogue
+  // scene, then described only body language with no quoted line at all).
+  // Rather than trust instruction-following alone, guarantee it here.
+  if(scene.dialogue && !prompt.includes(scene.dialogue)){
+    const speaker = (scene.charactersInScene && scene.charactersInScene[0]) || 'the character';
+    prompt = `${prompt} ${speaker} says, "${scene.dialogue}"`;
+  }
+
+  return `${prompt} ${NEGATIVE_SUFFIX}.`;
 }
 
 async function copyVideoAudioPrompt(scene){
