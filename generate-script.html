@@ -468,6 +468,30 @@ const VOICE_LIST_VI = [
   { id: "deed604c-0137-4f3b-a8e4-88bd38e599c6", name: "Thanhlinh" },
   { id: "8f89bc38-5c0b-422c-87dc-48d209f8c154", name: "Tranminh" }
 ];
+
+// Pulled directly from CloneVoice's voice selector results for English —
+// same UUID-matching setup as VOICE_LIST_VI above, so the automation script
+// can click the right English voice without you browsing for it every time.
+const VOICE_LIST_EN = [
+  { id: "f38741de-a076-4700-85b0-4948adc7929a", name: "Adan" },
+  { id: "9cf5752d-9908-418a-a655-da649789b524", name: "Zoe Kensington" },
+  { id: "251f7880-6b62-4929-8938-43c2a149f46f", name: "Evelyn Cross" },
+  { id: "d8ab7df0-af67-4387-8a36-a8d22b27bdfa", name: "Chloe Montgomery" },
+  { id: "196d4d29-8ac4-4750-a42d-12de8d032094", name: "Tyler Brooks" },
+  { id: "70a31c9f-8761-4270-bff3-5deff5b46a58", name: "Harrison Cole" },
+  { id: "733a4112-e9f1-45d5-97b0-e9ac06311168", name: "Zachary Miller" },
+  { id: "f76febe3-ce55-4a4c-be34-90a3496031ac", name: "Eleanor Vance" },
+  { id: "b584b954-3af3-4a32-9f11-0fc12e54f4c9", name: "Victoria Reynolds" },
+  { id: "e4810941-d83a-4995-813b-ef9e7ca7bf69", name: "Arthur Pendleton" },
+  { id: "33db833f-8b90-4183-a66b-9ea0a1858fd7", name: "Julian Hayes" },
+  { id: "edd66857-26e1-4364-b1cd-a90ee6ffa1d9", name: "Maya Linwood" },
+  { id: "a53cf9e2-b618-4e48-910d-261b0fb5291a", name: "Mason Hartley" }
+];
+
+// Which curated voice list (if any) applies for the currently selected output
+// language — the dropdown in renderResults() shows only when one exists.
+const VOICE_LISTS_BY_LANGUAGE = { English: VOICE_LIST_EN, Vietnamese: VOICE_LIST_VI };
+
 let job = null;
 let doneMap = {};
 
@@ -644,6 +668,7 @@ Think in three passes before writing scenes:
 3. CONTINUITY: Decide one environment and one time-of-day/weather condition for the whole sequence, and keep them locked across every scene — same location details, same light quality, same weather — unless the source material clearly moves the story to a new place or a later time. If it does genuinely shift, treat that shift deliberately (a new establishing beat), not as drift. Also keep one consistent color grade note and lighting logic throughout so all scenes look like the same shoot, not disconnected renders.
 4. ACTION CONTINUITY: Treat the sequence as one unfolding event, not disconnected snapshots. Each scene's action should pick up from wherever the previous scene physically and emotionally left off — same body position, same object in hand, same emotional beat continuing or turning — so cutting between them feels like a real edit within one continuous scene, not a jump to something unrelated.
 5. NATURAL BLOCKING: Do not default to characters facing straight into the camera — that reads as a posed portrait, not cinematic footage. Give each character a natural eye-line: looking at another character, at an object or task, or off into the environment, matching what they're actually doing in that moment. Only have a character look directly into the lens if it's a deliberate storytelling choice (e.g. a knowing glance breaking the fourth wall), and say so explicitly in the prompt when that's the intent.
+6. VISUAL VARIETY: The CONTINUITY lock above applies ONLY to environment, time-of-day/weather, color grade, and lighting logic — it never means two scenes should look like the same picture. Every imagePrompt must read as a clearly different frame from the one immediately before and after it: change at least most of the following between consecutive scenes — the character's pose and body position, the specific action or gesture caught mid-motion, the camera's shot size/angle/distance (per COVERAGE), what's in the foreground vs. background, and where the frame's focal point sits. Treat each imagePrompt as a distinct freeze-frame from a continuously moving shoot, not the establishing shot redescribed with a few words swapped. If two consecutive imagePrompts would render as visually near-identical images — same pose, same framing, same composition, just the wording rearranged — that is a failure to fix before output, even though the location, light, and style stay locked.
 
 Output ONLY raw JSON, no markdown fences, no preamble. Schema:
 {
@@ -679,7 +704,7 @@ Output ONLY raw JSON, no markdown fences, no preamble. Schema:
       "cameraMovement": string,
       "lens": string,
       "lighting": string,
-      "imagePrompt": string (the STARTING FRAME prompt for an image generator. Written as one flowing cinematic paragraph, professional-director level, that blends: the full description of every character listed in charactersInScene (pulled from styleBlock.characters) so each renders consistently every time, the environment and time-of-day/weather EXACTLY as set in treatment.environment and treatment.timeOfDay (do not silently vary these between scenes), precise lighting description consistent with that time-of-day (source, quality, direction, color temperature), camera framing and lens (shot size, angle, depth of field), and overall color/mood. This is a still-frame brief — describe the moment frozen, not action.),
+      "imagePrompt": string (the STARTING FRAME prompt for an image generator. Written as one flowing cinematic paragraph, professional-director level, that blends: the full description of every character listed in charactersInScene (pulled from styleBlock.characters) so each renders consistently every time, the environment and time-of-day/weather EXACTLY as set in treatment.environment and treatment.timeOfDay (do not silently vary these between scenes), precise lighting description consistent with that time-of-day (source, quality, direction, color temperature), camera framing and lens (shot size, angle, depth of field), and overall color/mood. This is a still-frame brief — describe the moment frozen, not action. Per the VISUAL VARIETY rule above: even though environment, lighting, and style stay locked, this scene's pose, action, framing, and composition must clearly differ from the previous scene's imagePrompt — never restate the same frozen moment with only the wording changed.),
       "videoAudioPrompt": string (Write this as ONE continuous flowing prompt, in this EXACT structural order — like a professional shot description, not labeled sections: 1) SUBJECT — briefly name who's in the scene (pulled from the characters listed in charactersInScene). 2) ACTION — the beat-by-beat physical action and performance, and how characters interact with each other if more than one is present. REQUIRED: if this scene has on-screen "dialogue" (a visible character speaking), the ACTION portion MUST include the exact quoted line, in the requested output language, and name which character speaks it — do not omit it, do not paraphrase it, do not drop it to save space. The quoted line itself stays in the requested output language even though the rest of the prompt is English; e.g. she turns to him and says, "..." 3) ENVIRONMENT — briefly restate the setting and time-of-day/weather (matching treatment.environment and treatment.timeOfDay exactly, do not vary it). 4) STYLE — the render style, color grade, and lighting quality for this shot, matching styleBlock.description and treatment.colorGrade. 5) CAMERA MOVEMENT — how the camera moves during this shot. 6) AUDIO — the ambient/environmental sound, specific and concrete (weather, room tone, background noise — never generic). Example shape WITHOUT dialogue: "A woman in a flowing red dress walks to the closed glass door, opens it, steps inside, and pulls it shut behind her on a city rooftop at golden hour, the skyline reflected in the glass, warm light, shallow depth of field, soft film grade, the camera glides smoothly behind her, settling outside the door, soft footsteps, a gentle door latch, light wind, a faint city hum." Example shape WITH dialogue: "A woman in a flowing red dress reaches the glass door and pauses, turning back to the man behind her, and says, "Wait — are you sure about this?" on a city rooftop at golden hour, the skyline reflected in the glass, warm light, shallow depth of field, soft film grade, the camera holds steady on both of them, soft footsteps fading, a light wind, a faint city hum." If this scene instead has a "narrationLine" (voiceover, not spoken by anyone on screen), do NOT reference, quote, or mention it anywhere in this prompt at all — narration is generated entirely separately for CloneVoice and has no place in a video-generation prompt; this scene's videoAudioPrompt should read as if no narration existed.),
       "transitionOut": string (e.g. "hard cut", "cross dissolve", "match cut on motion"),
       "soundCue": string (e.g. "soft piano swell", "ambient room tone", "beat drop"),
@@ -710,7 +735,7 @@ async function generateScript(){
   setLoading(true);
   try{
     const totalSeconds = minuteVal ? Math.round(minuteVal * 60) : null;
-    const systemPrompt = baseSystemPrompt() + `\nRules: styleBlock.description must reflect the requested character style. This is the OPENING batch of a longer video — cover only roughly the first 40-50 seconds as consecutive 8-10 second scenes, starting at 0:00, and make sure this batch covers the "Hook" and the start of "Build". Keep total scenes in this batch between 3 and 5. Vary shot size and camera movement scene to scene — never repeat the same combination twice in a row. Keep imagePrompt and videoAudioPrompt concise enough that the whole response fits in the token budget — but this does NOT apply to "dialogue" or "narrationLine": those must always hit their full 20-25 word / 8-10 second length regardless, even if it means fewer scenes in this batch. Never shorten a spoken line just to save tokens.` + speechModeRule();
+    const systemPrompt = baseSystemPrompt() + `\nRules: styleBlock.description must reflect the requested character style. This is the OPENING batch of a longer video — cover only roughly the first 40-50 seconds as consecutive 8-10 second scenes, starting at 0:00, and make sure this batch covers the "Hook" and the start of "Build". Keep total scenes in this batch between 3 and 5. Vary shot size and camera movement scene to scene — never repeat the same combination twice in a row. Per VISUAL VARIETY: each scene's imagePrompt must show a visibly different pose/action/framing than the scene before it, even with environment and lighting locked — before finalizing, compare each imagePrompt to the one before it and rewrite either if they'd render as near-identical images. Keep imagePrompt and videoAudioPrompt concise enough that the whole response fits in the token budget — but this does NOT apply to "dialogue" or "narrationLine": those must always hit their full 20-25 word / 8-10 second length regardless, even if it means fewer scenes in this batch. Never shorten a spoken line just to save tokens.` + speechModeRule();
 
     const userPrompt = `Source material:\n${source}\n\n${totalSeconds ? `Total video length: ${minuteVal} minutes (${totalSeconds}s)` : "Length not specified — treat as a short clip"}\nTopic to reframe the scenes around: ${topic}\nCharacter style: ${currentStyle}\nOutput language for dialogue/narration: ${document.getElementById('language').value}`;
 
@@ -749,7 +774,7 @@ async function continueScript(){
     const lastEndSeconds = lastScene ? parseTimeEnd(lastScene.timeRange) : 0;
     const remaining = job.totalSeconds ? job.totalSeconds - lastEndSeconds : null;
 
-    const systemPrompt = baseSystemPrompt() + `\nRules: This CONTINUES an existing shot list — do not repeat earlier scenes. Start scene numbering at ${job.scenes.length + 1} and start the time range at ${formatTime(lastEndSeconds)}. Generate the next 3-5 consecutive scenes. ${remaining !== null && remaining <= 60 ? 'This is likely the final batch — land the "Payoff" beat by the end of the video.' : 'Continue developing the "Build" beat, saving "Payoff" for a later batch.'} Vary shot size and camera movement, and don't repeat the immediately preceding scene's combination. Keep imagePrompt and videoAudioPrompt concise enough that the whole response fits in the token budget — but this does NOT apply to "dialogue" or "narrationLine": those must always hit their full 20-25 word / 8-10 second length regardless, even if it means fewer scenes in this batch. Never shorten a spoken line just to save tokens.` + speechModeRule();
+    const systemPrompt = baseSystemPrompt() + `\nRules: This CONTINUES an existing shot list — do not repeat earlier scenes. Start scene numbering at ${job.scenes.length + 1} and start the time range at ${formatTime(lastEndSeconds)}. Generate the next 3-5 consecutive scenes. ${remaining !== null && remaining <= 60 ? 'This is likely the final batch — land the "Payoff" beat by the end of the video.' : 'Continue developing the "Build" beat, saving "Payoff" for a later batch.'} Vary shot size and camera movement, and don't repeat the immediately preceding scene's combination. Per VISUAL VARIETY: this batch's first new imagePrompt must look clearly different (pose/action/framing) from the last scene of the previous batch quoted below, and every scene after that must keep differing from the one before it — never two near-identical frames in a row, even with environment and lighting locked. Keep imagePrompt and videoAudioPrompt concise enough that the whole response fits in the token budget — but this does NOT apply to "dialogue" or "narrationLine": those must always hit their full 20-25 word / 8-10 second length regardless, even if it means fewer scenes in this batch. Never shorten a spoken line just to save tokens.` + speechModeRule();
 
     const userPrompt = `Source material:\n${job.source}\n\nTopic: ${job.currentTopic}\nCharacter style: ${job.characterStyle}\nOutput language for dialogue/narration: ${document.getElementById('language').value}\n\nContinuing from the style, environment, and characters already established — reuse these exactly, do not invent new characters, and do not change the environment or time-of-day unless the story clearly moves to a new place or later time:\nStyle: ${job.styleBlock.description}\nEnvironment: ${job.treatment?.environment || 'not specified — infer from earlier scenes'}\nTime of day: ${job.treatment?.timeOfDay || 'not specified — infer from earlier scenes'}\nCharacters:\n${job.styleBlock.characters.map(c => `- ${c.name} (${c.role}): ${c.description}`).join('\n')}\n\nThe previous scene ended at ${formatTime(lastEndSeconds)}. Here is exactly what was happening at that moment, so the next scene can continue the action naturally rather than jumping to something unrelated:\n"${lastScene ? lastScene.videoAudioPrompt : 'opening of the video'}"\n${job.totalSeconds ? `Total video length is ${job.totalSeconds}s.` : ''}`;
 
@@ -1027,16 +1052,20 @@ function renderResults(){
       </div>
     </div>
     `).join('')}
-    ${job.language === 'Vietnamese' ? `
+    ${(() => {
+      const voiceList = VOICE_LISTS_BY_LANGUAGE[job.language];
+      if(!voiceList) return '';
+      return `
     <div class="field" style="margin-top:8px;margin-bottom:22px;">
       <label>Narrator voice (CloneVoice)</label>
       <select id="voiceSelect" onchange="job.selectedVoiceId = this.value || null;" style="width:100%;background:var(--panel);border:1px solid var(--line);border-radius:6px;color:var(--text);font-family:'IBM Plex Mono',monospace;font-size:13px;padding:11px 12px;">
         <option value="">— Let me pick manually in CloneVoice —</option>
-        ${VOICE_LIST_VI.map(v => `<option value="${v.id}" ${job.selectedVoiceId === v.id ? 'selected' : ''}>${v.name}</option>`).join('')}
+        ${voiceList.map(v => `<option value="${v.id}" ${job.selectedVoiceId === v.id ? 'selected' : ''}>${v.name}</option>`).join('')}
       </select>
       <div class="hint">Pick a voice here and the automation clicks it directly in CloneVoice — no manual selection needed. Leave on the default option to keep choosing manually.</div>
     </div>
-    ` : ''}
+    `;
+    })()}
   `;
 
   document.getElementById('scenesWrap').innerHTML = job.scenes.map(scene => {
