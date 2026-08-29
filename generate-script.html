@@ -571,6 +571,53 @@ async function callGeneration(systemPrompt, userPrompt){
   return JSON.parse(clean);
 }
 
+// Safety net for the same class of thing as fullVideoAudioPrompt()'s dialogue
+// fix-up below: the model is instructed never to treat voiceover narration as
+// an on-screen speaking character, but in practice it sometimes still invents
+// a "Narrator"/"Storyteller"/"Reader" character, puts the narration line in
+// "dialogue" instead of "narrationLine", and then videoAudioPrompt ends up
+// quoting it as if that character were speaking on camera (e.g. the
+// "Narrator says, \"...\"" bug seen in a book-reading job). Rather than trust
+// the prompt alone, detect and repair that shape here before it's rendered.
+const NARRATOR_NAME_RE = /\b(narrator|storyteller|story\s*teller|voice[\s-]?over)\b/i;
+
+function sanitizeParsedScenes(parsed){
+  if(!parsed || !Array.isArray(parsed.scenes)) return parsed;
+  const roster = (parsed.styleBlock && parsed.styleBlock.characters) || [];
+
+  parsed.scenes.forEach(scene => {
+    if(!scene.dialogue) return;
+    const speakers = scene.charactersInScene || [];
+    const isNarratorSpeaking = speakers.some(name => NARRATOR_NAME_RE.test(name || '')) ||
+      roster.some(c => (speakers.includes(c.name)) && NARRATOR_NAME_RE.test(`${c.name} ${c.role || ''}`));
+
+    if(isNarratorSpeaking){
+      // Move the line to narration, drop it as on-screen dialogue, and strip
+      // the narrator out of the visible cast for this scene.
+      if(!scene.narrationLine) scene.narrationLine = scene.dialogue;
+      const line = scene.dialogue;
+      scene.dialogue = null;
+      scene.charactersInScene = speakers.filter(name => !NARRATOR_NAME_RE.test(name || ''));
+
+      // Best-effort: strip a "<Speaker> says, "<line>"" style clause that may
+      // already be baked into the model's own videoAudioPrompt text.
+      if(scene.videoAudioPrompt && line){
+        const escaped = line.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        const clause = new RegExp(`[^".]*\\bsays?,?\\s*"${escaped}"\\.?`, 'i');
+        scene.videoAudioPrompt = scene.videoAudioPrompt.replace(clause, '').replace(/\s{2,}/g, ' ').trim();
+      }
+    }
+  });
+
+  // Never let a narrator-labeled entry sit in the visual character roster —
+  // it has no design, no wardrobe, nothing to render; it's a voice only.
+  if(parsed.styleBlock && Array.isArray(roster) && roster.length){
+    parsed.styleBlock.characters = roster.filter(c => !NARRATOR_NAME_RE.test(`${c.name || ''} ${c.role || ''}`));
+  }
+
+  return parsed;
+}
+
 function speechModeRule(){
   const dialogueMode = document.getElementById('dialogueMode').checked;
   const narrationMode = document.getElementById('narrationFirst').checked;
@@ -643,7 +690,7 @@ Output ONLY raw JSON, no markdown fences, no preamble. Schema:
   ]
 }
 NOTE: The 20-25 word target above is an English-speech approximation. When the output language isn't English, adapt to what actually takes 8-10 seconds to say naturally in that language's own rhythm — don't force an English word count onto a language with different pacing.
-CHARACTER COUNT RULE: Analyze the source material and topic to determine how many distinct characters actually appear across the whole sequence — do not default to exactly one. If the story is about a single person alone, write one character. If it involves an interaction (a vendor and a customer, a parent and a child, two friends), write a full bible entry for each one who appears, even side characters — anyone who's visible and described doing something needs a consistent character entry so they don't visually change scene to scene.
+SOURCE-CONTENT RULE (decide this FIRST, before casting anyone): Read the source material and work out what it actually IS. If it is a story, fable, book excerpt, folktale, article, or any narrative being told — as opposed to a real person's own routine, tips, review, or vlog-style content — then the characters, environment, and every scene must depict THAT STORY'S OWN WORLD: its actual characters, its actual setting, its actual events, illustrated as if this were a film or animated adaptation of it. In that case, do NOT invent a generic "Narrator", "Storyteller", "Host", "Reader", or "Listener" as a character in styleBlock.characters, and do NOT frame the video as one invented person reading or explaining the story to another invented person — depict the story's events directly. The only exception is when the source material is itself explicitly about two people in conversation (an interview, a dialogue, a real exchange) — then that conversation IS the story to depict, not a wrapper around it. Every imagePrompt and videoAudioPrompt must show a concrete moment lifted from the source material's own plot, in the order the story unfolds — never a generic, unrelated, or purely illustrative visual that could belong to any topic. If the source material genuinely is a real person presenting their own tips, routine, or experience straight to camera (the kind of topic like a skincare routine or a product unboxing), then a single on-screen presenter character is correct and expected — this rule only blocks inventing a narrator/reader frame around content that is actually a story.\nNARRATION-IS-NOT-A-CHARACTER RULE: Voiceover narration is read by someone who never appears on screen. A "narrationLine" must never be assigned to "dialogue", must never be quoted or attributed to a speaker anywhere in "videoAudioPrompt" or "imagePrompt", and the character delivering it must never be listed in "charactersInScene" or added to styleBlock.characters — there is no visual "Narrator" character, ever. If a moment feels like it needs someone to say something in-story, decide plainly whether that is a character in the depicted world speaking on screen (use "dialogue") or an unseen voiceover (use "narrationLine") — never both framed as the same speaking body.\nCHARACTER COUNT RULE: Analyze the source material and topic to determine how many distinct characters actually appear across the whole sequence — do not default to exactly one. If the story is about a single person alone, write one character. If it involves an interaction (a vendor and a customer, a parent and a child, two friends), write a full bible entry for each one who appears, even side characters — anyone who's visible and described doing something needs a consistent character entry so they don't visually change scene to scene.
 
 SCENE CASTING RULE: No matter how many characters exist in the full roster, each individual scene's "charactersInScene" must list at most 2 of them — never crowd a shot with the whole cast at once. If the roster has more than 2 characters total, choose whichever 2 are most narratively relevant to that specific beat (the two actually interacting or focused on in that moment), and rotate the pairing scene to scene as the story calls for it. Direct the interaction between those 2 naturally — real eye contact, physical proximity, believable reactions to each other — rather than two people posed side by side.
 LANGUAGE RULE: Every field must be written in English, regardless of the requested output language — this includes imagePrompt, videoAudioPrompt (except the dialogue quote as noted below), styleBlock, lens, lighting, transitionOut, soundCue, beat, tone, colorGrade, narrativeArc, and logline, since these feed English-only AI video tools. The two exceptions: "dialogue" and "narrationLine" must always be written in the requested output language, sounding natural and idiomatic for a native speaker — not a literal translation. And inside "videoAudioPrompt", if there is on-screen dialogue, quote that exact same line verbatim in the requested output language (matching "dialogue" word for word) even though the rest of that field's direction stays in English — never translate it back to English. Narration is never quoted inside videoAudioPrompt at all, regardless of language, per the note on that field above.`;
@@ -667,7 +714,7 @@ async function generateScript(){
 
     const userPrompt = `Source material:\n${source}\n\n${totalSeconds ? `Total video length: ${minuteVal} minutes (${totalSeconds}s)` : "Length not specified — treat as a short clip"}\nTopic to reframe the scenes around: ${topic}\nCharacter style: ${currentStyle}\nOutput language for dialogue/narration: ${document.getElementById('language').value}`;
 
-    const parsed = await callGeneration(systemPrompt, userPrompt);
+    const parsed = sanitizeParsedScenes(await callGeneration(systemPrompt, userPrompt));
 
     job = {
       jobId: 'job_' + Date.now(),
@@ -706,7 +753,7 @@ async function continueScript(){
 
     const userPrompt = `Source material:\n${job.source}\n\nTopic: ${job.currentTopic}\nCharacter style: ${job.characterStyle}\nOutput language for dialogue/narration: ${document.getElementById('language').value}\n\nContinuing from the style, environment, and characters already established — reuse these exactly, do not invent new characters, and do not change the environment or time-of-day unless the story clearly moves to a new place or later time:\nStyle: ${job.styleBlock.description}\nEnvironment: ${job.treatment?.environment || 'not specified — infer from earlier scenes'}\nTime of day: ${job.treatment?.timeOfDay || 'not specified — infer from earlier scenes'}\nCharacters:\n${job.styleBlock.characters.map(c => `- ${c.name} (${c.role}): ${c.description}`).join('\n')}\n\nThe previous scene ended at ${formatTime(lastEndSeconds)}. Here is exactly what was happening at that moment, so the next scene can continue the action naturally rather than jumping to something unrelated:\n"${lastScene ? lastScene.videoAudioPrompt : 'opening of the video'}"\n${job.totalSeconds ? `Total video length is ${job.totalSeconds}s.` : ''}`;
 
-    const parsed = await callGeneration(systemPrompt, userPrompt);
+    const parsed = sanitizeParsedScenes(await callGeneration(systemPrompt, userPrompt));
     job.scenes = job.scenes.concat(parsed.scenes || []);
     renderResults();
   }catch(e){
