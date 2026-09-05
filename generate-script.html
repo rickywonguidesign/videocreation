@@ -582,7 +582,14 @@ async function fetchYoutubeTranscript(){
     const response = await fetch(`${backendUrl.replace(/\/$/,'')}/youtube-transcript?videoId=${encodeURIComponent(videoId)}`);
     if(!response.ok){
       const errBody = await response.text();
-      throw new Error(`Backend returned ${response.status}. ${errBody.slice(0,150)}`);
+      let message = `Backend returned ${response.status}.`;
+      try{
+        const parsed = JSON.parse(errBody);
+        if(parsed && parsed.error) message = parsed.error;
+      }catch(_){
+        message += ' ' + errBody.slice(0,150);
+      }
+      throw new Error(message);
     }
     const data = await response.json();
     if(!data.transcript || !data.transcript.trim()) throw new Error('No transcript text returned — this video may not have captions available');

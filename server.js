@@ -78,8 +78,11 @@ app.get('/api/youtube-transcript', async (req, res) => {
         // Common causes: captions disabled for this video, video is private/
         // age-restricted/region-locked, or YouTube changed something the
         // library scrapes against (keep the youtube-transcript package
-        // updated if this starts failing broadly).
-        res.status(502).json({ error: 'Could not fetch transcript: ' + err.message });
+        // updated if this starts failing broadly). No extra prefix here —
+        // the frontend adds its own "Could not fetch transcript:" wrapper,
+        // so this stays just the underlying reason (e.g. "captions
+        // disabled on this video").
+        res.status(502).json({ error: err.message });
     }
 });
 
