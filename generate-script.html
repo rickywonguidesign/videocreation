@@ -200,10 +200,19 @@
       <label>Source — link, story, or script</label>
       <textarea id="source"
         placeholder="Paste a video link, or paste the story/script text directly..."></textarea>
-      <div class="hint">Note: this can't fetch and watch a video link on its own
-        — if you paste a link, also paste the transcript, caption text, or a
-        description of what happens, so there's actual content to work
-        from.</div>
+      <div class="btn-row" style="margin-top:8px;">
+        <button type="button" class="back-btn" id="fetchTranscriptBtn"
+          onclick="fetchYoutubeTranscript()"
+          style="margin-bottom:0;flex:1;min-width:0;">📺 Fetch YouTube
+          transcript</button>
+      </div>
+      <div class="hint">Paste a YouTube link above, then click "Fetch YouTube
+        transcript" to pull its captions in automatically — this replaces the
+        link with the actual transcript text. Requires a backend proxy URL
+        set below (YouTube doesn't allow fetching captions directly from a
+        browser). For any other video link, or if a video has no captions,
+        paste the transcript, caption text, or a description of what happens
+        yourself, so there's actual content to work from.</div>
     </div>
 
     <div class="row">
@@ -535,6 +544,58 @@ function showError(msg){
   const box = document.getElementById('errBox');
   box.textContent = msg;
   box.style.display = 'block';
+}
+
+// Pulls a YouTube video ID out of any of the common URL shapes people paste:
+// watch?v=, youtu.be/, shorts/, embed/ — with or without extra query params
+// like &t= or &list= tacked on after it.
+function extractYoutubeVideoId(text){
+  const match = (text || '').match(/(?:youtube\.com\/(?:watch\?(?:.*&)?v=|embed\/|shorts\/)|youtu\.be\/)([a-zA-Z0-9_-]{11})/);
+  return match ? match[1] : null;
+}
+
+// YouTube does not allow fetching caption data directly from browser
+// JavaScript (no CORS headers on its transcript endpoints), so this always
+// goes through the same backend proxy already used for the OpenAI calls
+// above — it needs one extra endpoint added there. See the project notes /
+// setup instructions for the small server-side snippet that implements it.
+async function fetchYoutubeTranscript(){
+  const sourceEl = document.getElementById('source');
+  const videoId = extractYoutubeVideoId(sourceEl.value);
+  if(!videoId){
+    showToast('Paste a YouTube link in the Source box first');
+    return;
+  }
+
+  const backendUrl = document.getElementById('backendUrl').value.trim();
+  if(!backendUrl){
+    showToast('Add your backend proxy URL below first — transcript fetching needs a small server-side endpoint (YouTube blocks this from a browser directly)');
+    return;
+  }
+
+  const btn = document.getElementById('fetchTranscriptBtn');
+  const originalLabel = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = 'Fetching transcript…';
+
+  try{
+    const response = await fetch(`${backendUrl.replace(/\/$/,'')}/youtube-transcript?videoId=${encodeURIComponent(videoId)}`);
+    if(!response.ok){
+      const errBody = await response.text();
+      throw new Error(`Backend returned ${response.status}. ${errBody.slice(0,150)}`);
+    }
+    const data = await response.json();
+    if(!data.transcript || !data.transcript.trim()) throw new Error('No transcript text returned — this video may not have captions available');
+
+    sourceEl.value = data.transcript.trim();
+    const wordCount = data.transcript.trim().split(/\s+/).length;
+    showToast(`Transcript loaded — ${wordCount} words`);
+  }catch(e){
+    showToast('Could not fetch transcript: ' + e.message);
+  }finally{
+    btn.disabled = false;
+    btn.textContent = originalLabel;
+  }
 }
 
 async function callGeneration(systemPrompt, userPrompt){
