@@ -638,6 +638,21 @@ function sanitizeParsedScenes(parsed){
   const roster = (parsed.styleBlock && parsed.styleBlock.characters) || [];
 
   parsed.scenes.forEach(scene => {
+    // Safety net for the MIXED-mode rule ("each scene is dialogue OR
+    // narration, never both at once"): the model sometimes still populates
+    // both fields for the same scene. Resolve it by keeping whichever one is
+    // actually depicted as on-screen speech in videoAudioPrompt — that's the
+    // one the shot was staged for — and dropping the other rather than
+    // leaving a scene that contradicts itself.
+    if(scene.dialogue && scene.narrationLine){
+      const vap = scene.videoAudioPrompt || '';
+      if(vap.includes(scene.dialogue)){
+        scene.narrationLine = null;
+      }else{
+        scene.dialogue = null;
+      }
+    }
+
     // Safety net for the videoAudioPrompt narration rule: the model is
     // instructed never to quote/attribute a scene's own narrationLine inside
     // videoAudioPrompt (narration is unseen voiceover, generated separately
@@ -728,7 +743,7 @@ function speechModeRule(){
   }[narrativeVoice] || '';
 
   if(dialogueMode && narrationMode){
-    return `\nSPEECH MODE — MIXED NARRATION/DIALOGUE: Split the scenes in this batch by TYPE — each scene is either a narration scene OR a dialogue scene, never both at once. Across the whole batch, roughly 70% of scenes should be narration scenes (a "narrationLine" set, "dialogue" left null) and roughly 30% should be dialogue scenes (a "dialogue" line set, "narrationLine" left null). Use dialogue scenes for the moments that genuinely call for two characters speaking to each other or a character voicing something in the moment — a reaction, a request, an exchange. Use narration scenes for everything else — scene-setting, transitions, interior thought, emotional context. Don't alternate mechanically (not literally every third scene) — let the story's actual beats decide which few scenes deserve dialogue, while narration carries the rest. Whichever field is used must ${durationNote}.${voiceFlavor} Also add a "narratorVoice" field to the treatment object: a short description of the narrator's tone that stays consistent across every narration scene.`;
+    return `\nSPEECH MODE — MIXED NARRATION/DIALOGUE: Split the scenes in this batch by TYPE — each scene is either a narration scene OR a dialogue scene, never both at once. Across the whole batch, roughly 70% of scenes should be narration scenes (a "narrationLine" set, "dialogue" left null) and roughly 30% should be dialogue scenes (a "dialogue" line set, "narrationLine" left null). Use dialogue scenes for the moments that genuinely call for two characters speaking to each other or a character voicing something in the moment — a reaction, a request, an exchange. Use narration scenes for everything else — scene-setting, transitions, interior thought, emotional context. Don't alternate mechanically (not literally every third scene) — let the story's actual beats decide which few scenes deserve dialogue, while narration carries the rest. HARD CONSTRAINT, checked per scene before finalizing: "dialogue" and "narrationLine" can never both be non-null on the same scene object — if a moment seems to want both, that means it's really two scenes, or you need to pick whichever one actually serves the moment and leave the other null. A scene with both fields filled in is an error, full stop, even if the batch's overall ratio still comes out near 70/30. Whichever field is used must ${durationNote}.${voiceFlavor} Also add a "narratorVoice" field to the treatment object: a short description of the narrator's tone that stays consistent across every narration scene.`;
   }
   if(dialogueMode && !narrationMode){
     return `\nSPEECH MODE — DIALOGUE ONLY: Every scene must have a "dialogue" line — a character speaking on screen, quoted inside videoAudioPrompt per that field's rule. Set "narrationLine" to null for every scene; do not add narration at all in this mode. Give even quieter or establishing scenes a natural line from whichever character is most relevant — avoid leaving scenes silent in this mode. Dialogue must ${durationNote}.${voiceFlavor}`;
