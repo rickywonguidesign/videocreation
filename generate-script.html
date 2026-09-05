@@ -638,6 +638,27 @@ function sanitizeParsedScenes(parsed){
   const roster = (parsed.styleBlock && parsed.styleBlock.characters) || [];
 
   parsed.scenes.forEach(scene => {
+    // Safety net for the videoAudioPrompt narration rule: the model is
+    // instructed never to quote/attribute a scene's own narrationLine inside
+    // videoAudioPrompt (narration is unseen voiceover, generated separately
+    // for CloneVoice), but in practice sometimes still embeds it verbatim as
+    // if spoken on camera, e.g. `... she whispers, "<narrationLine>" ...`.
+    // Strip that clause out here rather than trusting the prompt alone.
+    if(scene.narrationLine && !scene.dialogue && scene.videoAudioPrompt){
+      const line = scene.narrationLine;
+      const escaped = line.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      const verbs = '(?:says?|whispers?|murmurs?|mutters?|tells?|asks?|replies?|answers?)';
+      // Handles both orderings seen in practice: "<verb>, '<line>'" and the
+      // reverse "'<line>' <subject> <verb>" (e.g. "'...' she whispers,").
+      const clauseVerbFirst = new RegExp(`\\b${verbs}\\b\\s*,?\\s*["']${escaped}["']\\.?`, 'i');
+      const clauseQuoteFirst = new RegExp(`["']${escaped}["']\\s*(?:\\w+\\s+){0,3}\\b${verbs}\\b,?`, 'i');
+      scene.videoAudioPrompt = scene.videoAudioPrompt
+        .replace(clauseVerbFirst, '')
+        .replace(clauseQuoteFirst, '')
+        .replace(/\s{2,}/g, ' ')
+        .trim();
+    }
+
     if(!scene.dialogue) return;
     const speakers = scene.charactersInScene || [];
     const isNarratorSpeaking = speakers.some(name => NARRATOR_NAME_RE.test(name || '')) ||
@@ -693,7 +714,7 @@ function speechModeRule(){
 
   const dialogueMode = document.getElementById('dialogueMode').checked;
   const narrationMode = document.getElementById('narrationFirst').checked;
-  const durationNote = `fill the scene's full 8-10 second duration — roughly 20-25 words at natural speaking pace, a complete, well-built line with real cinematic weight (sensory imagery, not a flat statement of facts), not a short fragment`;
+  const durationNote = `fill the scene's full 8-10 second duration — roughly 20-25 English words, or roughly 35-45 syllables in whichever language is actually requested (see the NOTE on syllable pacing below the schema — a monosyllabic language like Vietnamese, Chinese, or Thai needs roughly 35-45 words, not 20-25, to fill the same 8-10 seconds), at natural speaking pace, a complete, well-built line with real cinematic weight (sensory imagery, not a flat statement of facts), not a short fragment`;
 
   // Flavors WHICHEVER speech mode is active below with a specific narrator/
   // presenter register, independent of whether there's dialogue, narration,
@@ -775,7 +796,7 @@ Output ONLY raw JSON, no markdown fences, no preamble. Schema:
       "lens": string,
       "lighting": string,
       "imagePrompt": string (the STARTING FRAME prompt for an image generator. Written as one flowing cinematic paragraph, professional-director level. If charactersInScene is non-empty, blend: the full description of every character listed in charactersInScene (pulled from styleBlock.characters) so each renders consistently every time, the environment and time-of-day/weather EXACTLY as set in treatment.environment and treatment.timeOfDay (do not silently vary these between scenes), precise lighting description consistent with that time-of-day (source, quality, direction, color temperature), camera framing and lens (shot size, angle, depth of field), and overall color/mood. If charactersInScene is deliberately empty per the SUBJECT RULE, do NOT insert a person anyway — build the entire prompt around the actual non-human subject instead (the object/chart/vehicle/document itself: its exact form, material, color, texture, any on-it text or data described in words), still locked to the same environment, time-of-day/weather, lighting, and color grade as every other scene. This is a still-frame brief — describe the moment frozen, not action. Per the VISUAL VARIETY rule above: even though environment, lighting, and style stay locked, this scene's pose, action, framing, and composition must clearly differ from the previous scene's imagePrompt — never restate the same frozen moment with only the wording changed.),
-      "videoAudioPrompt": string (Write this as ONE continuous flowing prompt, in this EXACT structural order — like a professional shot description, not labeled sections: 1) SUBJECT — briefly name who or what is in the scene: a character pulled from charactersInScene, OR, when charactersInScene is deliberately empty per the SUBJECT RULE, the actual non-human subject itself (a chart, a vehicle, a product, a document, etc.) — never invent a person just to fill this slot. 2) ACTION — the beat-by-beat physical action and performance, and how characters interact with each other if more than one is present. REQUIRED: if this scene has on-screen "dialogue" (a visible character speaking), the ACTION portion MUST include the exact quoted line, in the requested output language, and name which character speaks it — do not omit it, do not paraphrase it, do not drop it to save space. The quoted line itself stays in the requested output language even though the rest of the prompt is English; e.g. she turns to him and says, "..." 3) ENVIRONMENT — briefly restate the setting and time-of-day/weather (matching treatment.environment and treatment.timeOfDay exactly, do not vary it). 4) STYLE — the render style, color grade, and lighting quality for this shot, matching styleBlock.description and treatment.colorGrade. 5) CAMERA MOVEMENT — how the camera moves during this shot. 6) AUDIO — the ambient/environmental sound, specific and concrete (weather, room tone, background noise — never generic). Example shape WITHOUT dialogue: "A woman in a flowing red dress walks to the closed glass door, opens it, steps inside, and pulls it shut behind her on a city rooftop at golden hour, the skyline reflected in the glass, warm light, shallow depth of field, soft film grade, the camera glides smoothly behind her, settling outside the door, soft footsteps, a gentle door latch, light wind, a faint city hum." Example shape WITH dialogue: "A woman in a flowing red dress reaches the glass door and pauses, turning back to the man behind her, and says, "Wait — are you sure about this?" on a city rooftop at golden hour, the skyline reflected in the glass, warm light, shallow depth of field, soft film grade, the camera holds steady on both of them, soft footsteps fading, a light wind, a faint city hum." If this scene instead has a "narrationLine" (voiceover, not spoken by anyone on screen), do NOT reference, quote, or mention it anywhere in this prompt at all — narration is generated entirely separately for CloneVoice and has no place in a video-generation prompt; this scene's videoAudioPrompt should read as if no narration existed.),
+      "videoAudioPrompt": string (Write this as ONE continuous flowing prompt, in this EXACT structural order — like a professional shot description, not labeled sections: 1) SUBJECT — briefly name who or what is in the scene: a character pulled from charactersInScene, OR, when charactersInScene is deliberately empty per the SUBJECT RULE, the actual non-human subject itself (a chart, a vehicle, a product, a document, etc.) — never invent a person just to fill this slot. 2) ACTION — the beat-by-beat physical action and performance, and how characters interact with each other if more than one is present. REQUIRED: if this scene has on-screen "dialogue" (a visible character speaking), the ACTION portion MUST include the exact quoted line, in the requested output language, and name which character speaks it — do not omit it, do not paraphrase it, do not drop it to save space. The quoted line itself stays in the requested output language even though the rest of the prompt is English; e.g. she turns to him and says, "..." 3) ENVIRONMENT — briefly restate the setting and time-of-day/weather (matching treatment.environment and treatment.timeOfDay exactly, do not vary it). 4) STYLE — the render style, color grade, and lighting quality for this shot, matching styleBlock.description and treatment.colorGrade. 5) CAMERA MOVEMENT — how the camera moves during this shot. 6) AUDIO — the ambient/environmental sound, specific and concrete (weather, room tone, background noise — never generic). Example shape WITHOUT dialogue: "A woman in a flowing red dress walks to the closed glass door, opens it, steps inside, and pulls it shut behind her on a city rooftop at golden hour, the skyline reflected in the glass, warm light, shallow depth of field, soft film grade, the camera glides smoothly behind her, settling outside the door, soft footsteps, a gentle door latch, light wind, a faint city hum." Example shape WITH dialogue: "A woman in a flowing red dress reaches the glass door and pauses, turning back to the man behind her, and says, "Wait — are you sure about this?" on a city rooftop at golden hour, the skyline reflected in the glass, warm light, shallow depth of field, soft film grade, the camera holds steady on both of them, soft footsteps fading, a light wind, a faint city hum." If this scene instead has a "narrationLine" (voiceover, not spoken by anyone on screen), do NOT reference, quote, or mention it anywhere in this prompt at all — narration is generated entirely separately for CloneVoice and has no place in a video-generation prompt; this scene's videoAudioPrompt should read as if no narration existed. Concretely: NEVER write a pattern like she whispers, "..." or he says, "..." that quotes or paraphrases the narrationLine as if it were spoken on camera — that turns silent voiceover into fabricated lip-synced dialogue, which is wrong even if the quoted words match the narration exactly. A narration scene's ACTION should describe physical behavior only (what the character does, how they move) with no quoted speech of any kind.),
       "transitionOut": string (e.g. "hard cut", "cross dissolve", "match cut on motion"),
       "soundCue": string (e.g. "soft piano swell", "ambient room tone", "beat drop"),
       "dialogue": string or null (if present, this is what fills the character's full 8-10 second screen moment — a natural spoken line at real speaking pace runs roughly 20-25 words for that duration. TOO SHORT (do not do this): "I can't believe it." (5 words, ~2 seconds — reads as a fragment). CORRECT LENGTH: "I can't believe you actually found this place — I've been looking for it for years, ever since my grandmother first told me the story." (~26 words, ~9-10 seconds — a genuine complete thought). Write a full sentence, sometimes two short ones, the way a person would actually speak in that moment. Still sound natural and unforced, never padded with filler just to hit a word count.),
@@ -784,7 +805,7 @@ Output ONLY raw JSON, no markdown fences, no preamble. Schema:
     }
   ]
 }
-NOTE: The 20-25 word target above is an English-speech approximation. When the output language isn't English, adapt to what actually takes 8-10 seconds to say naturally in that language's own rhythm — don't force an English word count onto a language with different pacing.
+NOTE: The 20-25 word target above is an English-speech approximation, based on English averaging roughly 1.5-2 syllables per word. When the output language isn't English, do NOT just reuse that same word count — convert it to a syllable-based target instead: natural conversational speech runs roughly 4-5 syllables per second across most languages, so an 8-10 second line needs roughly 35-45 spoken syllables, regardless of language. For a monosyllabic or near-monosyllabic language where each written word is typically one syllable (Vietnamese, Chinese, Thai), that means the line needs roughly 35-45 words — nearly double the English word-count target, NOT 20-25. A line like "Họ chăm chút cho con đẻ của họ hơn." (8 syllables, ~2 seconds) is a fragment, not a scene-filling line — for an 8-10 second Vietnamese scene, expand it into a genuinely long, complete sentence, or two shorter linked ones, that actually takes 8-10 seconds to say aloud at a natural pace. For a more polysyllabic language (Spanish, French, Indonesian, Japanese, Korean), the word count will land closer to the English target, but still check it against the same ~35-45 syllable benchmark rather than assuming word count alone is enough.
 SOURCE-CONTENT RULE (decide this FIRST, before casting anyone): Read the source material and work out what it actually IS. If it is a story, fable, book excerpt, folktale, article, or any narrative being told — as opposed to a real person's own routine, tips, review, or vlog-style content — then the characters, environment, and every scene must depict THAT STORY'S OWN WORLD: its actual characters, its actual setting, its actual events, illustrated as if this were a film or animated adaptation of it. In that case, do NOT invent a generic "Narrator", "Storyteller", "Host", "Reader", or "Listener" as a character in styleBlock.characters, and do NOT frame the video as one invented person reading or explaining the story to another invented person — depict the story's events directly. The only exception is when the source material is itself explicitly about two people in conversation (an interview, a dialogue, a real exchange) — then that conversation IS the story to depict, not a wrapper around it. Every imagePrompt and videoAudioPrompt must show a concrete moment lifted from the source material's own plot, in the order the story unfolds — never a generic, unrelated, or purely illustrative visual that could belong to any topic. If the source material genuinely is a real person presenting their own tips, routine, or experience straight to camera (the kind of topic like a skincare routine or a product unboxing), then a single on-screen presenter character is correct and expected — this rule only blocks inventing a narrator/reader frame around content that is actually a story.\nTOPIC VS SOURCE PRIORITY RULE: The user-provided "topic" (if any) is only a retelling angle, restyling, or optional twist — it is NEVER a replacement for the source material's own plot. Every entry in treatment.sourceBeats must still come from the actual source content; topic may change surface framing (wording, title, audience angle, a stylistic twist) but must never invent new events, swap in something generic that merely relates to the topic, or cause scenes to drift away from what the source specifically describes. If topic and source ever seem to pull in different directions, the source wins — treat topic as a lens to view the source through, never as a new brief that overrides it. When no topic is given, follow the source directly with no reframing at all.\nNARRATION-IS-NOT-A-CHARACTER RULE: Voiceover narration is read by someone who never appears on screen. A "narrationLine" must never be assigned to "dialogue", must never be quoted or attributed to a speaker anywhere in "videoAudioPrompt" or "imagePrompt", and the character delivering it must never be listed in "charactersInScene" or added to styleBlock.characters — there is no visual "Narrator" character, ever. If a moment feels like it needs someone to say something in-story, decide plainly whether that is a character in the depicted world speaking on screen (use "dialogue") or an unseen voiceover (use "narrationLine") — never both framed as the same speaking body.\nSUBJECT RULE: Not every scene is about a person, and a person should never be added to a scene just to have someone in frame. Before writing each scene, decide plainly what that scene's real visual subject is. Many topics and story beats are genuinely about a non-human subject — a statistic or trend (a chart/graph), a product or object being shown off, a vehicle, a piece of food, a document or screen, a landscape or detail of the environment itself. When that's the case, make "charactersInScene" an empty array for that scene and write "imagePrompt"/"videoAudioPrompt" centered entirely on that subject — its exact form, material, color, texture, motion, and any on-it text or data — never invent a person to hold it, point at it, or stand next to it. Only put a character in a scene when that scene's actual beat genuinely is about a person's presence, action, reaction, or speech. A sequence can freely mix character scenes and no-character/object scenes — do not force every single scene in the sequence into the same mold just because earlier scenes had a person in them.\nCHARACTER COUNT RULE: Analyze the source material and topic to determine how many distinct characters actually appear across the whole sequence — do not default to exactly one, and do not default to a character appearing in every scene (see SUBJECT RULE above). If the story is about a single person alone, write one character. If it involves an interaction (a vendor and a customer, a parent and a child, two friends), write a full bible entry for each one who appears, even side characters — anyone who's visible and described doing something needs a consistent character entry so they don't visually change scene to scene.
 PRODUCT CONSISTENCY RULE: If this is a commercial/product-focused piece for a specific branded product, write one full packaging-design-bible entry per distinct product/package into styleBlock.products (see schema) — exact brand colors, logo wordmark and placement, flavor/variant text, pack shape and material — and reference that exact same description every single time the product appears in imagePrompt/videoAudioPrompt. Treat the product itself the way CHARACTER COUNT RULE treats a person: something that must never redesign, recolor, reshape, or relabel itself between scenes. This rule only applies to genuine product/brand ads — ignore it entirely for non-commercial content, and leave styleBlock.products empty or omitted.
 ADS / COMMERCIAL STORYBOARD STRUCTURE: When this piece is an ad or commercial — signaled by an "ads"/"commercial" retelling angle, or by source material that is itself a product brief — and unless the source material clearly dictates a different structure, shape the sequence around this proven six-beat arc, compressing or combining beats as needed to fit the requested length, but never skipping the first, second, or last: (1) ORDINARY WORLD — open on the protagonist in a real, specific moment with no product in sight yet, establishing mood and character; this doubles as the Hook (see HOOK & RETENTION above — still open mid-action, never with throat-clearing). (2) PRODUCT INTRODUCTION — a deliberate, unhurried reveal of the product: pulled from a pocket or bag, held up, framed clearly — treat it like a character's entrance, not a throwaway prop, and render it exactly per PRODUCT CONSISTENCY RULE above. (3) PRODUCT INTERACTION — one or two close, tactile beats of physically using the product (unwrapping, texture, the specific physical action of use), shot in tight detail. (4) TRANSFORMATION / REACTION — show the immediate felt effect on the protagonist through PHYSICAL SPECIFICITY (a changed breath, posture, expression, a private smile) — never a label like "she feels refreshed." (5) AMPLIFICATION — extend that shift outward: the protagonist now moves through the world differently, and the environment or other people visibly respond (a crowd, an admiring glance, a burst of energy) — this is the social proof of the product's effect. (6) HERO / CLOSING SHOT — end on a clean, well-lit shot of the product (package legible, on-brand), alone or held together with the protagonist at their most confident, landing the Payoff beat on the product itself rather than trailing off. If this piece is not an ad/commercial, ignore this entire rule.
@@ -1008,8 +1029,23 @@ function updateSceneCharacter(sceneNumber, slot, value){
   showToast(`Scene ${sceneNumber} cast updated — remember to update the prompt text yourself if you change who's in the shot`);
 }
 
+// The shot-setup fields (shotType/cameraMovement/lens/lighting) are shown as
+// their own summary row in the UI, separate from imagePrompt/videoAudioPrompt
+// — but the model doesn't reliably weave all of them into that prose text,
+// and copying just the prompt field left them behind entirely when pasting
+// into VideoExpress. Fold them in explicitly rather than relying on the
+// model to have already said "medium shot" / "50mm" / etc. in words.
+function shotMetaLine(scene){
+  return [scene.shotType, scene.cameraMovement, scene.lens, scene.lighting].filter(Boolean).join(', ');
+}
+function fullImagePrompt(scene){
+  const base = scene.imagePrompt || '';
+  const meta = shotMetaLine(scene);
+  return meta ? `${base} ${meta}.` : base;
+}
+
 async function copyImagePrompt(scene){
-  await copyText(scene.imagePrompt);
+  await copyText(fullImagePrompt(scene));
   showToast(`Scene ${scene.sceneNumber} image prompt copied`);
 }
 const NEGATIVE_SUFFIX = "no text, no texture, no gore, no lip-sync, no watermark";
@@ -1024,6 +1060,9 @@ function fullVideoAudioPrompt(scene){
     const speaker = (scene.charactersInScene && scene.charactersInScene[0]) || 'the character';
     prompt = `${prompt} ${speaker} says, "${scene.dialogue}"`;
   }
+
+  const meta = shotMetaLine(scene);
+  if(meta) prompt = `${prompt} ${meta}.`;
 
   return `${prompt} ${NEGATIVE_SUFFIX}.`;
 }
@@ -1063,7 +1102,7 @@ async function copyAllForAutomation(scene){
   }
 
   const payload = {
-    image: scene.imagePrompt,
+    image: fullImagePrompt(scene),
     videoAudio: fullVideoAudioPrompt(scene),
     duration: scene.durationSeconds,
     characterStyle: job.characterStyle
@@ -1180,14 +1219,11 @@ function renderResults(){
             ${buildCharacterPicker(scene)}
           </div>
           <div class="scene-extra">
-            <span class="ex-item"><b>${scene.shotType}</b></span>
-            <span class="ex-item">${scene.cameraMovement}</span>
-            <span class="ex-item">${scene.lens || ''}</span>
-            <span class="ex-item">${scene.lighting}</span>
+            <span class="ex-item"><b>${scene.shotType}</b></span><span class="ex-sep"> · </span><span class="ex-item">${scene.cameraMovement}</span><span class="ex-sep"> · </span><span class="ex-item">${scene.lens || ''}</span><span class="ex-sep"> · </span><span class="ex-item">${scene.lighting}</span>
           </div>
 
           <div class="line-label">Image Prompt (starting frame)</div>
-          <div class="prompt-box">${scene.imagePrompt}</div>
+          <div class="prompt-box">${fullImagePrompt(scene)}</div>
           <div class="btn-row" style="margin-bottom:14px;">
             <button class="btn btn-video" onclick='copyImagePrompt(job.scenes[${scene.sceneNumber-1}])'>Copy Image Prompt</button>
           </div>
