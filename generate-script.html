@@ -165,10 +165,13 @@
         <input type="password" id="openaiKey" placeholder="sk-..."
           autocomplete="off" oninput="onKeyInput()">
         <div class="hint">Used only to call OpenAI directly from your browser —
-          never saved. Leave blank to use the built-in generator.</div>
+          never saved. Leave blank to use the built-in generator (only works
+          inside Claude.ai's preview — when you save this file and open it on
+          your own machine, add your OpenAI key and start the bundled backend
+          server below so generation works standalone).</div>
         <div class="key-status" id="keyStatus">Key set for this session</div>
         <input type="text" id="backendUrl"
-          placeholder="Optional: your backend proxy URL (avoids CORS)"
+          placeholder="Backend URL, e.g. http://localhost:3000 (run: node backend/server.js)"
           style="margin-top:8px;font-size:11px;">
         <select id="openaiModel"
           style="width:100%;margin-top:8px;background:var(--bg);border:1px solid var(--line);border-radius:6px;color:var(--text);font-family:'IBM Plex Mono',monospace;font-size:12px;padding:9px 10px;">
@@ -574,7 +577,7 @@ async function callGeneration(systemPrompt, userPrompt){
   let rawText;
 
   if(openaiKey && backendUrl){
-    const response = await fetch(`${backendUrl.replace(/\/$/,'')}/generate-script`, {
+    const response = await fetch(`${backendUrl.replace(/\/$/,'')}/api/generate-script`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ openaiKey, systemPrompt, userPrompt, model: selectedModel })
