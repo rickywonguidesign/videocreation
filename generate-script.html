@@ -461,6 +461,7 @@ function flashTitle(msg){
 }
 
 const CLONEVOICE_URL = "https://app.clonevoice.ai/audio";
+const ARTISTLY_URL = "https://app.artistly.ai/ai/image-designer-v6";
 let currentStyle = "3D";
 
 // Pulled directly from CloneVoice's voice selector results for Vietnamese —
@@ -1136,6 +1137,15 @@ function openOrFocusCloneVoice(){
   cvTabRef = window.open(CLONEVOICE_URL, '_blank');
 }
 
+let atTabRef = null; // reference to the Artistly tab we opened, so repeat clicks reuse it instead of opening new ones
+function openOrFocusArtistly(){
+  if(atTabRef && !atTabRef.closed){
+    atTabRef.focus();
+    return;
+  }
+  atTabRef = window.open(ARTISTLY_URL, '_blank');
+}
+
 async function copyAllForAutomation(scene){
   // Piggyback the notification permission request on this genuine click —
   // browsers only honor requestPermission() inside a real user gesture, and
@@ -1194,6 +1204,13 @@ async function copyCharacter(index){
   await copyText(characterSheetPrompt(c));
   showToast(`${c.name} character sheet prompt copied`);
 }
+async function copyToArtistly(index){
+  const c = job.styleBlock.characters[index];
+  const payload = { source: 'scriptgen-artistly', character: c.name, prompt: characterSheetPrompt(c) };
+  await copyText(JSON.stringify(payload));
+  openOrFocusArtistly();
+  showToast(`${c.name} character sheet prompt copied — paste with the userscript's floating button on Artistly`);
+}
 async function copyProduct(index){
   const p = job.styleBlock.products[index];
   await copyText(`${job.styleBlock.description}\n\n${p.name}: ${p.description}`);
@@ -1230,6 +1247,7 @@ function renderResults(){
       ${Array.isArray(c.actionPoses) && c.actionPoses.length ? `<div class="cd" style="margin-top:8px;color:var(--text-dim);"><b>Sheet poses:</b> ${c.actionPoses.join(' · ')}</div>` : ''}
       <div class="btn-row" style="margin-top:12px;">
         <button class="btn btn-video" onclick="copyCharacter(${i})">Copy Character Sheet</button>
+        <button class="btn btn-voice" onclick="copyToArtistly(${i})">Copy → Artistly</button>
       </div>
     </div>
     `).join('')}
