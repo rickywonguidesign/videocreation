@@ -592,13 +592,20 @@ function showError(msg){
 async function callGeneration(systemPrompt, userPrompt){
   const openaiKey = document.getElementById('openaiKey').value.trim();
   const backendUrl = document.getElementById('backendUrl').value.trim();
+  // Tolerate either "http://host:port" or "http://host:port/api" in the
+  // field — the endpoint below always adds "/api/generate-script" itself,
+  // so a value already ending in "/api" (e.g. saved from before that was
+  // required, or just typed that way) would otherwise double up into
+  // "/api/api/generate-script" and 404. Strip a trailing slash, then a
+  // trailing "/api", before appending it back exactly once.
+  const backendBase = backendUrl.replace(/\/$/,'').replace(/\/api$/i,'');
   const selectedModel = document.getElementById('openaiModel').value;
   let rawText;
 
   if(openaiKey && backendUrl){
     let response;
     try{
-      response = await fetch(`${backendUrl.replace(/\/$/,'')}/api/generate-script`, {
+      response = await fetch(`${backendBase}/api/generate-script`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ openaiKey, systemPrompt, userPrompt, model: selectedModel })
@@ -608,7 +615,7 @@ async function callGeneration(systemPrompt, userPrompt){
       // failures — refused connection, wrong URL, backend not running — before
       // there's ever a response to check .ok on. Give a concrete next step
       // instead of surfacing that opaque browser message as-is.
-      throw new Error(`Could not reach your backend proxy at "${backendUrl}" — make sure it's running (cd backend && node server.js) and the URL is correct.`);
+      throw new Error(`Could not reach your backend proxy at "${backendBase}/api/generate-script" — make sure it's running (cd backend && node server.js) and the URL is correct.`);
     }
     if(!response.ok){
       const errBody = await response.text();
