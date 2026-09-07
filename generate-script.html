@@ -172,9 +172,11 @@
         <div class="key-status" id="keyStatus">Key set for this session</div>
         <input type="text" id="backendUrl"
           placeholder="Backend URL, e.g. http://localhost:3000 (run: node backend/server.js)"
-          style="margin-top:8px;font-size:11px;">
+          style="margin-top:8px;font-size:11px;"
+          oninput="try{localStorage.setItem('backendUrl', this.value)}catch(e){}">
         <select id="openaiModel"
-          style="width:100%;margin-top:8px;background:var(--bg);border:1px solid var(--line);border-radius:6px;color:var(--text);font-family:'IBM Plex Mono',monospace;font-size:12px;padding:9px 10px;">
+          style="width:100%;margin-top:8px;background:var(--bg);border:1px solid var(--line);border-radius:6px;color:var(--text);font-family:'IBM Plex Mono',monospace;font-size:12px;padding:9px 10px;"
+          onchange="try{localStorage.setItem('openaiModel', this.value)}catch(e){}">
           <option value="gpt-5.6-terra">gpt-5.6-terra (balanced — better
             quality)</option>
           <option value="gpt-4o-mini" selected>gpt-4o-mini (cheaper/faster,
@@ -379,6 +381,23 @@ if(!window.storage){
   };
 }
 
+// The OpenAI key is intentionally never persisted (typed fresh each session,
+// for privacy) — but losing the backend URL and model choice on every page
+// reload too was a silent trap: after reopening this file or loading a saved
+// job, both fields were blank, so "Generate next scenes" would quietly fall
+// through to the built-in generator, which only works inside Claude.ai's own
+// preview and fails standalone with an opaque "Failed to fetch". Restoring
+// these two (non-sensitive) settings removes that trap; the key field still
+// needs to be re-entered by hand every time, by design.
+(function restoreGenerationSettings(){
+  try{
+    const savedBackendUrl = localStorage.getItem('backendUrl');
+    if(savedBackendUrl) document.getElementById('backendUrl').value = savedBackendUrl;
+    const savedModel = localStorage.getItem('openaiModel');
+    if(savedModel) document.getElementById('openaiModel').value = savedModel;
+  }catch(e){}
+})();
+
 const VIDEOEXPRESS_URL = "https://app.videoexpress.ai/";
 
 // Listens for the VideoExpress automation userscript signaling it finished a
@@ -577,11 +596,20 @@ async function callGeneration(systemPrompt, userPrompt){
   let rawText;
 
   if(openaiKey && backendUrl){
-    const response = await fetch(`${backendUrl.replace(/\/$/,'')}/api/generate-script`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ openaiKey, systemPrompt, userPrompt, model: selectedModel })
-    });
+    let response;
+    try{
+      response = await fetch(`${backendUrl.replace(/\/$/,'')}/api/generate-script`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ openaiKey, systemPrompt, userPrompt, model: selectedModel })
+      });
+    }catch(networkErr){
+      // fetch() itself throws (a bare "Failed to fetch") for network-level
+      // failures — refused connection, wrong URL, backend not running — before
+      // there's ever a response to check .ok on. Give a concrete next step
+      // instead of surfacing that opaque browser message as-is.
+      throw new Error(`Could not reach your backend proxy at "${backendUrl}" — make sure it's running (cd backend && node server.js) and the URL is correct.`);
+    }
     if(!response.ok){
       const errBody = await response.text();
       throw new Error(`Backend returned ${response.status}. ${errBody.slice(0,150)}`);
@@ -590,15 +618,20 @@ async function callGeneration(systemPrompt, userPrompt){
     rawText = data.content;
     if(!rawText) throw new Error("No content in backend response");
   }else if(openaiKey){
-    const response = await fetch("https://api.openai.com/v1/chat/completions", {
-      method: "POST",
-      headers: { "Content-Type": "application/json", "Authorization": `Bearer ${openaiKey}` },
-      body: JSON.stringify({
-        model: selectedModel,
-        messages: [{ role: "system", content: systemPrompt }, { role: "user", content: userPrompt }],
-        response_format: { type: "json_object" }
-      })
-    });
+    let response;
+    try{
+      response = await fetch("https://api.openai.com/v1/chat/completions", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${openaiKey}` },
+        body: JSON.stringify({
+          model: selectedModel,
+          messages: [{ role: "system", content: systemPrompt }, { role: "user", content: userPrompt }],
+          response_format: { type: "json_object" }
+        })
+      });
+    }catch(networkErr){
+      throw new Error(`Could not reach OpenAI directly from the browser — this is almost always blocked by CORS. Add a backend proxy URL above (cd backend && node server.js, then use http://localhost:3000) to work around it.`);
+    }
     if(!response.ok){
       const errBody = await response.text();
       throw new Error(`OpenAI returned ${response.status} — check your key. ${errBody.slice(0,120)}`);
@@ -607,16 +640,21 @@ async function callGeneration(systemPrompt, userPrompt){
     rawText = data.choices && data.choices[0] && data.choices[0].message && data.choices[0].message.content;
     if(!rawText) throw new Error("No content in OpenAI response");
   }else{
-    const response = await fetch("https://api.anthropic.com/v1/messages", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        model: "claude-sonnet-4-6",
-        max_tokens: 1000,
-        system: systemPrompt,
-        messages: [{ role: "user", content: userPrompt }]
-      })
-    });
+    let response;
+    try{
+      response = await fetch("https://api.anthropic.com/v1/messages", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          model: "claude-sonnet-4-6",
+          max_tokens: 1000,
+          system: systemPrompt,
+          messages: [{ role: "user", content: userPrompt }]
+        })
+      });
+    }catch(networkErr){
+      throw new Error(`Could not reach the built-in generator — this free option (no key entered) only works inside Claude.ai's own preview. If you're running this file on your own machine, enter your OpenAI key above and a backend proxy URL (cd backend && node server.js, then use http://localhost:3000), then try again.`);
+    }
     if(!response.ok) throw new Error(`API returned ${response.status}`);
     const data = await response.json();
     const textBlock = (data.content || []).find(b => b.type === "text");
