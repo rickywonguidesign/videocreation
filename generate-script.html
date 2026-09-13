@@ -328,6 +328,33 @@
                                       together.</div>
                                   </div>
 
+                                  <div class="field">
+                                    <label
+                                      style="display:flex;align-items:center;gap:8px;cursor:pointer;">
+                                      <input type="checkbox" id="outroCta"
+                                        checked
+                                        style="width:16px;height:16px;accent-color:var(--amber);cursor:pointer;">
+                                      <span
+                                        style="text-transform:none;font-size:13px;letter-spacing:0;color:var(--text);">Closing
+                                        moral + like/share/subscribe</span>
+                                    </label>
+                                    <div class="hint">Adds one or two extra
+                                      scenes right
+                                      after the story's real ending: a closing
+                                      line that
+                                      states the story's own meaning outright,
+                                      then a
+                                      natural like/share/subscribe nudge written
+                                      in the
+                                      same voice as the rest of the narration —
+                                      not a
+                                      bolted-on ad break. Uncheck for a piece
+                                      that
+                                      shouldn't end this way (silent/cinematic
+                                      pieces,
+                                      client work with no CTA wanted).</div>
+                                  </div>
+
                                   <button class="generate-btn" id="genBtn"
                                     onclick="generateScript()">
                                     <span class="spinner"></span><span
@@ -850,6 +877,22 @@ function visualRegisterRule(){
   return `\nVISUAL REGISTER: ${visualFlavor} This applies to every "imagePrompt" and "videoAudioPrompt" in the sequence — every scene, whether or not it has dialogue or narration — because the retelling angle shapes what's SEEN, not only what's said. Still obey CONTINUITY, CONCRETE DETAIL FIDELITY, and every other rule above; this only steers the visual treatment, never the actual events, objects, or setting identity.`;
 }
 
+// A finished story landing its Payoff isn't the same thing as a finished
+// VIDEO — real creators close on the story's own meaning and then ask for
+// the like/share/subscribe, and that closing beat doesn't belong woven into
+// the story itself (it's a platform-facing address to the viewer, not a
+// story event), so it's written as one or two extra scenes tacked on right
+// after the genuine Payoff, using the exact same scene schema so it flows
+// straight into VideoExpress/CloneVoice like any other scene. Gated by the
+// "outroCta" checkbox so it can be switched off (a silent/cinematic piece,
+// client work that shouldn't end with a subscribe pitch).
+function outroRule(){
+  const el = document.getElementById('outroCta');
+  if(!el || !el.checked) return '';
+  return `\nOUTRO RULE — CLOSING MEANING + LIKE/SHARE/SUBSCRIBE: Whenever a scene in THIS batch is the genuine final Payoff — the story has truly reached its ending, nothing left in sourceBeats or the source material to depict — append exactly one, or at most two, additional scene(s) immediately after it in this SAME response, each with "beat" set to "Outro". Do not wait for a later batch to add these; landing the Payoff is precisely the moment to keep going a little further, not to stop. If the previous scene already IS an Outro scene, the video is fully closed — do not add another one. Outro scenes still follow the full scene schema (sceneNumber continuing the sequence, timeRange continuing on from the Payoff scene, durationSeconds 8-10, imagePrompt/videoAudioPrompt, etc.) and stay locked to the same environment, characters, style, and color grade as the rest of the video — this is a calm closing beat, not a new scene of plot: describe a settled, quiet continuation of the Payoff's own final moment (the character exhaling, sitting back, looking out at what they've built), never a new event, new character, or new location.
+Their "narrationLine" (or "dialogue" if this piece is presenter/vlog-style and a person is meant to address the viewer directly) must accomplish two things, in this order, in one flowing line, per CONCRETE DETAIL FIDELITY and HOOK & RETENTION above: (1) state the story's own meaning, lesson, or takeaway OUTRIGHT, in the story's own specific terms — never a vague, generic moral that could belong to any story — inferring the most honest one implied by the events if the source never states one explicitly; then (2) close with a warm, natural call-to-action encouraging the viewer to like, share, and subscribe, phrased in the SAME register as the rest of the narration (per the voice flavor above — a fable narrator's CTA sounds different from a vlogger's) so it lands as part of the story's own voice, never like a bolted-on ad break. Example (fable register): "And that was the day Ryan finally understood — it was never about being the fastest, only about refusing to quit. If this story moved you, like this video, share it with someone who needs to hear it, and subscribe for more tales like it." If both parts genuinely can't fit naturally in one 8-10 second line without feeling crammed (especially in a monosyllabic language needing far more syllables per idea), split it into two back-to-back Outro scenes instead — the first landing the story's meaning, the second carrying only the like/share/subscribe line — but never more than two Outro scenes total, and never repeat the same idea across both. Everything other than the "dialogue"/"narrationLine" text itself still obeys LANGUAGE RULE — only those two fields follow the requested output language, every other field stays in English.`;
+}
+
 function baseSystemPrompt(){
   return `You are a professional film director and cinematographer breaking down a short video into a shot list, the way you would for a real shoot — not just filling in a template.
 
@@ -956,7 +999,16 @@ async function generateScript(){
   setLoading(true);
   try{
     const totalSeconds = minuteVal ? Math.round(minuteVal * 60) : null;
-    const systemPrompt = baseSystemPrompt() + `\nRules: styleBlock.description must reflect the requested character style. This is the OPENING batch of a longer video — cover only roughly the first 40-50 seconds as consecutive 8-10 second scenes, starting at 0:00, and make sure this batch covers the "Hook" and the start of "Build". Keep total scenes in this batch between 3 and 5. Per SOURCE BEAT EXTRACTION: list treatment.sourceBeats as concrete, specific moments from the source material before writing any scenes, and make sure every scene in this batch clearly maps to one of them, in order — do not invent scenes that don't correspond to something the source actually describes. Per HOOK & RETENTION: since this batch includes the Hook, open the very first scene already inside concrete action or an unresolved question pulled from sourceBeats — never a quiet establishing or waking-up moment — and write its logline/narration/dialogue to match: specific, active, no throat-clearing openers. If this is an ad/commercial piece, per ADS / COMMERCIAL STORYBOARD STRUCTURE this batch should open on ORDINARY WORLD with no product visible yet, saving PRODUCT INTRODUCTION for shortly after — otherwise ignore this sentence entirely. Vary shot size and camera movement scene to scene — never repeat the same combination twice in a row. Per VISUAL VARIETY: each scene's imagePrompt must show a visibly different pose/action/framing AND a visibly different specific background/set-dressing detail (a different spot within the one locked location, not the same patch of backdrop repeated) than the scene before it, even with environment and lighting locked — before finalizing, compare each imagePrompt to the one before it and rewrite either if they'd render as near-identical images, backgrounds included. Per ACTION CONTINUITY: each scene's opening action must visibly pick up from exactly where the previous scene's action ended — same body position, same object in hand, same emotional beat continuing — not a jump to an unrelated moment; check this against the previous scene before finalizing each one. Per CROWD & SCENE POPULATION RULE: if this batch's setting inherently implies other people (a city, a competition, a school, a market, a crowd of any kind), populate the imagery with concrete background people, not just the named cast alone in an empty-looking space — and make sure each of those background people is a visually distinct, randomly-generated look, never the named character's own description reused or reworded for someone else in the crowd. Per EXTENDED SINGLE-ACTION PACING RULE: if this batch depicts one continuous ongoing event (a race, chase, competition, struggle), do not let it sit unchanged for more than 3-4 scenes without a concrete development — introduce one, or compress toward the event's resolution instead of padding it. Keep imagePrompt and videoAudioPrompt concise enough that the whole response fits in the token budget — but this does NOT apply to "dialogue" or "narrationLine": those must always hit their full 20-25 word / 8-10 second length regardless, even if it means fewer scenes in this batch. Never shorten a spoken line just to save tokens. Per LANGUAGE RULE: every field must be in English except "dialogue" and "narrationLine" — even if the source material below is itself written in ${document.getElementById('language').value}, describe it in English; only the spoken lines follow ${document.getElementById('language').value}.` + speechModeRule() + visualRegisterRule();
+    // A short source story (few concrete beats) told at one scene per beat
+    // will naturally conclude in far fewer scenes than a long requested video
+    // length calls for — the model has no way to know that mismatch exists
+    // unless it's told the actual scene-count target up front, so it can plan
+    // to give the story's real beats fuller cinematic coverage (more shots
+    // per beat) rather than rushing through everything it has and stopping
+    // well short of the requested length.
+    const targetSceneCount = totalSeconds ? Math.round(totalSeconds / 9) : null;
+    const pacingToTargetNote = targetSceneCount ? ` PACING TO TARGET LENGTH: this video is requested at ${minuteVal} minute(s) (~${totalSeconds}s) total — at 8-10s per scene, that's roughly ${targetSceneCount} scenes across the ENTIRE video, not just this opening batch. Keep that target in mind while building treatment.sourceBeats: if the source material only yields noticeably fewer concrete beats than that (a short story being told), do not plan to rush through it in as few scenes as possible. Instead plan, from this very first batch, to give the story's more significant beats (confrontations, turning points, decisions, competitions, emotional moments) multiple scenes of genuine cinematic coverage spread across the whole video — an approach/anticipation shot, the core action, a reaction or consequence beat, a lingering emotional moment — the way a real film allocates several shots to one dramatic beat, never by inventing new plot events beyond the source (still per SOURCE-CONTENT RULE and TOPIC VS SOURCE PRIORITY RULE below). The story should only reach its Payoff once it has earned close to the requested length through real, faithful coverage — not conclude several minutes short of it.` : '';
+    const systemPrompt = baseSystemPrompt() + `\nRules: styleBlock.description must reflect the requested character style. This is the OPENING batch of a longer video — cover only roughly the first 40-50 seconds as consecutive 8-10 second scenes, starting at 0:00, and make sure this batch covers the "Hook" and the start of "Build". Keep total scenes in this batch between 3 and 5. Per SOURCE BEAT EXTRACTION: list treatment.sourceBeats as concrete, specific moments from the source material before writing any scenes, and make sure every scene in this batch clearly maps to one of them, in order — do not invent scenes that don't correspond to something the source actually describes.${pacingToTargetNote} Per HOOK & RETENTION: since this batch includes the Hook, open the very first scene already inside concrete action or an unresolved question pulled from sourceBeats — never a quiet establishing or waking-up moment — and write its logline/narration/dialogue to match: specific, active, no throat-clearing openers. If this is an ad/commercial piece, per ADS / COMMERCIAL STORYBOARD STRUCTURE this batch should open on ORDINARY WORLD with no product visible yet, saving PRODUCT INTRODUCTION for shortly after — otherwise ignore this sentence entirely. Vary shot size and camera movement scene to scene — never repeat the same combination twice in a row. Per VISUAL VARIETY: each scene's imagePrompt must show a visibly different pose/action/framing AND a visibly different specific background/set-dressing detail (a different spot within the one locked location, not the same patch of backdrop repeated) than the scene before it, even with environment and lighting locked — before finalizing, compare each imagePrompt to the one before it and rewrite either if they'd render as near-identical images, backgrounds included. Per ACTION CONTINUITY: each scene's opening action must visibly pick up from exactly where the previous scene's action ended — same body position, same object in hand, same emotional beat continuing — not a jump to an unrelated moment; check this against the previous scene before finalizing each one. Per CROWD & SCENE POPULATION RULE: if this batch's setting inherently implies other people (a city, a competition, a school, a market, a crowd of any kind), populate the imagery with concrete background people, not just the named cast alone in an empty-looking space — and make sure each of those background people is a visually distinct, randomly-generated look, never the named character's own description reused or reworded for someone else in the crowd. Per EXTENDED SINGLE-ACTION PACING RULE: if this batch depicts one continuous ongoing event (a race, chase, competition, struggle), do not let it sit unchanged for more than 3-4 scenes without a concrete development — introduce one, or compress toward the event's resolution instead of padding it. Keep imagePrompt and videoAudioPrompt concise enough that the whole response fits in the token budget — but this does NOT apply to "dialogue" or "narrationLine": those must always hit their full 20-25 word / 8-10 second length regardless, even if it means fewer scenes in this batch. Never shorten a spoken line just to save tokens. Per LANGUAGE RULE: every field must be in English except "dialogue" and "narrationLine" — even if the source material below is itself written in ${document.getElementById('language').value}, describe it in English; only the spoken lines follow ${document.getElementById('language').value}.` + speechModeRule() + visualRegisterRule() + outroRule();
 
     const userPrompt = `Source material:\n${source}\n\n${totalSeconds ? `Total video length: ${minuteVal} minutes (${totalSeconds}s)` : "Length not specified — treat as a short clip"}\n${topic ? `Retelling angle (secondary — a stylistic twist only, must never override or replace the source material's actual content above): ${topic}` : `No retelling angle given — follow the source material's own story directly, with no reframing.`}\nCharacter style: ${currentStyle}\nOutput language for dialogue/narration: ${document.getElementById('language').value}`;
 
@@ -988,6 +1040,13 @@ async function generateScript(){
 }
 
 async function continueScript(){
+  if(isStoryComplete()){
+    // Belt-and-suspenders: renderResults() below already disables this
+    // button once the story is complete, but guard the actual API call too
+    // in case this ever gets invoked some other way (e.g. a stale render).
+    showToast('This story already reached its ending (Payoff) — start a new job instead of generating more.');
+    return;
+  }
   const btn = document.getElementById('continueBtn');
   btn.disabled = true;
   btn.textContent = 'Generating next scenes…';
@@ -1035,12 +1094,31 @@ async function continueScript(){
       ? job.source
       : `(Full source text omitted for this batch to save tokens — it was already sent in full for the opening batch, and the source beats list below still has roughly ${beatsRemainingEstimate} unshown beat(s) to draw on. Work from those beat descriptions; once that list is nearly exhausted, a later batch will receive the full source text again so more beats can be extracted from it.)`;
 
-    const systemPrompt = baseSystemPrompt() + outputOverride + `\nRules: This CONTINUES an existing shot list — do not repeat earlier scenes. Start scene numbering at ${job.scenes.length + 1} and start the time range at ${formatTime(lastEndSeconds)}. Generate the next 3-5 consecutive scenes. ${remaining !== null && remaining <= 60 ? 'This is likely the final batch — land the "Payoff" beat by the end of the video.' : 'Continue developing the "Build" beat, saving "Payoff" for a later batch.'} Per SOURCE BEAT EXTRACTION: continue mapping scenes onto the sourceBeats list already established below, in order, picking up from wherever it left off — if you reach the end of that list before the video is done, extract further concrete beats from later in the source material and continue the same progression, never inventing an unrelated event. Per HOOK & RETENTION: keep escalating the specific question the Hook opened through this batch's Build scenes — no scene should just sit still or repeat what's already been shown — and if this is the final batch, make the Payoff scene's closing line land with real weight (a concrete turn, reveal, or the story's own stated meaning) rather than trailing off into a generic close. If this is an ad/commercial piece, per ADS / COMMERCIAL STORYBOARD STRUCTURE keep developing PRODUCT INTERACTION and TRANSFORMATION/AMPLIFICATION through this batch, and if this is the final batch, land the HERO / CLOSING SHOT on a clean, legible shot of the product — otherwise ignore this sentence entirely. Vary shot size and camera movement, and don't repeat the immediately preceding scene's combination. Per VISUAL VARIETY: this batch's first new imagePrompt must look clearly different (pose/action/framing, AND a different specific background spot within the one locked location) from the last scene of the previous batch quoted below, and every scene after that must keep differing from the one before it — never two near-identical frames in a row, backgrounds included, even with environment and lighting locked. Per ACTION CONTINUITY: this batch's first scene must pick up exactly where the previous batch's last scene left off (quoted below) — same body position, same object in hand, same emotional beat continuing — and every scene after that must keep flowing from the one before it, not jumping to unrelated moments. Per CROWD & SCENE POPULATION RULE: if the setting inherently implies other people (a city, a competition, a school, a market, a crowd of any kind), keep populating the imagery with concrete background people, not just the named cast alone in an empty-looking space — and make sure each of those background people is a visually distinct, randomly-generated look, never the named character's own description reused or reworded for someone else in the crowd. Per EXTENDED SINGLE-ACTION PACING RULE: check the recent-scenes summary quoted below — if it shows the same ongoing event (a race, chase, competition, struggle) repeating for 3-4 scenes or more without a concrete development, this batch's first scene must supply one now (a lead change, an obstacle, a mistake, a crowd reaction, a decision) or compress toward that event's resolution, never simply extend it unchanged again. Keep imagePrompt and videoAudioPrompt concise enough that the whole response fits in the token budget — but this does NOT apply to "dialogue" or "narrationLine": those must always hit their full 20-25 word / 8-10 second length regardless, even if it means fewer scenes in this batch. Never shorten a spoken line just to save tokens. Per LANGUAGE RULE: every field must be in English except "dialogue" and "narrationLine" — even if the source material below is itself written in ${document.getElementById('language').value}, describe it in English; only the spoken lines follow ${document.getElementById('language').value}.` + speechModeRule() + visualRegisterRule();
+    // A short source story told at roughly one scene per beat will run out of
+    // beats — and hit the STOP CONDITION below — long before a generous
+    // requested video length is reached. Without an explicit target and
+    // remaining-runway figure, the model has no way to tell "this story is
+    // genuinely finished" apart from "I've only covered what few beats I
+    // extracted and there's much more requested time left" — so spell out
+    // both numbers and make the STOP CONDITION explicitly defer to this.
+    const estimatedTotalScenesNeeded = job.totalSeconds ? Math.round(job.totalSeconds / 9) : null;
+    const remainingClamped = Math.max(0, remaining || 0);
+    const pacingNote = estimatedTotalScenesNeeded ? ` PACING TO TARGET LENGTH: this video's target is roughly ${estimatedTotalScenesNeeded} scenes total (~${job.totalSeconds}s at 8-10s each) — ${job.scenes.length} have been written so far, with roughly ${remainingClamped}s (about ${Math.round(remainingClamped/9)} more scenes) of requested runway still remaining. If the unshown sourceBeats would otherwise wrap up well short of that target, that is NOT a reason to end early or trigger the STOP CONDITION below — instead slow down: give the remaining beats, especially the climax and its aftermath, fuller cinematic coverage across more scenes (an approach/anticipation shot, the core action itself, a reaction/consequence beat, a lingering emotional or reflective moment) so the story earns its way to something close to the requested length through real, faithful coverage. Only land the Payoff meaningfully before the target if the source material is genuinely too thin to stretch further even with generous, faithful coverage — never by inventing unrelated events to pad it.` : '';
+
+    const systemPrompt = baseSystemPrompt() + outputOverride + `\nRules:${pacingNote} STOP CONDITION — CHECK THIS SECOND, only once PACING TO TARGET LENGTH above rules out expanding further: if the story already reached a genuine ending in the scenes so far (the previous scene already lands as a Payoff — a concrete resolution, reveal, or the story's own stated moral/meaning per HOOK & RETENTION and LONG-TIMESPAN rules above — and there is nothing left in sourceBeats or the source material to depict, even with expanded coverage; OR the previous scene is already an "Outro" scene per OUTRO RULE below, in which case the video is fully closed no matter what) — do NOT invent more scenes just to fill a batch: instead output {"scenes": []} (an empty array) and nothing else. Never pad a finished story by re-staging, rephrasing, or looping back over content already shown in earlier scenes (e.g. repeating the climax or closing moral under new scene numbers) — that is worse than generating nothing. Only proceed past this check if there is a genuine, unshown next beat to depict. This CONTINUES an existing shot list — do not repeat earlier scenes. Start scene numbering at ${job.scenes.length + 1} and start the time range at ${formatTime(lastEndSeconds)}. Generate the next 3-5 consecutive scenes. ${remaining !== null && remaining <= 60 ? 'This is likely the final batch — land the "Payoff" beat by the end of the video.' : 'Continue developing the "Build" beat, saving "Payoff" for a later batch.'} Per SOURCE BEAT EXTRACTION: continue mapping scenes onto the sourceBeats list already established below, in order, picking up from wherever it left off — if you reach the end of that list before the video is done, extract further concrete beats from later in the source material and continue the same progression, never inventing an unrelated event. Per HOOK & RETENTION: keep escalating the specific question the Hook opened through this batch's Build scenes — no scene should just sit still or repeat what's already been shown — and if this is the final batch, make the Payoff scene's closing line land with real weight (a concrete turn, reveal, or the story's own stated meaning) rather than trailing off into a generic close. If this is an ad/commercial piece, per ADS / COMMERCIAL STORYBOARD STRUCTURE keep developing PRODUCT INTERACTION and TRANSFORMATION/AMPLIFICATION through this batch, and if this is the final batch, land the HERO / CLOSING SHOT on a clean, legible shot of the product — otherwise ignore this sentence entirely. Vary shot size and camera movement, and don't repeat the immediately preceding scene's combination. Per VISUAL VARIETY: this batch's first new imagePrompt must look clearly different (pose/action/framing, AND a different specific background spot within the one locked location) from the last scene of the previous batch quoted below, and every scene after that must keep differing from the one before it — never two near-identical frames in a row, backgrounds included, even with environment and lighting locked. Per ACTION CONTINUITY: this batch's first scene must pick up exactly where the previous batch's last scene left off (quoted below) — same body position, same object in hand, same emotional beat continuing — and every scene after that must keep flowing from the one before it, not jumping to unrelated moments. Per CROWD & SCENE POPULATION RULE: if the setting inherently implies other people (a city, a competition, a school, a market, a crowd of any kind), keep populating the imagery with concrete background people, not just the named cast alone in an empty-looking space — and make sure each of those background people is a visually distinct, randomly-generated look, never the named character's own description reused or reworded for someone else in the crowd. Per EXTENDED SINGLE-ACTION PACING RULE: check the recent-scenes summary quoted below — if it shows the same ongoing event (a race, chase, competition, struggle) repeating for 3-4 scenes or more without a concrete development, this batch's first scene must supply one now (a lead change, an obstacle, a mistake, a crowd reaction, a decision) or compress toward that event's resolution, never simply extend it unchanged again. Keep imagePrompt and videoAudioPrompt concise enough that the whole response fits in the token budget — but this does NOT apply to "dialogue" or "narrationLine": those must always hit their full 20-25 word / 8-10 second length regardless, even if it means fewer scenes in this batch. Never shorten a spoken line just to save tokens. Per LANGUAGE RULE: every field must be in English except "dialogue" and "narrationLine" — even if the source material below is itself written in ${document.getElementById('language').value}, describe it in English; only the spoken lines follow ${document.getElementById('language').value}.` + speechModeRule() + visualRegisterRule() + outroRule();
 
     const userPrompt = `Source material:\n${sourceTextForPrompt}\n\n${job.currentTopic ? `Retelling angle (secondary — a stylistic twist only, must never override or replace the source material's actual content above): ${job.currentTopic}` : `No retelling angle given — follow the source material's own story directly, with no reframing.`}\nCharacter style: ${job.characterStyle}\nOutput language for dialogue/narration: ${document.getElementById('language').value}\n\nContinuing from the style, environment, and characters already established — reuse these exactly, do not invent new characters, and do not change the environment or time-of-day unless the story clearly moves to a new place or later time:\nStyle: ${job.styleBlock.description}\nEnvironment: ${job.treatment?.environment || 'not specified — infer from earlier scenes'}\nTime of day: ${job.treatment?.timeOfDay || 'not specified — infer from earlier scenes'}\nCharacters:\n${job.styleBlock.characters.map(c => `- ${c.name} (${c.role}): ${c.description}`).join('\n')}${Array.isArray(job.styleBlock.products) && job.styleBlock.products.length ? `\n\nProducts already established — reuse these exact descriptions, do not let the packaging redesign, recolor, or relabel itself:\n${job.styleBlock.products.map(p => `- ${p.name}: ${p.description}`).join('\n')}` : ''}\n\nSource beats identified so far (in order) — continue depicting whichever of these haven't been shown in scenes yet, then extract further beats from later in the source if this list runs out before the video does:\n${(job.treatment?.sourceBeats || []).map((b,i) => `${i+1}. ${b}`).join('\n') || '(none recorded yet — infer from the source and the last scene below)'}\n\nThe previous scene ended at ${formatTime(lastEndSeconds)}. Here is its exact imagePrompt (the visual frame) — your first new scene's imagePrompt must look clearly different from this one (pose/action/framing), not a near-repeat:\n"${lastScene ? lastScene.imagePrompt : 'opening of the video'}"\n\nAnd here is exactly what was happening in that scene's action, so the next scene can continue the story naturally rather than jumping to something unrelated:\n"${lastScene ? lastScene.videoAudioPrompt : 'opening of the video'}"\n\nRecent scenes so far (for EXTENDED SINGLE-ACTION PACING RULE — check whether these already show the same ongoing action/event without a concrete development, and if so, this batch must supply one or move it toward resolution):\n${recentScenesSummary || '(none yet)'}\n${job.totalSeconds ? `Total video length is ${job.totalSeconds}s.` : ''}`;
 
     const parsed = sanitizeParsedScenes(await callGeneration(systemPrompt, userPrompt));
-    job.scenes = job.scenes.concat(parsed.scenes || []);
+    const newScenes = parsed.scenes || [];
+    if(!newScenes.length){
+      // The model itself applied the STOP CONDITION above and correctly
+      // found nothing left to depict — surface that plainly instead of
+      // silently re-rendering with no visible change, which would look like
+      // the click did nothing.
+      showToast('Story already complete — the model found nothing left to depict.');
+    }
+    job.scenes = job.scenes.concat(newScenes);
     renderResults();
   }catch(e){
     showToast('Could not generate next batch: ' + e.message);
@@ -1058,6 +1136,33 @@ function parseTimeEnd(timeRange){
 function formatTime(totalSec){
   const m = Math.floor(totalSec/60), s = totalSec%60;
   return `${m}:${String(s).padStart(2,'0')}`;
+}
+
+// Nothing previously stopped "Generate next scenes" once the story had
+// already reached its ending — clicking it kept calling the API, and since
+// there was nothing left in the source to depict, the model would just
+// re-stage the last few scenes (the climax/moral) again under new scene
+// numbers instead of actually continuing anything, which read as a
+// confusing loop back over the ending. Two independent signals catch a
+// finished story: the last scene's own "beat" already reads as the Payoff
+// (the model is instructed to label the concluding beat this way), or the
+// requested video length has already been reached/exceeded. An "Outro" beat
+// (see OUTRO RULE / outroRule()) counts the same way — it's the closing
+// moral + like/share/subscribe scene the model appends right after the
+// Payoff when that toggle is on, so it's just as much "the end" as the
+// Payoff itself, and must stop the continue button the same way. Either
+// signal is enough — no need for all of them — since a false "not complete"
+// just leaves the button clickable as before, while a false "complete" only
+// requires starting a fresh job to keep going, which is the much safer
+// failure mode next to silently burning API credits on a looping
+// non-continuation.
+function isStoryComplete(){
+  if(!job || !Array.isArray(job.scenes) || !job.scenes.length) return false;
+  const lastScene = job.scenes[job.scenes.length - 1];
+  const beatIsEnding = /payoff|outro/i.test(lastScene.beat || '');
+  const lastEndSeconds = parseTimeEnd(lastScene.timeRange);
+  const timeBudgetReached = !!job.totalSeconds && lastEndSeconds >= job.totalSeconds;
+  return beatIsEnding || timeBudgetReached;
 }
 
 function backToForm(){
@@ -1496,5 +1601,24 @@ function renderResults(){
       </div>
     `;
   }).join('');
+
+  // Disable "Generate next scenes" once the story's already reached its
+  // ending (see isStoryComplete()) — otherwise clicking it just burns API
+  // credits re-generating scenes that loop back over the finale instead of
+  // continuing anything, which is confusing and wasteful in equal measure.
+  const continueBtn = document.getElementById('continueBtn');
+  if(continueBtn){
+    if(isStoryComplete()){
+      continueBtn.disabled = true;
+      continueBtn.textContent = '✓ Story complete — start a new job to continue';
+      continueBtn.style.opacity = '0.5';
+      continueBtn.style.cursor = 'not-allowed';
+    }else{
+      continueBtn.disabled = false;
+      continueBtn.textContent = 'Generate next scenes';
+      continueBtn.style.opacity = '';
+      continueBtn.style.cursor = '';
+    }
+  }
 }
 </script>
