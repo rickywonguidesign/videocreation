@@ -17,11 +17,11 @@
   .field{margin-bottom:18px;}
   .field label{display:block;font-family:'IBM Plex Mono',monospace;font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--text-dim);margin-bottom:6px;}
   .hint{font-size:11px;color:var(--text-dim);margin-top:5px;line-height:1.5;}
-  textarea,input[type=text]{
+  textarea,input[type=text],input[type=number]{
     width:100%;background:var(--panel);border:1px solid var(--line);border-radius:6px;color:var(--text);
     font-family:'Inter',sans-serif;font-size:13px;padding:11px 12px;resize:vertical;
   }
-  textarea:focus,input:focus{outline:none;border-color:var(--amber-dim);}
+  textarea:focus,input:focus,select:focus{outline:none;border-color:var(--amber-dim);}
   textarea{height:110px;}
   .row{display:flex;gap:14px;}
   .row .field{flex:1;}
@@ -31,6 +31,14 @@
     background:var(--panel);color:var(--text-dim);font-size:13px;cursor:pointer;font-family:'IBM Plex Mono',monospace;white-space:nowrap;
   }
   .style-opt.active{border-color:var(--amber);color:var(--amber);background:var(--panel-raised);}
+  .select-full{
+    width:100%;background:var(--panel);border:1px solid var(--line);border-radius:6px;color:var(--text);
+    font-family:'IBM Plex Mono',monospace;font-size:13px;padding:11px 12px;
+  }
+  .select-dark{
+    width:100%;margin-top:8px;background:var(--bg);border:1px solid var(--line);border-radius:6px;color:var(--text);
+    font-family:'IBM Plex Mono',monospace;font-size:12px;padding:9px 10px;
+  }
 
   .key-field{
     background:var(--panel);border:1px solid var(--line);border-radius:8px;
@@ -47,6 +55,7 @@
   .key-field .hint{margin-top:8px;}
   .key-status{font-family:'IBM Plex Mono',monospace;font-size:10px;letter-spacing:.05em;color:var(--done);margin-top:6px;display:none;}
   .key-status.show{display:block;}
+  .model-note{font-family:'IBM Plex Mono',monospace;font-size:10px;color:var(--teal);margin-top:6px;line-height:1.5;}
 
   .top-settings{display:flex;gap:14px;margin-bottom:22px;align-items:stretch;}
   .top-settings .key-field{flex:1.4;margin-bottom:0;}
@@ -56,7 +65,7 @@
     width:100%;background:var(--bg);border:1px solid var(--line);border-radius:6px;color:var(--text);
     font-family:'IBM Plex Mono',monospace;font-size:13px;padding:11px 12px;
   }
-  .lang-field select:focus{outline:none;border-color:var(--amber-dim);}
+  @media (max-width:640px){ .top-settings,.row{flex-direction:column;} }
 
   .generate-btn{
     width:100%;background:var(--amber);color:#1A1200;border:none;border-radius:6px;
@@ -69,6 +78,7 @@
   @keyframes spin{to{transform:rotate(360deg);}}
 
   .err-box{background:rgba(224,122,95,.1);border:1px solid var(--err);color:var(--err);border-radius:6px;padding:10px 12px;font-size:12px;margin-top:12px;display:none;}
+  .warn-box{background:rgba(217,165,68,.1);border:1px solid var(--amber-dim);color:var(--amber);border-radius:6px;padding:10px 12px;font-size:12px;margin-bottom:16px;line-height:1.5;}
 
   /* results */
   #resultsView{display:none;}
@@ -144,13 +154,16 @@
     background:var(--bg);border:1px solid var(--line);border-radius:4px;color:var(--text);
     font-family:'IBM Plex Mono',monospace;font-size:11px;padding:4px 6px;max-width:160px;
   }
+  .check-label{display:flex;align-items:center;gap:8px;cursor:pointer;}
+  .check-label input{width:16px;height:16px;accent-color:var(--amber);cursor:pointer;}
+  .check-label span{text-transform:none;font-size:13px;letter-spacing:0;color:var(--text);}
 </style>
 
 <div class="console">
   <div id="formView">
     <h1>New scene job</h1>
     <div
-      style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:6px;">
+      style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:6px;gap:10px;flex-wrap:wrap;">
       <p class="subhead" style="margin-bottom:0;">Paste your source, set the
         window and topic, then generate the character style and per-scene
         prompts.</p>
@@ -164,28 +177,33 @@
 
     <div class="top-settings">
       <div class="key-field">
-        <div class="key-label-row"><span class="key-icon">🔑</span><span>OpenAI
-            API Key</span></div>
+        <div class="key-label-row"><span class="key-icon">🔑</span><span>AI
+            provider &amp; API key</span></div>
+        <select id="aiProvider" class="select-dark"
+          style="margin-top:0;margin-bottom:8px;" onchange="onProviderChange()">
+          <option value="openai">OpenAI</option>
+          <option value="deepseek">DeepSeek (lowest cost)</option>
+          <option value="openrouter">OpenRouter (any model — Gemini, Claude,
+            Llama…)</option>
+        </select>
         <input type="password" id="openaiKey" placeholder="sk-..."
           autocomplete="off" oninput="onKeyInput()">
-        <div class="hint">Used only to call OpenAI directly from your browser —
-          never saved. Leave blank to use the built-in generator (only works
-          inside Claude.ai's preview — when you save this file and open it on
-          your own machine, add your OpenAI key and start the bundled backend
-          server below so generation works standalone).</div>
+        <div class="hint">Key is used only for this session and never saved.
+          Leave blank to use the built-in generator (only works inside
+          Claude.ai's preview — when running this file on your own machine, add
+          a key and start the bundled backend server below).</div>
         <div class="key-status" id="keyStatus">Key set for this session</div>
         <input type="text" id="backendUrl"
           placeholder="Backend URL, e.g. http://localhost:3000 (run: node backend/server.js)"
           style="margin-top:8px;font-size:11px;"
           oninput="try{localStorage.setItem('backendUrl', this.value)}catch(e){}">
-        <select id="openaiModel"
-          style="width:100%;margin-top:8px;background:var(--bg);border:1px solid var(--line);border-radius:6px;color:var(--text);font-family:'IBM Plex Mono',monospace;font-size:12px;padding:9px 10px;"
-          onchange="try{localStorage.setItem('openaiModel', this.value)}catch(e){}">
-          <option value="gpt-5.6-terra">gpt-5.6-terra (balanced — better
-            quality)</option>
-          <option value="gpt-4o-mini" selected>gpt-4o-mini (cheaper/faster,
-            older)</option>
-        </select>
+        <select id="openaiModel" class="select-dark"
+          onchange="onModelChange()"></select>
+        <input type="text" id="customModel"
+          placeholder="Custom model ID, e.g. google/gemini-3.8-flash"
+          style="display:none;margin-top:8px;font-size:12px;"
+          oninput="try{localStorage.setItem('customModel', this.value)}catch(e){}">
+        <div class="model-note" id="modelNote"></div>
       </div>
       <div class="lang-field">
         <div class="key-label-row"><span
@@ -201,8 +219,8 @@
           <option value="Thai">Thai</option>
           <option value="Indonesian">Indonesian</option>
         </select>
-        <div class="hint">Dialogue & narration only — all technical prompts stay
-          in English for VideoExpress/CloneVoice.</div>
+        <div class="hint">Dialogue &amp; narration only — all technical prompts
+          stay in English for VideoExpress/CloneVoice.</div>
       </div>
     </div>
 
@@ -212,8 +230,9 @@
         placeholder="Paste a video link, or paste the story/script text directly..."></textarea>
       <div class="hint">Note: this can't fetch and watch a video link on its own
         — if you paste a link, also paste the transcript, caption text, or a
-        description of what happens, so there's actual content to work
-        from.</div>
+        description of what happens, so there's actual content to work from. The
+        source is treated as a premise: characters are always renamed and the
+        story is retold as an original piece.</div>
     </div>
 
     <div class="row">
@@ -250,26 +269,125 @@
                                       <option
                                         value="Minimalist, understated retelling">
                                       </datalist>
-                                      <div class="hint">Optional. This is a
-                                        stylistic angle or twist on the
-                                        retelling — it never replaces or
-                                        overrides the actual content in Source
-                                        above. It also controls HOW the story is
-                                        told, both in narration/dialogue AND in
-                                        the visual look of every image/video
-                                        prompt: mention a register like
-                                        "documentary", "fable", "fairy tale",
-                                        "motivational", "vlog", "ads", or
-                                        "storytelling" and the AI will write in
-                                        that voice and shoot every scene to
-                                        match that register's visual style;
-                                        mention "silent" or "cinematic, no
-                                        dialogue" to turn off all speech
-                                        entirely. Leave blank to have the AI
-                                        follow the source material's own story
-                                        directly, with no reframing, and decide
-                                        the voice on its own.</div>
+                                      <div class="hint">Optional. A stylistic
+                                        angle or twist on the retelling — it
+                                        never replaces the actual content in
+                                        Source above. It controls HOW the story
+                                        is told, in narration/dialogue AND in
+                                        the visual look: mention "documentary",
+                                        "fable", "fairy tale", "motivational",
+                                        "vlog", "ads", or "storytelling" to set
+                                        that voice and visual register; mention
+                                        "silent" or "cinematic, no dialogue" to
+                                        turn off all speech. Leave blank to let
+                                        the AI decide.</div>
                                     </div>
+                                  </div>
+
+                                  <div class="field">
+                                    <label>Story setting / cultural
+                                      context</label>
+                                    <select id="storySetting"
+                                      class="select-full"
+                                      onchange="onSettingChange()">
+                                      <option value>Auto — infer from the
+                                        source</option>
+                                      <optgroup label="Asia">
+                                        <option
+                                          value="traditional rural Vietnam (village life, rice paddies, thatched and tiled-roof houses, áo bà ba and nón lá)">Vietnamese
+                                          — traditional / rural</option>
+                                        <option
+                                          value="modern-day Vietnam (Saigon/Hanoi streets, motorbikes, street food, shophouses)">Vietnamese
+                                          — modern</option>
+                                        <option
+                                          value="ancient imperial China (Tang-to-Qing dynasty era: hanfu robes, tiled pagoda roofs, courtyard homes, lanterns, calligraphy)">Chinese
+                                          — ancient / imperial</option>
+                                        <option
+                                          value="modern-day China (contemporary cities, apartment blocks, night markets)">Chinese
+                                          — modern</option>
+                                        <option
+                                          value="feudal Japan (Edo period: kimono and hakama, samurai, wooden machiya, shoji screens, torii gates)">Japanese
+                                          — feudal / Edo</option>
+                                        <option
+                                          value="modern-day Japan (Tokyo streets, konbini, trains, apartments)">Japanese
+                                          — modern</option>
+                                        <option
+                                          value="Joseon-dynasty Korea (hanbok, gat hats, hanok houses with curved tiled roofs, ondol floors)">Korean
+                                          — Joseon dynasty</option>
+                                        <option
+                                          value="modern-day South Korea (Seoul neighborhoods, cafés, apartments, subway)">Korean
+                                          — modern</option>
+                                        <option
+                                          value="traditional / ancient India (saris and dhotis, temples, havelis, village wells, marketplaces)">Indian
+                                          — traditional / ancient</option>
+                                        <option
+                                          value="modern-day India (bustling cities, auto-rickshaws, bazaars, apartments)">Indian
+                                          — modern</option>
+                                        <option
+                                          value="traditional Siam / Thailand (wooden stilt houses, temples with gilded roofs, floating markets)">Thai
+                                          — traditional</option>
+                                      </optgroup>
+                                      <optgroup
+                                        label="Middle East &amp; Africa">
+                                        <option
+                                          value="Arabian Nights-era Middle East (desert cities, souks, domes and minarets, flowing robes, oil lamps)">Middle
+                                          Eastern / Arabian Nights</option>
+                                        <option
+                                          value="Ancient Egypt (Nile, pyramids and temples, linen garments, papyrus, hieroglyph-carved stone)">Ancient
+                                          Egyptian</option>
+                                        <option
+                                          value="traditional African village (sub-Saharan: mud-brick and thatched homes, wax-print and woven textiles, savanna)">African
+                                          — traditional village</option>
+                                      </optgroup>
+                                      <optgroup label="Europe">
+                                        <option
+                                          value="Ancient Greece / Rome (marble columns, togas and chitons, agoras, olive groves)">Ancient
+                                          Greek / Roman</option>
+                                        <option
+                                          value="medieval Europe (stone castles, timber-framed villages, tunics and cloaks, candlelight, no modern technology)">European
+                                          — medieval</option>
+                                        <option
+                                          value="Nordic Viking age (longhouses, longships, fur and wool clothing, fjords)">Nordic
+                                          / Viking</option>
+                                        <option
+                                          value="Victorian-era Europe, 19th century (gas lamps, cobblestone streets, top hats, corsets, horse carriages)">European
+                                          — Victorian / 19th c.</option>
+                                        <option
+                                          value="modern-day Europe (contemporary European towns and cities)">European
+                                          — modern</option>
+                                      </optgroup>
+                                      <optgroup label="Americas">
+                                        <option
+                                          value="the American Old West, 1870s-1890s (frontier towns, saloons, ranches, cowboy hats, horses, desert)">American
+                                          — Old West</option>
+                                        <option
+                                          value="modern-day United States (suburban homes, diners, highways, city apartments)">American
+                                          — modern</option>
+                                        <option
+                                          value="Latin America (colorful colonial towns, plazas, markets, mountains and jungle)">Latin
+                                          American</option>
+                                      </optgroup>
+                                      <optgroup label="Other eras">
+                                        <option
+                                          value="the prehistoric Stone Age (caves, animal-hide clothing, stone and bone tools, fire, mammoths, untouched wilderness — no metal, no buildings, no writing)">Prehistoric
+                                          / Stone Age</option>
+                                        <option
+                                          value="a futuristic sci-fi world (advanced cities, holographic interfaces, sleek technology)">Futuristic
+                                          sci-fi</option>
+                                      </optgroup>
+                                      <option value="custom">Custom…</option>
+                                    </select>
+                                    <input type="text" id="settingCustom"
+                                      placeholder="Describe the setting, e.g. 1920s Shanghai jazz-age, or a Mongolian steppe nomad camp"
+                                      style="display:none;margin-top:8px;">
+                                    <div class="hint">Strictly enforced:
+                                      environment, architecture, props,
+                                      clothing, hairstyles, food, and every
+                                      character's ethnicity and name will match
+                                      this culture and era — no anachronisms or
+                                      cultural mixing. If the source is set
+                                      elsewhere, the story is transposed into
+                                      this setting.</div>
                                   </div>
 
                                   <div class="field">
@@ -289,99 +407,72 @@
                                       <div class="style-opt" data-style="Other"
                                         onclick="selectStyle(this)">Other</div>
                                     </div>
+                                    <input type="text" id="customStyle"
+                                      placeholder="Describe the style, e.g. claymation stop-motion, watercolor storybook, anime cel-shaded"
+                                      style="display:none;margin-top:8px;">
+                                    <div class="hint">Locked into every prompt:
+                                      each copied image, video, character-sheet,
+                                      and thumbnail prompt starts with an
+                                      explicit style tag and ends with a
+                                      negative style line (e.g. 3D/2D prompts
+                                      explicitly exclude photographs and real
+                                      humans).</div>
                                   </div>
 
                                   <div class="field">
-                                    <label
-                                      style="display:flex;align-items:center;gap:8px;cursor:pointer;">
-                                      <input type="checkbox" id="dialogueMode"
-                                        style="width:16px;height:16px;accent-color:var(--amber);cursor:pointer;">
-                                      <span
-                                        style="text-transform:none;font-size:13px;letter-spacing:0;color:var(--text);">Dialogue
-                                        Mode</span>
-                                    </label>
+                                    <label class="check-label"><input
+                                        type="checkbox"
+                                        id="dialogueMode"><span>Dialogue
+                                        Mode</span></label>
                                     <div class="hint">Every scene gets a spoken
-                                      dialogue
-                                      line, quoted directly inside the
-                                      Video/Audio Prompt
-                                      for VideoExpress. Combine with
-                                      Narration-first below
-                                      to get both — dialogue in the video
-                                      prompt,
+                                      dialogue line, quoted directly inside the
+                                      Video/Audio Prompt for VideoExpress.
+                                      Combine with Narration-first below to get
+                                      both — dialogue in the video prompt,
                                       narration separately for CloneVoice.</div>
                                   </div>
 
                                   <div class="field">
-                                    <label
-                                      style="display:flex;align-items:center;gap:8px;cursor:pointer;">
-                                      <input type="checkbox" id="narrationFirst"
-                                        style="width:16px;height:16px;accent-color:var(--amber);cursor:pointer;">
-                                      <span
-                                        style="text-transform:none;font-size:13px;letter-spacing:0;color:var(--text);">Narration-first
-                                        storytelling mode</span>
-                                    </label>
+                                    <label class="check-label"><input
+                                        type="checkbox"
+                                        id="narrationFirst"><span>Narration-first
+                                        storytelling mode</span></label>
                                     <div class="hint">Every scene gets a
-                                      voiceover
-                                      narration line, kept entirely separate
-                                      from the
-                                      Video/Audio Prompt — generated for
-                                      CloneVoice, not
+                                      voiceover narration line, kept entirely
+                                      separate from the Video/Audio Prompt —
+                                      generated for CloneVoice, not
                                       VideoExpress. Check only this for a pure
-                                      narration
-                                      piece; check both for narration + dialogue
-                                      together.</div>
+                                      narration piece; check both for narration
+                                      + dialogue together.</div>
                                   </div>
 
                                   <div class="field">
-                                    <label
-                                      style="display:flex;align-items:center;gap:8px;cursor:pointer;">
-                                      <input type="checkbox" id="outroCta"
-                                        checked
-                                        style="width:16px;height:16px;accent-color:var(--amber);cursor:pointer;">
-                                      <span
-                                        style="text-transform:none;font-size:13px;letter-spacing:0;color:var(--text);">Closing
-                                        moral + like/share/subscribe</span>
-                                    </label>
+                                    <label class="check-label"><input
+                                        type="checkbox" id="outroCta"
+                                        checked><span>Closing moral +
+                                        like/share/subscribe</span></label>
                                     <div class="hint">Adds one or two extra
-                                      scenes right
-                                      after the story's real ending: a closing
-                                      line that
-                                      states the story's own meaning outright,
-                                      then a
+                                      scenes right after the story's real
+                                      ending: a closing line that states the
+                                      story's own meaning outright, then a
                                       natural like/share/subscribe nudge written
-                                      in the
-                                      same voice as the rest of the narration —
-                                      not a
-                                      bolted-on ad break. Uncheck for a piece
-                                      that
-                                      shouldn't end this way (silent/cinematic
-                                      pieces,
-                                      client work with no CTA wanted).</div>
+                                      in the same voice as the rest of the
+                                      narration. Uncheck for silent/cinematic
+                                      pieces or client work with no CTA.</div>
                                   </div>
 
                                   <div class="field">
-                                    <label
-                                      style="display:flex;align-items:center;gap:8px;cursor:pointer;">
-                                      <input type="checkbox" id="musicTheme"
-                                        style="width:16px;height:16px;accent-color:var(--amber);cursor:pointer;">
-                                      <span
-                                        style="text-transform:none;font-size:13px;letter-spacing:0;color:var(--text);">Add
-                                        background music theme</span>
-                                    </label>
+                                    <label class="check-label"><input
+                                        type="checkbox"
+                                        id="musicTheme"><span>Add background
+                                        music theme</span></label>
                                     <div class="hint">Designs one consistent
-                                      musical
-                                      theme for the whole video
-                                      (instrumentation, mood)
-                                      and weaves a short description of how it
-                                      sounds
-                                      into every scene's Video/Audio Prompt,
-                                      matching
-                                      the story's own emotional arc scene to
-                                      scene.
-                                      Leave unchecked to keep Video/Audio Prompt
-                                      strictly
-                                      to environmental sound only, with no music
-                                      cue.</div>
+                                      musical theme for the whole video and
+                                      weaves a short description of how it
+                                      sounds into every scene's Video/Audio
+                                      Prompt, following the story's emotional
+                                      arc. Leave unchecked to keep Video/Audio
+                                      Prompt to environmental sound only.</div>
                                   </div>
 
                                   <button class="generate-btn" id="genBtn"
@@ -449,22 +540,221 @@ if(!window.storage){
   };
 }
 
+// ---------------------------------------------------------------------------
+// AI PROVIDERS & MODELS
+// Every provider below speaks the OpenAI-compatible /chat/completions format,
+// so one code path (and one backend proxy) serves all of them. Prices are
+// USD per 1M input / output tokens as published around Sep 2026 — check the
+// provider's pricing page before relying on them for budgeting.
+// A scene batch is roughly 12-18k input + 4-6k output tokens, so output price
+// dominates: Terra ≈ $0.08/batch, gpt-6-luna ≈ $0.004, deepseek ≈ $0.004.
+// ---------------------------------------------------------------------------
+const PROVIDERS = {
+  openai:     { base: 'https://api.openai.com/v1',    keyPlaceholder: 'sk-...' },
+  deepseek:   { base: 'https://api.deepseek.com',     keyPlaceholder: 'sk-... (DeepSeek key)' },
+  openrouter: { base: 'https://openrouter.ai/api/v1', keyPlaceholder: 'sk-or-... (OpenRouter key)' }
+};
+const MODEL_CATALOG = {
+  openai: [
+    { id: 'gpt-5.6-terra', label: 'gpt-5.6-terra — $2 / $12 · current quality baseline' },
+    { id: 'gpt-6-sol',     label: 'gpt-6-sol — $2 / $10 · newer gen, a bit cheaper than Terra' },
+    { id: 'gpt-5.4-mini',  label: 'gpt-5.4-mini — $0.75 / $4.50 · ~60% cheaper, strong writing' },
+    { id: 'gpt-5.6-luna',  label: 'gpt-5.6-luna — $0.20 / $1.20 · ~90% cheaper, budget' },
+    { id: 'gpt-6-luna',    label: 'gpt-6-luna — $0.10 / $0.50 · ~95% cheaper, cheapest OpenAI' },
+    { id: 'gpt-4o-mini',   label: 'gpt-4o-mini — legacy, older quality' },
+    { id: '__custom',      label: 'Custom model ID…' }
+  ],
+  deepseek: [
+    { id: 'deepseek-chat',     label: 'deepseek-chat — ≈$0.14–0.28 / $0.28–0.42 · ~97% cheaper than Terra' },
+    { id: 'deepseek-reasoner', label: 'deepseek-reasoner — ≈$0.55 / $2.19 · slower, more deliberate' },
+    { id: '__custom',          label: 'Custom model ID…' }
+  ],
+  openrouter: [
+    { id: '__custom', label: 'Type a model ID from openrouter.ai/models below' }
+  ]
+};
+const MODEL_NOTES = {
+  'gpt-5.6-terra': 'Baseline. Most expensive option here.',
+  'gpt-6-sol': 'Same input price as Terra, ~17% cheaper output. Good first thing to try.',
+  'gpt-5.4-mini': 'Best value if you want quality close to Terra at well under half the cost.',
+  'gpt-5.6-luna': 'Very cheap. Test on a short job first — follows long rule sets less reliably.',
+  'gpt-6-luna': 'Cheapest OpenAI option. Test on a short job first.',
+  'deepseek-chat': 'Needs a DeepSeek key (platform.deepseek.com). Strong at long structured JSON for the price.',
+  'deepseek-reasoner': 'Thinks before answering — slower per batch, sometimes better continuity.',
+  '__custom': 'Paste the exact model ID. On OpenRouter, e.g. a Gemini Flash or DeepSeek model ID from openrouter.ai/models.'
+};
+
+function currentProvider(){
+  const el = document.getElementById('aiProvider');
+  return (el && PROVIDERS[el.value]) ? el.value : 'openai';
+}
+function populateModelSelect(provider, preferred){
+  const sel = document.getElementById('openaiModel');
+  const list = MODEL_CATALOG[provider] || MODEL_CATALOG.openai;
+  sel.innerHTML = list.map(m => `<option value="${m.id}">${m.label}</option>`).join('');
+  sel.value = (preferred && list.some(m => m.id === preferred)) ? preferred : list[0].id;
+  onModelChange(true);
+}
+function onProviderChange(){
+  const provider = currentProvider();
+  try{ localStorage.setItem('aiProvider', provider); }catch(e){}
+  let preferred = null;
+  try{ preferred = localStorage.getItem(`model:${provider}`); }catch(e){}
+  populateModelSelect(provider, preferred);
+  document.getElementById('openaiKey').placeholder = PROVIDERS[provider].keyPlaceholder;
+}
+function onModelChange(skipSave){
+  const sel = document.getElementById('openaiModel');
+  const isCustom = sel.value === '__custom';
+  document.getElementById('customModel').style.display = isCustom ? 'block' : 'none';
+  document.getElementById('modelNote').textContent = MODEL_NOTES[sel.value] || '';
+  if(!skipSave){
+    try{
+      localStorage.setItem(`model:${currentProvider()}`, sel.value);
+      localStorage.setItem('openaiModel', sel.value);
+    }catch(e){}
+  }
+}
+function getSelectedModel(){
+  const v = document.getElementById('openaiModel').value;
+  if(v === '__custom') return document.getElementById('customModel').value.trim();
+  return v;
+}
+
 // The OpenAI key is intentionally never persisted (typed fresh each session,
-// for privacy) — but losing the backend URL and model choice on every page
-// reload too was a silent trap: after reopening this file or loading a saved
-// job, both fields were blank, so "Generate next scenes" would quietly fall
-// through to the built-in generator, which only works inside Claude.ai's own
-// preview and fails standalone with an opaque "Failed to fetch". Restoring
-// these two (non-sensitive) settings removes that trap; the key field still
-// needs to be re-entered by hand every time, by design.
+// for privacy) — but the backend URL, provider and model are restored so
+// "Generate next scenes" after a reload doesn't silently fall back to the
+// built-in generator (which only works inside Claude.ai's preview).
 (function restoreGenerationSettings(){
+  let provider = 'openai', preferred = null;
   try{
     const savedBackendUrl = localStorage.getItem('backendUrl');
     if(savedBackendUrl) document.getElementById('backendUrl').value = savedBackendUrl;
-    const savedModel = localStorage.getItem('openaiModel');
-    if(savedModel) document.getElementById('openaiModel').value = savedModel;
+    const savedProvider = localStorage.getItem('aiProvider');
+    if(savedProvider && PROVIDERS[savedProvider]) provider = savedProvider;
+    preferred = localStorage.getItem(`model:${provider}`) || (provider === 'openai' ? localStorage.getItem('openaiModel') : null);
+    const savedCustom = localStorage.getItem('customModel');
+    if(savedCustom) document.getElementById('customModel').value = savedCustom;
   }catch(e){}
+  document.getElementById('aiProvider').value = provider;
+  document.getElementById('openaiKey').placeholder = PROVIDERS[provider].keyPlaceholder;
+  populateModelSelect(provider, preferred);
 })();
+
+// ---------------------------------------------------------------------------
+// RENDER STYLE LOCK
+// The model alone was not reliable about naming the medium — an unqualified
+// "a woman with brown hair" reads to an image generator as a photograph, so
+// 3D/2D jobs kept coming back as realistic human photos. Every copied prompt
+// now carries an explicit style tag up front and a negative style line at the
+// end, built here deterministically instead of trusting the model's wording.
+// ---------------------------------------------------------------------------
+const STYLE_PRESETS = {
+  'Human': {
+    animated: false,
+    tag: 'Live-action cinematic footage with real human actors, natural skin texture, real-world locations and materials',
+    negative: 'not a cartoon, not anime, not a 3D render, not an illustration'
+  },
+  '2D': {
+    animated: true,
+    tag: '2D hand-drawn animation style, flat cel-shaded illustration with clean confident line art, painterly 2D backgrounds, the look of a high-end 2D animated feature film',
+    negative: 'NOT a photograph, NOT live-action, NOT photorealistic, NOT a 3D render, no real human faces, no photographic skin texture'
+  },
+  '3D': {
+    animated: true,
+    tag: 'Stylized 3D animated CGI, high-end feature-animation render, stylized character proportions with large expressive eyes, soft subsurface-scattered skin, sculpted stylized hair, global illumination, rendered in a 3D animation engine',
+    negative: 'NOT a photograph, NOT live-action, NOT photorealistic, no real human, no photographic skin pores, no camera-photo look, not 2D'
+  },
+  'Photorealistic (Cinematic)': {
+    animated: false,
+    tag: 'Photorealistic cinematic film still, shot on a digital cinema camera with anamorphic lenses, natural film grain, true-to-life materials and lighting',
+    negative: 'not a cartoon, not anime, not a 3D render look, not an illustration, no plastic skin'
+  }
+};
+function styleSpec(styleName, customText){
+  if(STYLE_PRESETS[styleName]) return STYLE_PRESETS[styleName];
+  const custom = (customText || '').trim();
+  return {
+    animated: true,
+    tag: custom ? `${custom} style` : 'Stylized illustrated animation style',
+    negative: custom ? `stay strictly in the ${custom} style throughout, NOT a photograph, NOT live-action` : 'NOT a photograph, NOT live-action'
+  };
+}
+function jobStyleSpec(){
+  return styleSpec(job ? job.characterStyle : currentStyle, job ? job.customStyle : '');
+}
+function jobSettingText(){
+  return (job && job.setting) ? job.setting : '';
+}
+// Prepends the style (+ setting, when one was chosen) tag to a prompt body.
+function withStyleHeader(body){
+  const spec = jobStyleSpec();
+  const setting = jobSettingText();
+  const head = `${spec.tag}.${setting ? ` Setting: ${setting}.` : ''}`;
+  return `${head} ${body || ''}`.trim();
+}
+function styleNegative(){
+  return jobStyleSpec().negative || '';
+}
+
+function getFormSetting(){
+  const v = document.getElementById('storySetting').value;
+  if(v === 'custom') return document.getElementById('settingCustom').value.trim();
+  return v;
+}
+function onSettingChange(){
+  document.getElementById('settingCustom').style.display =
+    document.getElementById('storySetting').value === 'custom' ? 'block' : 'none';
+}
+
+// ---------------------------------------------------------------------------
+// NAME HANDLING — the retelling must never reuse a source character name.
+// ---------------------------------------------------------------------------
+function escapeRe(s){ return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); }
+function wholeWordRe(word){
+  return new RegExp(`(^|[^\\p{L}\\p{N}])(${escapeRe(word)})(?=[^\\p{L}\\p{N}]|$)`, 'gu');
+}
+// Deterministically replaces any original source name the model recorded in
+// treatment.nameChanges but still let slip into a prompt or spoken line.
+function applyNameChanges(obj, nameChanges){
+  if(!obj || !Array.isArray(nameChanges) || !nameChanges.length) return obj;
+  const pairs = nameChanges
+    .filter(n => n && n.original && n.renamed && n.original.trim().length >= 2 && n.original.trim() !== n.renamed.trim())
+    .sort((a,b) => b.original.length - a.original.length);
+  if(!pairs.length) return obj;
+  const fix = str => {
+    if(typeof str !== 'string') return str;
+    let out = str;
+    pairs.forEach(p => { out = out.replace(wholeWordRe(p.original.trim()), (m, pre) => pre + p.renamed.trim()); });
+    return out;
+  };
+  const walk = (node, key) => {
+    if(Array.isArray(node)) return node.map(n => walk(n, key));
+    if(node && typeof node === 'object'){
+      Object.keys(node).forEach(k => {
+        if(k === 'nameChanges') return; // keep the mapping itself intact
+        node[k] = walk(node[k], k);
+      });
+      return node;
+    }
+    return fix(node);
+  };
+  return walk(obj);
+}
+const NAME_STOPWORDS = new Set(['The','Old','Young','Little','Mr','Mrs','Ms','Miss','Sir','Lady','Lord','King','Queen','Master','Grandma','Grandpa','Mother','Father','Uncle','Aunt','Brother','Sister','Doctor','Dr']);
+// Returns character-name tokens that also appear in the source text — a sign
+// the model reused a source name despite the rename rule.
+function findNameLeaks(characters, source){
+  if(!Array.isArray(characters) || !source) return [];
+  const leaks = new Set();
+  characters.forEach(c => {
+    (c.name || '').split(/[\s\-—–,()/]+/).forEach(tok => {
+      if(tok.length < 3 || NAME_STOPWORDS.has(tok) || !/^\p{Lu}/u.test(tok)) return;
+      if(wholeWordRe(tok).test(source)) leaks.add(tok);
+    });
+  });
+  return [...leaks];
+}
 
 const VIDEOEXPRESS_URL = "https://app.videoexpress.ai/";
 
@@ -624,6 +914,7 @@ function selectStyle(el){
   document.querySelectorAll('.style-opt').forEach(o=>o.classList.remove('active'));
   el.classList.add('active');
   currentStyle = el.dataset.style;
+  document.getElementById('customStyle').style.display = currentStyle === 'Other' ? 'block' : 'none';
 }
 
 function showToast(msg){
@@ -657,17 +948,46 @@ function showError(msg){
   box.style.display = 'block';
 }
 
+// Pulls the JSON object out of a model reply even if it wrapped it in
+// markdown fences or added a sentence before/after (cheaper models do this).
+function parseModelJson(rawText){
+  const clean = rawText.trim().replace(/^```json/i,'').replace(/^```/,'').replace(/```$/,'').trim();
+  try{ return JSON.parse(clean); }
+  catch(e){
+    const first = clean.indexOf('{'), last = clean.lastIndexOf('}');
+    if(first !== -1 && last > first) return JSON.parse(clean.slice(first, last + 1));
+    throw e;
+  }
+}
+
+// Direct browser call to any OpenAI-compatible provider. Retries once without
+// response_format for models that reject JSON mode.
+async function callChatCompletions(base, apiKey, model, systemPrompt, userPrompt){
+  const doFetch = (useJsonMode) => fetch(`${base}/chat/completions`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "Authorization": `Bearer ${apiKey}` },
+    body: JSON.stringify(Object.assign({
+      model,
+      messages: [{ role: "system", content: systemPrompt }, { role: "user", content: userPrompt }]
+    }, useJsonMode ? { response_format: { type: "json_object" } } : {}))
+  });
+  let response = await doFetch(true);
+  if(response.status === 400){
+    const errBody = await response.clone().text();
+    if(/response_format|json_object|json mode/i.test(errBody)) response = await doFetch(false);
+  }
+  return response;
+}
+
 async function callGeneration(systemPrompt, userPrompt){
   const openaiKey = document.getElementById('openaiKey').value.trim();
   const backendUrl = document.getElementById('backendUrl').value.trim();
   // Tolerate either "http://host:port" or "http://host:port/api" in the
-  // field — the endpoint below always adds "/api/generate-script" itself,
-  // so a value already ending in "/api" (e.g. saved from before that was
-  // required, or just typed that way) would otherwise double up into
-  // "/api/api/generate-script" and 404. Strip a trailing slash, then a
-  // trailing "/api", before appending it back exactly once.
+  // field — the endpoint below always adds "/api/generate-script" itself.
   const backendBase = backendUrl.replace(/\/$/,'').replace(/\/api$/i,'');
-  const selectedModel = document.getElementById('openaiModel').value;
+  const provider = currentProvider();
+  const selectedModel = getSelectedModel();
+  if(openaiKey && !selectedModel) throw new Error('Pick a model, or type a custom model ID');
   let rawText;
 
   if(openaiKey && backendUrl){
@@ -676,13 +996,9 @@ async function callGeneration(systemPrompt, userPrompt){
       response = await fetch(`${backendBase}/api/generate-script`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ openaiKey, systemPrompt, userPrompt, model: selectedModel })
+        body: JSON.stringify({ openaiKey, systemPrompt, userPrompt, model: selectedModel, provider, baseUrl: PROVIDERS[provider].base })
       });
     }catch(networkErr){
-      // fetch() itself throws (a bare "Failed to fetch") for network-level
-      // failures — refused connection, wrong URL, backend not running — before
-      // there's ever a response to check .ok on. Give a concrete next step
-      // instead of surfacing that opaque browser message as-is.
       throw new Error(`Could not reach your backend proxy at "${backendBase}/api/generate-script" — make sure it's running (cd backend && node server.js) and the URL is correct.`);
     }
     if(!response.ok){
@@ -695,25 +1011,17 @@ async function callGeneration(systemPrompt, userPrompt){
   }else if(openaiKey){
     let response;
     try{
-      response = await fetch("https://api.openai.com/v1/chat/completions", {
-        method: "POST",
-        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${openaiKey}` },
-        body: JSON.stringify({
-          model: selectedModel,
-          messages: [{ role: "system", content: systemPrompt }, { role: "user", content: userPrompt }],
-          response_format: { type: "json_object" }
-        })
-      });
+      response = await callChatCompletions(PROVIDERS[provider].base, openaiKey, selectedModel, systemPrompt, userPrompt);
     }catch(networkErr){
-      throw new Error(`Could not reach OpenAI directly from the browser — this is almost always blocked by CORS. Add a backend proxy URL above (cd backend && node server.js, then use http://localhost:3000) to work around it.`);
+      throw new Error(`Could not reach ${provider} directly from the browser — this is usually blocked by CORS. Add a backend proxy URL above (cd backend && node server.js, then use http://localhost:3000) to work around it.`);
     }
     if(!response.ok){
       const errBody = await response.text();
-      throw new Error(`OpenAI returned ${response.status} — check your key. ${errBody.slice(0,120)}`);
+      throw new Error(`${provider} returned ${response.status} — check your key and model ID. ${errBody.slice(0,120)}`);
     }
     const data = await response.json();
     rawText = data.choices && data.choices[0] && data.choices[0].message && data.choices[0].message.content;
-    if(!rawText) throw new Error("No content in OpenAI response");
+    if(!rawText) throw new Error(`No content in ${provider} response`);
   }else{
     let response;
     try{
@@ -728,7 +1036,7 @@ async function callGeneration(systemPrompt, userPrompt){
         })
       });
     }catch(networkErr){
-      throw new Error(`Could not reach the built-in generator — this free option (no key entered) only works inside Claude.ai's own preview. If you're running this file on your own machine, enter your OpenAI key above and a backend proxy URL (cd backend && node server.js, then use http://localhost:3000), then try again.`);
+      throw new Error(`Could not reach the built-in generator — this free option (no key entered) only works inside Claude.ai's own preview. If you're running this file on your own machine, enter an API key above and a backend proxy URL (cd backend && node server.js, then use http://localhost:3000), then try again.`);
     }
     if(!response.ok) throw new Error(`API returned ${response.status}`);
     const data = await response.json();
@@ -737,8 +1045,7 @@ async function callGeneration(systemPrompt, userPrompt){
     rawText = textBlock.text;
   }
 
-  const clean = rawText.trim().replace(/^```json/,'').replace(/^```/,'').replace(/```$/,'').trim();
-  return JSON.parse(clean);
+  return parseModelJson(rawText);
 }
 
 // Safety net for the same class of thing as fullVideoAudioPrompt()'s dialogue
@@ -903,7 +1210,7 @@ function visualRegisterRule(){
     storytelling: `Give every frame dynamic, cinematic weight: purposeful camera movement, dramatic contrast lighting that escalates with the story's stakes, compositions that build tension or wonder scene to scene.`
   }[narrativeVoice] || '';
   if(!visualFlavor) return '';
-  return `\nVISUAL REGISTER: ${visualFlavor} This applies to every "imagePrompt" and "videoAudioPrompt" in the sequence — every scene, whether or not it has dialogue or narration — because the retelling angle shapes what's SEEN, not only what's said. Still obey CONTINUITY, CONCRETE DETAIL FIDELITY, and every other rule above; this only steers the visual treatment, never the actual events, objects, or setting identity.`;
+  return `\nVISUAL REGISTER: ${visualFlavor} This applies to every "imagePrompt" and "videoAudioPrompt" in the sequence — every scene, whether or not it has dialogue or narration — because the retelling angle shapes what's SEEN, not only what's said. Still obey CONTINUITY, CONCRETE DETAIL FIDELITY, and every other rule above; this only steers the visual treatment, never the actual events, objects, or setting identity. It also never overrides RENDER STYLE LOCK: the register changes lighting, framing and grade only, never the medium (a "documentary" register in a 3D job is still 3D animation, not real footage).`;
 }
 
 // A finished story landing its Payoff isn't the same thing as a finished
@@ -918,8 +1225,7 @@ function visualRegisterRule(){
 function outroRule(){
   const el = document.getElementById('outroCta');
   if(!el || !el.checked) return '';
-  return `\nOUTRO RULE — CLOSING MEANING + LIKE/SHARE/SUBSCRIBE: Whenever a scene in THIS batch is the genuine final Payoff — the story has truly reached its ending, nothing left in sourceBeats or the source material to depict — append exactly one, or at most two, additional scene(s) immediately after it in this SAME response, each with "beat" set to "Outro". Do not wait for a later batch to add these; landing the Payoff is precisely the moment to keep going a little further, not to stop. If the previous scene already IS an Outro scene, the video is fully closed — do not add another one. Outro scenes still follow the full scene schema (sceneNumber continuing the sequence, timeRange continuing on from the Payoff scene, durationSeconds 8-10, imagePrompt/videoAudioPrompt, etc.) and stay locked to the same environment, characters, style, and color grade as the rest of the video — this is a calm closing beat, not a new scene of plot: describe a settled, quiet continuation of the Payoff's own final moment (the character exhaling, sitting back, looking out at what they've built), never a new event, new character, or new location.
-Their "narrationLine" (or "dialogue" if this piece is presenter/vlog-style and a person is meant to address the viewer directly) must accomplish two things, in this order, in one flowing line, per CONCRETE DETAIL FIDELITY and HOOK & RETENTION above: (1) state the story's own meaning, lesson, or takeaway OUTRIGHT, in the story's own specific terms — never a vague, generic moral that could belong to any story — inferring the most honest one implied by the events if the source never states one explicitly; then (2) close with a warm, natural call-to-action encouraging the viewer to like, share, and subscribe, phrased in the SAME register as the rest of the narration (per the voice flavor above — a fable narrator's CTA sounds different from a vlogger's) so it lands as part of the story's own voice, never like a bolted-on ad break. Example (fable register): "And that was the day Ryan finally understood — it was never about being the fastest, only about refusing to quit. If this story moved you, like this video, share it with someone who needs to hear it, and subscribe for more tales like it." If both parts genuinely can't fit naturally in one 8-10 second line without feeling crammed (especially in a monosyllabic language needing far more syllables per idea), split it into two back-to-back Outro scenes instead — the first landing the story's meaning, the second carrying only the like/share/subscribe line — but never more than two Outro scenes total, and never repeat the same idea across both. Everything other than the "dialogue"/"narrationLine" text itself still obeys LANGUAGE RULE — only those two fields follow the requested output language, every other field stays in English.`;
+  return `\nOUTRO RULE — CLOSING MEANING + LIKE/SHARE/SUBSCRIBE: Whenever a scene in THIS batch is the genuine final Payoff — the story has truly reached its ending, nothing left in sourceBeats or the source material to depict — append exactly one, or at most two, additional scene(s) immediately after it in this SAME response, each with "beat" set to "Outro". Do not wait for a later batch to add these; landing the Payoff is precisely the moment to keep going a little further, not to stop. If the previous scene already IS an Outro scene, the video is fully closed — do not add another one. Outro scenes still follow the full scene schema (sceneNumber continuing the sequence, timeRange continuing on from the Payoff scene, durationSeconds 8-10, imagePrompt/videoAudioPrompt, etc.) and stay locked to the same environment, characters, style, and color grade as the rest of the video — this is a calm closing beat, not a new scene of plot: describe a settled, quiet continuation of the Payoff's own final moment (the character exhaling, sitting back, looking out at what they've built), never a new event, new character, or new location.\nTheir "narrationLine" (or "dialogue" if this piece is presenter/vlog-style and a person is meant to address the viewer directly) must accomplish two things, in this order, in one flowing line, per CONCRETE DETAIL FIDELITY and HOOK & RETENTION above: (1) state the story's own meaning, lesson, or takeaway OUTRIGHT, in the story's own specific terms — never a vague, generic moral that could belong to any story — inferring the most honest one implied by the events if the source never states one explicitly; then (2) close with a warm, natural call-to-action encouraging the viewer to like, share, and subscribe, phrased in the SAME register as the rest of the narration (per the voice flavor above — a fable narrator's CTA sounds different from a vlogger's) so it lands as part of the story's own voice, never like a bolted-on ad break. Example (fable register): "And that was the day Ryan finally understood — it was never about being the fastest, only about refusing to quit. If this story moved you, like this video, share it with someone who needs to hear it, and subscribe for more tales like it." If both parts genuinely can't fit naturally in one 8-10 second line without feeling crammed (especially in a monosyllabic language needing far more syllables per idea), split it into two back-to-back Outro scenes instead — the first landing the story's meaning, the second carrying only the like/share/subscribe line — but never more than two Outro scenes total, and never repeat the same idea across both. Everything other than the "dialogue"/"narrationLine" text itself still obeys LANGUAGE RULE — only those two fields follow the requested output language, every other field stays in English.`;
 }
 
 // Background/score music is deliberately EXCLUDED from every videoAudioPrompt's
@@ -933,7 +1239,36 @@ Their "narrationLine" (or "dialogue" if this piece is presenter/vlog-style and a
 function musicThemeRule(){
   const el = document.getElementById('musicTheme');
   if(!el || !el.checked) return '';
-  return `\nMUSIC THEME RULE — OVERRIDES THE "NO MUSIC" INSTRUCTION ABOVE FOR THIS JOB: Background music is turned ON for this video, so every single scene's AUDIO section (point 6 of "videoAudioPrompt" in the schema above) must ALSO include a short description of the accompanying score, in addition to (not instead of) that scene's own diegetic/environmental sound. First, decide ONE consistent musical theme for the whole video — its genre/instrumentation family and overall emotional character (e.g. "a warm, intimate acoustic guitar and piano theme," "a sweeping orchestral score with strings and horns," "a tense, minimal synth pulse") — fitting treatment.tone, treatment.colorGrade, and the story's own genre; this is the video's one musical identity, decided once and kept consistent everywhere, the same way CONTINUITY locks one environment. Then, in every scene's AUDIO description, describe how THAT SAME theme sounds and behaves at THIS specific moment — its tempo, dynamics, and intensity following the story's own emotional arc (quieter, sparser, or slower during calm/setup beats; building in tempo, layering, or volume as tension rises through Build beats; swelling, resolving, or softening at the Payoff to match how the story actually ends) — never a different, unrelated piece of music scene to scene, only the same theme played more quietly, more urgently, or more triumphantly as the story calls for. Phrase it naturally within the flowing AUDIO clause alongside the environmental sound, e.g. "...a distant river current, while a slow piano theme underscores the quiet moment" or "...footsteps pounding the track, the orchestral theme building in tempo and volume as the gap closes." Keep this to one added clause, not a separate paragraph — it's one more detail in the AUDIO beat, not a new section. If an OUTRO scene is also present per OUTRO RULE, carry the same theme into it too, typically settling into its warmest or most resolved form for the closing line.`;
+  return `\nMUSIC THEME RULE — OVERRIDES THE "NO MUSIC" INSTRUCTION ABOVE FOR THIS JOB: Background music is turned ON for this video, so every single scene's AUDIO section (point 6 of "videoAudioPrompt" in the schema above) must ALSO include a short description of the accompanying score, in addition to (not instead of) that scene's own diegetic/environmental sound. First, decide ONE consistent musical theme for the whole video — its genre/instrumentation family and overall emotional character (e.g. "a warm, intimate acoustic guitar and piano theme," "a sweeping orchestral score with strings and horns," "a tense, minimal synth pulse") — fitting treatment.tone, treatment.colorGrade, and the story's own genre; this is the video's one musical identity, decided once and kept consistent everywhere, the same way CONTINUITY locks one environment. Then, in every scene's AUDIO description, describe how THAT SAME theme sounds and behaves at THIS specific moment — its tempo, dynamics, and intensity following the story's own emotional arc (quieter, sparser, or slower during calm/setup beats; building in tempo, layering, or volume as tension rises through Build beats; swelling, resolving, or softening at the Payoff to match how the story actually ends) — never a different, unrelated piece of music scene to scene, only the same theme played more quietly, more urgently, or more triumphantly as the story calls for. Phrase it naturally within the flowing AUDIO clause alongside the environmental sound, e.g. "...a distant river current, while a slow piano theme underscores the quiet moment" or "...footsteps pounding the track, the orchestral theme building in tempo and volume as the gap closes." Keep this to one added clause, not a separate paragraph — it's one more detail in the AUDIO beat, not a new section. If an OUTRO scene is also present per OUTRO RULE, carry the same theme into it too, typically settling into its warmest or most resolved form for the closing line. If the story setting is culturally specific (see STORY SETTING LOCK), choose instrumentation authentic to that culture and era.`;
+}
+
+// ---------------------------------------------------------------------------
+// NEW RULES: render style lock, story setting lock, original retelling craft.
+// They take explicit arguments so continuation batches use the job's saved
+// values rather than whatever the (possibly changed) form currently shows.
+// ---------------------------------------------------------------------------
+function styleLockRule(styleName, customText){
+  const spec = styleSpec(styleName, customText);
+  const label = styleName === 'Other' ? (customText || 'custom illustrated style') : styleName;
+  const animatedNote = spec.animated
+    ? ` This is an ANIMATED / ILLUSTRATED medium, not photography: every person must be described as an animated character of this medium (e.g. "a stylized 3D-animated young fisherman", "a 2D cel-shaded old woman") — never as a plain "man", "woman", "person", "actor", or "model", because an unqualified human description is rendered by image generators as a real photograph. Never use realism-pulling vocabulary: no "photo", "photograph", "photorealistic", "hyper-realistic", "realistic skin", "skin pores", "DSLR", "shot on film", "real person", "live-action". Camera and lens terms (close-up, 35mm, shallow depth of field) are allowed only as framing language inside the animated render.`
+    : ` This is a live-action / photographic medium: keep everything grounded and real — no cartoon, anime, or CGI look.`;
+  return `\nRENDER STYLE LOCK — HARD CONSTRAINT, checked on every prompt before output: The chosen render style is "${label}": ${spec.tag}. styleBlock.description, every character "description", every "imagePrompt", every "videoAudioPrompt", and "thumbnail.prompt" must each name this medium explicitly within its own text (each prompt is copied and used on its own, so none may rely on another to carry the style), and "characterStyle" must restate it.${animatedNote} The app additionally prepends this exact style tag and appends a negative style line ("${spec.negative}") to every copied prompt — keep your wording consistent with it and never contradict it.`;
+}
+
+function settingLockRule(setting){
+  if(!setting){
+    return `\nSTORY SETTING: No specific setting was chosen — infer ONE setting (culture, country, and historical era) from the source material, state it explicitly in treatment.setting, and then keep every environment, architecture, prop, costume, hairstyle, and character ethnicity consistent with that one culture and era for the whole video, with no anachronisms or cultural mixing.`;
+  }
+  return `\nSTORY SETTING / CULTURAL CONTEXT LOCK — HARD CONSTRAINT, overrides the source material's own setting wherever they differ: this story takes place in ${setting}. Transpose the source story fully into this world and write that into treatment.setting. Every environment, architecture, interior, furniture, prop, tool, food, vehicle, clothing and fabric, hairstyle, jewelry, weapon, plant and landscape, and every character's (and every background extra's) ethnicity, "nationality" field, and name must authentically belong to this culture AND this historical era. treatment.environment must name the culture/era explicitly (e.g. "a Joseon-era hanok courtyard village", not just "a village"). No anachronisms and no cultural mixing: nothing from a different culture or a later era (no phones, plastic, or Western suits in feudal Japan; no Chinese hanfu in a Joseon Korea story; no metal tools or buildings in a Stone Age story). If the source mentions a culturally specific object, custom, food, job, holiday, or place from elsewhere, replace it with this setting's closest authentic equivalent so the story still works. Restate the culture/era briefly inside the environment clause of EVERY imagePrompt and videoAudioPrompt (e.g. "inside a lantern-lit Edo-period tea house") so each prompt stands alone when copied. The styleBlock character descriptions' wardrobe must be period- and culture-accurate, described with real garment names from this culture.`;
+}
+
+function storyCraftRule(setting){
+  return `\nORIGINAL RETELLING & STORY CRAFT RULE — refines SOURCE-CONTENT RULE, TOPIC VS SOURCE PRIORITY RULE, and CONCRETE DETAIL FIDELITY wherever they conflict: treat the source as the PREMISE and PLOT SKELETON (its core situation, main turning points, ending, and meaning) — never as text to copy. The result must be an original, unique retelling that someone who knows the source would recognize in spirit, but never find copied.
+(a) RENAME EVERYONE: every character from the source gets a brand-new name you invent — never reuse, translate, transliterate, or lightly alter any name that appears in the source (first name, surname, nickname, or title-plus-name). Names must sound authentic for the story's setting${setting ? ` (${setting})` : ''}. Also rename named towns, shops, schools, and companies. Record every change in treatment.nameChanges as {"original": <source name>, "renamed": <your new name>}. Use ONLY the new names everywhere — character "name" fields, prompts, dialogue, narration, thumbnail.
+(b) MAKE IT GRIPPING: build suspense and dramatic tension like a professional screenwriter. Give the protagonist a clear want, a real obstacle, and something concrete to lose. Open on a question, a threat, or a secret. Raise the stakes every few scenes. Use foreshadowing (plant a detail early that pays off later), dramatic irony (the viewer knows something a character doesn't), a ticking clock or looming consequence, and withhold one key piece of information until the right moment for the reveal. End most scenes — and always the last scene of a batch — on a small hook, turn, or unanswered question that pulls the viewer into the next one.
+(c) YOU MAY INVENT dramatizing detail: fresh specific objects, sensory textures, small complications, a sharper confrontation, a telling line, a surprising-but-earned way of revealing the ending — as long as it serves the source's own premise, turning points, and ending/meaning. Do not change the core outcome or moral, and do not bolt on unrelated subplots. treatment.sourceBeats should list the beats of YOUR retold version, each still pictureable as a single shot.
+(d) SOUND HUMAN: write narration and dialogue like a skilled human novelist or screenwriter — concrete nouns, strong verbs, subtext instead of stated feelings, characters who each talk like a distinct real person, varied sentence length, the occasional fragment for punch. Never rephrase the source's own sentences — write fresh lines. Avoid AI-sounding clichés entirely: "little did they know", "a testament to", "tapestry", "in a world where", "echoes of", "journey" as a metaphor, "unbeknownst", "the air was thick with", "a sense of", "couldn't help but", "delve", "whispered secrets", "heart pounding" as filler, and tidy moralizing summaries mid-story.`;
 }
 
 function baseSystemPrompt(){
@@ -961,20 +1296,23 @@ Output ONLY raw JSON, no markdown fences, no preamble. Schema:
     "colorGrade": string,
     "narrativeArc": string (one sentence describing hook/build/payoff shape),
     "sourceBeats": array of strings (the ordered list of concrete, specific moments/events from the source material, per SOURCE BEAT EXTRACTION above — each entry pictureable as a single shot, e.g. "the vendor waves away the last customer of the day" not "the vendor has a slow day." This is the anchor every scene must map onto; it is NOT the same thing as a scene's "beat" field below, which is that scene's dramatic function (Hook/Build/Payoff) rather than its concrete content),
+    "setting": string (the one culture, country/region, and historical era this story takes place in, per STORY SETTING rule below — e.g. "Joseon-dynasty Korea, early 1700s"),
+    "nameChanges": array of { "original": string, "renamed": string } (every name from the source you replaced, per ORIGINAL RETELLING rule below — characters, and any named places/businesses. Empty array only if the source names nobody),
     "environment": string (the physical setting/location for this sequence, described concretely — e.g. "a narrow street-side café in Saigon, plastic stools, tin awning, motorbikes passing"),
     "timeOfDay": string (the time of day and weather/light condition for this sequence — e.g. "late afternoon, overcast, light rain"),
     "narratorVoice": string or null (only include if in narration-first mode — a short description of the narrator's consistent tone, e.g. "warm, unhurried, a little wistful")
   },
   "styleBlock": {
-    "description": string (render/medium style only — e.g. lighting model, material qualities, color palette, overall art direction. This applies to every character and every scene.),
+    "description": string (render/medium style only — must open by naming the exact medium per RENDER STYLE LOCK, then lighting model, material qualities, color palette, overall art direction. This applies to every character and every scene.),
     "characters": [
       {
-        "name": string (a short label, e.g. "Woman at the food stall", used to reference this character in scenes — invent a name/label even if the source material doesn't name them),
+        "name": string (the character's NEW invented proper name per ORIGINAL RETELLING rule, e.g. "Hana" or "Old Bao" — never a name that appears in the source; authentic to the story setting; used to reference this character in scenes),
         "role": string (their function in the story, e.g. "Primary observer", "Old vendor", "Passerby"),
         "age": string (a specific age or a tight age range, e.g. "24" or "around 60-65" — inferred from the source material when not stated outright, never left vague like "an adult"),
         "gender": string (e.g. "female", "male", "non-binary" — as established or clearly implied by the source material; make a sensible inference if it isn't stated),
-        "nationality": string (the character's nationality or ethnic background, inferred from the source material's setting and cultural context — e.g. "Vietnamese", "Nigerian", "Japanese American". If the setting is generic, fictional, or otherwise gives no cultural anchor, describe the general appearance/ancestry implied instead of guessing a specific country, e.g. "East Asian appearance" or "Northern European appearance" — never silently default to one ethnicity without a reason from the source or setting),
-        "description": string (a full character-design-bible entry, professional animation/VFX studio level of detail — must include: approximate age, build/body type, facial structure and distinguishing features, exact hair color/length/style, eye color and shape, skin tone and texture quality, complete wardrobe described with fabric type and how it behaves/moves, color palette of the outfit, any signature accessory, and a note on posture/expression that conveys personality. Write it as a spec someone could hand to an animator to draw the same character every time, not a casual one-line description.),
+        "nationality": string (the character's nationality or ethnic background — it MUST match the story setting per STORY SETTING rule; inferred from the source material's setting and cultural context only when no setting was chosen — e.g. "Vietnamese", "Nigerian", "Japanese". If the setting is generic, fictional, or otherwise gives no cultural anchor, describe the general appearance/ancestry implied instead of guessing a specific country, e.g. "East Asian appearance" or "Northern European appearance" — never silently default to one ethnicity without a reason from the source or setting),
+        "faceSignature": string (a precise, compact FACIAL IDENTITY spec used to keep this face identical in every image — 35-60 words covering, in this order: face shape; skin tone; eye shape, size, color and eyelid type; eyebrow shape and thickness; nose shape; lip shape and fullness; jaw and chin; cheekbones; hairline and exact hairstyle/color framing the face; and 1-2 permanent distinguishing marks (a mole under the left eye, a small scar on the chin, a gap in the front teeth). Concrete physical terms only, no mood words, written in the chosen render medium's terms (e.g. "stylized 3D" proportions for 3D)),
+        "description": string (a full character-design-bible entry, professional animation/VFX studio level of detail — must open by naming the render medium (e.g. "A stylized 3D-animated ..."), and must include: approximate age, build/body type, facial structure and distinguishing features consistent with faceSignature, exact hair color/length/style, eye color and shape, skin tone and texture quality, complete wardrobe described with fabric type and how it behaves/moves (period- and culture-accurate per STORY SETTING), color palette of the outfit, any signature accessory, and a note on posture/expression that conveys personality. Write it as a spec someone could hand to an animator to draw the same character every time, not a casual one-line description.),
         "actionPoses": array of exactly 2 strings (two brief, natural action/expression poses for this character, used to generate a turnaround character-reference sheet — NOT tied to any specific scene. Each should be a single, simple physical beat suited to a static reference image, e.g. "smiling warmly while tucking a strand of hair behind her ear" or "walking forward with a relaxed, confident gait". Per CHARACTER SHEET POSES RULE below, choose poses that actually fit THIS character's personality and role as established by the source material — do not reuse the same two generic poses for every character.)
       }
     ],
@@ -1000,7 +1338,7 @@ Output ONLY raw JSON, no markdown fences, no preamble. Schema:
       "cameraMovement": string,
       "lens": string,
       "lighting": string,
-      "imagePrompt": string (the STARTING FRAME prompt for an image generator. Written as one flowing cinematic paragraph, professional-director level. If charactersInScene is non-empty, blend: the full description of every character listed in charactersInScene (pulled from styleBlock.characters) so each renders consistently every time, the environment and time-of-day/weather EXACTLY as set in treatment.environment and treatment.timeOfDay (do not silently vary these between scenes), precise lighting description consistent with that time-of-day (source, quality, direction, color temperature), camera framing and lens (shot size, angle, depth of field), and overall color/mood. If charactersInScene is deliberately empty per the SUBJECT RULE, do NOT insert a person anyway — build the entire prompt around the actual non-human subject instead (the object/chart/vehicle/document itself: its exact form, material, color, texture, any on-it text or data described in words), still locked to the same environment, time-of-day/weather, lighting, and color grade as every other scene. This is a still-frame brief — describe the moment frozen, not action. Per the VISUAL VARIETY rule above: even though environment, lighting, and style stay locked, this scene's pose, action, framing, and composition must clearly differ from the previous scene's imagePrompt — never restate the same frozen moment with only the wording changed.),
+      "imagePrompt": string (the STARTING FRAME prompt for an image generator. Written as one flowing cinematic paragraph, professional-director level, naming the render medium per RENDER STYLE LOCK. If charactersInScene is non-empty, blend: the full description of every character listed in charactersInScene (pulled from styleBlock.characters) PLUS that character's faceSignature verbatim, so each renders consistently every time, the environment and time-of-day/weather EXACTLY as set in treatment.environment and treatment.timeOfDay (do not silently vary these between scenes), precise lighting description consistent with that time-of-day (source, quality, direction, color temperature), camera framing and lens (shot size, angle, depth of field), and overall color/mood. If charactersInScene is deliberately empty per the SUBJECT RULE, do NOT insert a person anyway — build the entire prompt around the actual non-human subject instead (the object/chart/vehicle/document itself: its exact form, material, color, texture, any on-it text or data described in words), still locked to the same environment, time-of-day/weather, lighting, and color grade as every other scene. This is a still-frame brief — describe the moment frozen, not action. Per the VISUAL VARIETY rule above: even though environment, lighting, and style stay locked, this scene's pose, action, framing, and composition must clearly differ from the previous scene's imagePrompt — never restate the same frozen moment with only the wording changed.),
       "videoAudioPrompt": string (Write this as ONE continuous flowing prompt, in this EXACT structural order — like a professional shot description, not labeled sections: 1) SUBJECT — briefly name who or what is in the scene: a character pulled from charactersInScene, OR, when charactersInScene is deliberately empty per the SUBJECT RULE, the actual non-human subject itself (a chart, a vehicle, a product, a document, etc.) — never invent a person just to fill this slot. 2) ACTION — the beat-by-beat physical action and performance, and how characters interact with each other if more than one is present. REQUIRED: if this scene has on-screen "dialogue" (a visible character speaking), the ACTION portion MUST include the exact quoted line, in the requested output language, and name which character speaks it — do not omit it, do not paraphrase it, do not drop it to save space. The quoted line itself stays in the requested output language even though the rest of the prompt is English; e.g. she turns to him and says, "..." 3) ENVIRONMENT — briefly restate the setting and time-of-day/weather (matching treatment.environment and treatment.timeOfDay exactly, do not vary it). 4) STYLE — the render style, color grade, and lighting quality for this shot, matching styleBlock.description and treatment.colorGrade. 5) CAMERA MOVEMENT — how the camera moves during this shot. 6) AUDIO — the ambient/environmental sound, specific and concrete (weather, room tone, background noise, birds, wind, water, magical/fantastical sound effects where the story calls for it — never generic). This is diegetic sound design only — NEVER include background music, a score, theme music, or any musical cue of any kind; no "piano swell," no "beat drop," nothing that isn't a sound that would actually occur at this location. Example shape WITHOUT dialogue: "A woman in a flowing red dress walks to the closed glass door, opens it, steps inside, and pulls it shut behind her on a city rooftop at golden hour, the skyline reflected in the glass, warm light, shallow depth of field, soft film grade, the camera glides smoothly behind her, settling outside the door, soft footsteps, a gentle door latch, light wind, a faint city hum." Example shape WITH dialogue: "A woman in a flowing red dress reaches the glass door and pauses, turning back to the man behind her, and says, "Wait — are you sure about this?" on a city rooftop at golden hour, the skyline reflected in the glass, warm light, shallow depth of field, soft film grade, the camera holds steady on both of them, soft footsteps fading, a light wind, a faint city hum." If this scene instead has a "narrationLine" (voiceover, not spoken by anyone on screen), do NOT reference, quote, or mention it anywhere in this prompt at all — narration is generated entirely separately for CloneVoice and has no place in a video-generation prompt; this scene's videoAudioPrompt should read as if no narration existed. Concretely: NEVER write a pattern like she whispers, "..." or he says, "..." that quotes or paraphrases the narrationLine as if it were spoken on camera — that turns silent voiceover into fabricated lip-synced dialogue, which is wrong even if the quoted words match the narration exactly. A narration scene's ACTION should describe physical behavior only (what the character does, how they move) with no quoted speech of any kind.),
       "transitionOut": string (e.g. "hard cut", "cross dissolve", "match cut on motion"),
       "soundCue": string (a DIEGETIC/environmental sound only — something that would actually exist at this location, e.g. "birds calling in the canopy", "wind through the leaves", "a distant river current", "footsteps on stone", "a soft magical chime" if the story calls for something fantastical. NEVER a musical score cue — no "piano swell", no "beat drop", no theme music, no soundtrack of any kind; this field is environmental sound design, not a music cue),
@@ -1011,12 +1349,12 @@ Output ONLY raw JSON, no markdown fences, no preamble. Schema:
   ]
 }
 NOTE: The 20-25 word target above is an English-speech approximation, based on English averaging roughly 1.5-2 syllables per word. When the output language isn't English, do NOT just reuse that same word count — convert it to a syllable-based target instead: natural conversational speech runs roughly 4-5 syllables per second across most languages, so an 8-10 second line needs roughly 35-45 spoken syllables, regardless of language. For a monosyllabic or near-monosyllabic language where each written word is typically one syllable (Vietnamese, Chinese, Thai), that means the line needs roughly 35-45 words — nearly double the English word-count target, NOT 20-25. A line like "Họ chăm chút cho con đẻ của họ hơn." (8 syllables, ~2 seconds) is a fragment, not a scene-filling line — for an 8-10 second Vietnamese scene, expand it into a genuinely long, complete sentence, or two shorter linked ones, that actually takes 8-10 seconds to say aloud at a natural pace. For a more polysyllabic language (Spanish, French, Indonesian, Japanese, Korean), the word count will land closer to the English target, but still check it against the same ~35-45 syllable benchmark rather than assuming word count alone is enough.
-SOURCE-CONTENT RULE (decide this FIRST, before casting anyone): Read the source material and work out what it actually IS. If it is a story, fable, book excerpt, folktale, article, or any narrative being told — as opposed to a real person's own routine, tips, review, or vlog-style content — then the characters, environment, and every scene must depict THAT STORY'S OWN WORLD: its actual characters, its actual setting, its actual events, illustrated as if this were a film or animated adaptation of it. In that case, do NOT invent a generic "Narrator", "Storyteller", "Host", "Reader", or "Listener" as a character in styleBlock.characters, and do NOT frame the video as one invented person reading or explaining the story to another invented person — depict the story's events directly. The only exception is when the source material is itself explicitly about two people in conversation (an interview, a dialogue, a real exchange) — then that conversation IS the story to depict, not a wrapper around it. Every imagePrompt and videoAudioPrompt must show a concrete moment lifted from the source material's own plot, in the order the story unfolds — never a generic, unrelated, or purely illustrative visual that could belong to any topic. If the source material genuinely is a real person presenting their own tips, routine, or experience straight to camera (the kind of topic like a skincare routine or a product unboxing), then a single on-screen presenter character is correct and expected — this rule only blocks inventing a narrator/reader frame around content that is actually a story.\nTOPIC VS SOURCE PRIORITY RULE: The user-provided "topic" (if any) is only a retelling angle, restyling, or optional twist — it is NEVER a replacement for the source material's own plot. Every entry in treatment.sourceBeats must still come from the actual source content; topic may change surface framing (wording, title, audience angle, a stylistic twist) but must never invent new events, swap in something generic that merely relates to the topic, or cause scenes to drift away from what the source specifically describes. If topic and source ever seem to pull in different directions, the source wins — treat topic as a lens to view the source through, never as a new brief that overrides it. When no topic is given, follow the source directly with no reframing at all.\nNARRATION-IS-NOT-A-CHARACTER RULE: Voiceover narration is read by someone who never appears on screen. A "narrationLine" must never be assigned to "dialogue", must never be quoted or attributed to a speaker anywhere in "videoAudioPrompt" or "imagePrompt", and the character delivering it must never be listed in "charactersInScene" or added to styleBlock.characters — there is no visual "Narrator" character, ever. If a moment feels like it needs someone to say something in-story, decide plainly whether that is a character in the depicted world speaking on screen (use "dialogue") or an unseen voiceover (use "narrationLine") — never both framed as the same speaking body.\nSUBJECT RULE: Not every scene is about a person, and a person should never be added to a scene just to have someone in frame. Before writing each scene, decide plainly what that scene's real visual subject is. Many topics and story beats are genuinely about a non-human subject — a statistic or trend (a chart/graph), a product or object being shown off, a vehicle, a piece of food, a document or screen, a landscape or detail of the environment itself. When that's the case, make "charactersInScene" an empty array for that scene and write "imagePrompt"/"videoAudioPrompt" centered entirely on that subject — its exact form, material, color, texture, motion, and any on-it text or data — never invent a person to hold it, point at it, or stand next to it. Only put a character in a scene when that scene's actual beat genuinely is about a person's presence, action, reaction, or speech. A sequence can freely mix character scenes and no-character/object scenes — do not force every single scene in the sequence into the same mold just because earlier scenes had a person in them.\nCHARACTER COUNT RULE: Analyze the source material and topic to determine how many distinct characters actually appear across the whole sequence — do not default to exactly one, and do not default to a character appearing in every scene (see SUBJECT RULE above). If the story is about a single person alone, write one character. If it involves an interaction (a vendor and a customer, a parent and a child, two friends), write a full bible entry for each one who appears, even side characters — anyone who's visible and described doing something needs a consistent character entry so they don't visually change scene to scene.
+SOURCE-CONTENT RULE (decide this FIRST, before casting anyone): Read the source material and work out what it actually IS. If it is a story, fable, book excerpt, folktale, article, or any narrative being told — as opposed to a real person's own routine, tips, review, or vlog-style content — then the characters, environment, and every scene must depict THAT STORY'S OWN WORLD: its actual characters, its actual setting, its actual events, illustrated as if this were a film or animated adaptation of it. In that case, do NOT invent a generic "Narrator", "Storyteller", "Host", "Reader", or "Listener" as a character in styleBlock.characters, and do NOT frame the video as one invented person reading or explaining the story to another invented person — depict the story's events directly. The only exception is when the source material is itself explicitly about two people in conversation (an interview, a dialogue, a real exchange) — then that conversation IS the story to depict, not a wrapper around it. Every imagePrompt and videoAudioPrompt must show a concrete moment lifted from the source material's own plot, in the order the story unfolds — never a generic, unrelated, or purely illustrative visual that could belong to any topic. If the source material genuinely is a real person presenting their own tips, routine, or experience straight to camera (the kind of topic like a skincare routine or a product unboxing), then a single on-screen presenter character is correct and expected — this rule only blocks inventing a narrator/reader frame around content that is actually a story. (The ORIGINAL RETELLING rule and STORY SETTING rule appended below refine this: the story's world is depicted with new names, in the chosen setting, with dramatized detail.)\nTOPIC VS SOURCE PRIORITY RULE: The user-provided "topic" (if any) is only a retelling angle, restyling, or optional twist — it is NEVER a replacement for the source material's own plot. Every entry in treatment.sourceBeats must still come from the actual source content; topic may change surface framing (wording, title, audience angle, a stylistic twist) but must never invent new events, swap in something generic that merely relates to the topic, or cause scenes to drift away from what the source specifically describes. If topic and source ever seem to pull in different directions, the source wins — treat topic as a lens to view the source through, never as a new brief that overrides it. When no topic is given, follow the source directly with no reframing at all.\nNARRATION-IS-NOT-A-CHARACTER RULE: Voiceover narration is read by someone who never appears on screen. A "narrationLine" must never be assigned to "dialogue", must never be quoted or attributed to a speaker anywhere in "videoAudioPrompt" or "imagePrompt", and the character delivering it must never be listed in "charactersInScene" or added to styleBlock.characters — there is no visual "Narrator" character, ever. If a moment feels like it needs someone to say something in-story, decide plainly whether that is a character in the depicted world speaking on screen (use "dialogue") or an unseen voiceover (use "narrationLine") — never both framed as the same speaking body.\nSUBJECT RULE: Not every scene is about a person, and a person should never be added to a scene just to have someone in frame. Before writing each scene, decide plainly what that scene's real visual subject is. Many topics and story beats are genuinely about a non-human subject — a statistic or trend (a chart/graph), a product or object being shown off, a vehicle, a piece of food, a document or screen, a landscape or detail of the environment itself. When that's the case, make "charactersInScene" an empty array for that scene and write "imagePrompt"/"videoAudioPrompt" centered entirely on that subject — its exact form, material, color, texture, motion, and any on-it text or data — never invent a person to hold it, point at it, or stand next to it. Only put a character in a scene when that scene's actual beat genuinely is about a person's presence, action, reaction, or speech. A sequence can freely mix character scenes and no-character/object scenes — do not force every single scene in the sequence into the same mold just because earlier scenes had a person in them.\nCHARACTER COUNT RULE: Analyze the source material and topic to determine how many distinct characters actually appear across the whole sequence — do not default to exactly one, and do not default to a character appearing in every scene (see SUBJECT RULE above). If the story is about a single person alone, write one character. If it involves an interaction (a vendor and a customer, a parent and a child, two friends), write a full bible entry for each one who appears, even side characters — anyone who's visible and described doing something needs a consistent character entry so they don't visually change scene to scene.
 WARDROBE RULE: A character's styleBlock.characters[].description (including wardrobe) is the DEFAULT look and should be reused as-is scene to scene — it is not, however, an unbreakable costume lock. If a specific entry in treatment.sourceBeats clearly depicts a change — the character changes clothes, gets soaked or muddied, is shown much later per LONG-TIMESPAN/REPEATED-PATTERN STORIES with visibly worn or different clothing, or the source explicitly describes a different outfit for a specific moment — describe that specific, story-driven modification in that scene's imagePrompt/videoAudioPrompt while keeping the character otherwise clearly recognizable (same face, hair, body type, identity). Never change wardrobe arbitrarily or just for visual variety's own sake — only when the sourceBeat itself calls for it; the default is to keep it locked exactly as written.
-CHARACTER FACE VISIBILITY RULE: These images feed a consistent-character/reference-image animation workflow (VideoExpress, Artistly) that locks onto the character's FACE in the image to keep them looking the same from shot to shot — a scene whose face isn't clearly visible gives that workflow nothing to lock onto, which is what breaks consistency downstream. So for every scene where a named character from styleBlock.characters is listed in "charactersInScene", "imagePrompt" must show that character's face clearly and recognizably: not turned fully away from camera, not silhouetted against a bright background, not obscured by hair, hands, an object, another character, or deep shadow, and not so small/distant in the frame that facial features aren't readable. Camera angle and shot size can and should still vary per COVERAGE and VISUAL VARIETY — close-up, medium, 3/4 profile, even a partial profile — as long as enough of the face stays legible to read as the same person; only a genuine back-of-head shot, a full silhouette, or an extreme wide shot where the character is a tiny distant figure actually breaks this rule. Treat "the face must be visible" as a hard constraint to check before finalizing each such scene's imagePrompt, the same way ACTION CONTINUITY and VISUAL VARIETY are checked — a scene can still fail this rule even if it otherwise satisfies every other visual-variety and coverage requirement. This does not apply to unnamed background/crowd people (see CROWD & SCENE POPULATION RULE below, where faces are incidental) or to scenes where "charactersInScene" is deliberately empty per the SUBJECT RULE.
+CHARACTER FACE VISIBILITY RULE: These images feed a consistent-character/reference-image animation workflow (VideoExpress, Artistly) that locks onto the character's FACE in the image to keep them looking the same from shot to shot — a scene whose face isn't clearly visible gives that workflow nothing to lock onto, which is what breaks consistency downstream. So for every scene where a named character from styleBlock.characters is listed in "charactersInScene", "imagePrompt" must show that character's face clearly and recognizably: not turned fully away from camera, not silhouetted against a bright background, not obscured by hair, hands, an object, another character, or deep shadow, and not so small/distant in the frame that facial features aren't readable. Camera angle and shot size can and should still vary per COVERAGE and VISUAL VARIETY — close-up, medium, 3/4 profile, even a partial profile — as long as enough of the face stays legible to read as the same person; only a genuine back-of-head shot, a full silhouette, or an extreme wide shot where the character is a tiny distant figure actually breaks this rule. Treat "the face must be visible" as a hard constraint to check before finalizing each such scene's imagePrompt, the same way ACTION CONTINUITY and VISUAL VARIETY are checked — a scene can still fail this rule even if it otherwise satisfies every other visual-variety and coverage requirement. Every such imagePrompt must also restate that character's "faceSignature" word for word, so the face is described identically in every single scene. This does not apply to unnamed background/crowd people (see CROWD & SCENE POPULATION RULE below, where faces are incidental) or to scenes where "charactersInScene" is deliberately empty per the SUBJECT RULE.
 CHARACTER SHEET POSES RULE: For every entry in styleBlock.characters, also write "actionPoses" (see schema) — two brief action/expression poses used later to generate that character's turnaround reference sheet, completely separate from anything depicted in the scenes themselves. Choose poses that genuinely suit THIS character's personality, age, and role as established by the source material and their own character-bible description — a shy or reserved character might get a small, closed-off gesture; a confident or energetic one might get a bold stride or an open, expressive gesture. Never default to the same two generic poses (e.g. "smiling" and "walking") for every character in the cast — vary them to actually reflect who each character is.
-CHARACTER IDENTITY FIELDS RULE: For every entry in styleBlock.characters, "age", "gender", and "nationality" (see schema) must agree exactly with whatever the "description" field itself already implies or states — these are not new creative decisions made in isolation, they are the same identity pulled out into their own structured fields so downstream tools can use them directly. If "description" says "a weathered old fisherman," "age" should reflect that (e.g. "around 60-65"), not contradict it with something like "30." Work out age/gender/nationality from the source material's own text and setting first, then make sure "description" and these three fields all tell the same consistent story about who this character is.
-THUMBNAIL RULE: The "thumbnail" object (see schema) is a single deliberately-composed still image, not a copy of any individual scene's imagePrompt — build it fresh, choosing whichever single moment, expression, or image from across the ENTIRE story (per treatment.sourceBeats) would make someone stop scrolling, the same way a real YouTube creator picks their most compelling frame only after the whole video is planned; do not just reuse the Hook scene's imagePrompt verbatim. It must still be truthful to the story per CONCRETE DETAIL FIDELITY below — an exaggerated, tightly-framed rendering of something that genuinely happens in the story is correct, inventing a moment that never occurs is not. Reuse the exact character/product description from styleBlock so the thumbnail renders as the same character/product as the rest of the video, never a different-looking one-off made just for the thumbnail.
+CHARACTER IDENTITY FIELDS RULE: For every entry in styleBlock.characters, "age", "gender", "nationality", and "faceSignature" (see schema) must agree exactly with whatever the "description" field itself already implies or states — these are not new creative decisions made in isolation, they are the same identity pulled out into their own structured fields so downstream tools can use them directly. If "description" says "a weathered old fisherman," "age" should reflect that (e.g. "around 60-65"), not contradict it with something like "30." Work out age/gender/nationality from the source material's own text and the chosen story setting first, then make sure "description" and these fields all tell the same consistent story about who this character is.
+THUMBNAIL RULE: The "thumbnail" object (see schema) is a single deliberately-composed still image, not a copy of any individual scene's imagePrompt — build it fresh, choosing whichever single moment, expression, or image from across the ENTIRE story (per treatment.sourceBeats) would make someone stop scrolling, the same way a real YouTube creator picks their most compelling frame only after the whole video is planned; do not just reuse the Hook scene's imagePrompt verbatim. It must still be truthful to the story per CONCRETE DETAIL FIDELITY below — an exaggerated, tightly-framed rendering of something that genuinely happens in the story is correct, inventing a moment that never occurs is not. Reuse the exact character/product description (and faceSignature) from styleBlock so the thumbnail renders as the same character/product as the rest of the video, never a different-looking one-off made just for the thumbnail.
 PRODUCT CONSISTENCY RULE: If this is a commercial/product-focused piece for a specific branded product, write one full packaging-design-bible entry per distinct product/package into styleBlock.products (see schema) — exact brand colors, logo wordmark and placement, flavor/variant text, pack shape and material — and reference that exact same description every single time the product appears in imagePrompt/videoAudioPrompt. Treat the product itself the way CHARACTER COUNT RULE treats a person: something that must never redesign, recolor, reshape, or relabel itself between scenes. This rule only applies to genuine product/brand ads — ignore it entirely for non-commercial content, and leave styleBlock.products empty or omitted.
 ADS / COMMERCIAL STORYBOARD STRUCTURE: When this piece is an ad or commercial — signaled by an "ads"/"commercial" retelling angle, or by source material that is itself a product brief — and unless the source material clearly dictates a different structure, shape the sequence around this proven six-beat arc, compressing or combining beats as needed to fit the requested length, but never skipping the first, second, or last: (1) ORDINARY WORLD — open on the protagonist in a real, specific moment with no product in sight yet, establishing mood and character; this doubles as the Hook (see HOOK & RETENTION above — still open mid-action, never with throat-clearing). (2) PRODUCT INTRODUCTION — a deliberate, unhurried reveal of the product: pulled from a pocket or bag, held up, framed clearly — treat it like a character's entrance, not a throwaway prop, and render it exactly per PRODUCT CONSISTENCY RULE above. (3) PRODUCT INTERACTION — one or two close, tactile beats of physically using the product (unwrapping, texture, the specific physical action of use), shot in tight detail. (4) TRANSFORMATION / REACTION — show the immediate felt effect on the protagonist through PHYSICAL SPECIFICITY (a changed breath, posture, expression, a private smile) — never a label like "she feels refreshed." (5) AMPLIFICATION — extend that shift outward: the protagonist now moves through the world differently, and the environment or other people visibly respond (a crowd, an admiring glance, a burst of energy) — this is the social proof of the product's effect. (6) HERO / CLOSING SHOT — end on a clean, well-lit shot of the product (package legible, on-brand), alone or held together with the protagonist at their most confident, landing the Payoff beat on the product itself rather than trailing off. If this piece is not an ad/commercial, ignore this entire rule.
 CONCRETE DETAIL FIDELITY: Every narration and dialogue line must draw from the SPECIFIC concrete details of THIS SCENE's own corresponding entry in treatment.sourceBeats — its exact objects, exact recurring phrases or thoughts, exact turning point, and exact stated meaning or moral if the source gives one — not a generic paraphrase that could describe any similar story, and not a detail borrowed from a different beat. If the source names specific objects (e.g. old rope, stones, fabric scraps caught in a net), those specific objects should appear in imagePrompt/videoAudioPrompt where relevant, and narration should reference the SAME specific idea the source is making at THAT point in the story, not a vaguer substitute. Before finalizing each narration or dialogue line, test it against this rule: does it name something concrete and specific to this exact beat, or could it be swapped into any other story about the same general subject without anyone noticing the substitution? If the latter, rewrite it. If the source states an explicit metaphor or lesson, the final scene's narration should land on that meaning directly, in the story's own terms, not a softened generic takeaway.
@@ -1025,18 +1363,41 @@ LONG-TIMESPAN / REPEATED-PATTERN STORIES: If the source describes something happ
 EXTENDED SINGLE-ACTION PACING RULE: When the source material describes one continuous event that could stretch across many scenes — a race, a chase, a competition, a long journey, a single unbroken struggle — never pad it into a long run of consecutive scenes that all just restate "still doing the same action" with only the camera angle or wording changed; that is a failure of this rule even if the VISUAL VARIETY checks above technically pass. At least once every 3-4 scenes within that continuous event, something concrete must change or advance the situation — the gap between competitors closes or widens, an obstacle or mistake appears, a rival makes a move, the crowd's reaction shifts, the character makes a decision or changes tactic, a new physical detail enters (fatigue, an injury, damaged equipment, changing terrain). Before finalizing a run of scenes depicting the same ongoing event, count how many consecutive scenes — including earlier ones already written, if continuing an existing shot list — have shown that event without a concrete development, and if it's already 3-4 or more, the next scene must supply one or move the event toward its resolution, never simply extend it further unchanged. If the underlying event doesn't actually contain enough distinct developments to justify covering it at 8-10 seconds per scene for as long as the requested length would otherwise demand, compress it: skip ahead within the event (e.g. jump from the start of a race to its decisive final stretch) rather than manufacturing extra unchanging scenes just to fill time.
 
 SCENE CASTING RULE: No matter how many characters exist in the full roster, each individual scene's "charactersInScene" must list at most 2 of them — never crowd a shot with the whole cast at once. If the roster has more than 2 characters total, choose whichever 2 are most narratively relevant to that specific beat (the two actually interacting or focused on in that moment), and rotate the pairing scene to scene as the story calls for it. Direct the interaction between those 2 naturally — real eye contact, physical proximity, believable reactions to each other — rather than two people posed side by side.
-CROWD & SCENE POPULATION RULE: The 2-character cap above governs how many NAMED characters from styleBlock.characters can be listed in "charactersInScene" — it does not mean the scene itself should look empty of other people. Before writing each scene, decide whether its setting inherently implies other people being present — a city street, a competition or race with rivals and spectators, a school, a market, a stadium, or any other crowded event — and if so, populate "imagePrompt" and "videoAudioPrompt" with concrete, unnamed background people doing plausible things there (rival contestants with their own gear, clusters of spectators reacting, classmates in a hallway, vendors and passersby along the street) so the frame reads as the real, populated place it's supposed to be, not an empty set with only the named character(s) standing alone in it. Describe these background people directly in the prose of imagePrompt/videoAudioPrompt only — never add them to "charactersInScene" or styleBlock.characters, since they carry no individual identity that needs to stay consistent. CRITICAL — NEVER CLONE THE NAMED CHARACTER(S): every one of these background people must be a visually DIFFERENT person from every character in styleBlock.characters and from every other background person in the same scene — different build, different face shape, different hair color/style, different clothing color and style, different apparent age where plausible. Never describe a background person by reusing or lightly rewording a named character's own description (that renders as the same reference image duplicated across the crowd, which is wrong even when the wording is varied) — invent quick, generic one-clause looks for each instead (e.g. "a wiry boy in a faded green shirt," "a heavyset man with a straw hat and rolled sleeves," "two girls in patterned headscarves"). These background people need only enough description to read as distinct individuals in a still frame — not a full character-bible entry like the named cast gets. Whenever a scene both has a named character in "charactersInScene" AND background people per this rule, state the contrast explicitly and by name near the start of imagePrompt/videoAudioPrompt — e.g. "Unlike Ryan, the other racers around him are ..." or "Different from Mai, the shoppers nearby include ..." — naming the named character and immediately following with how the background people differ, rather than describing the named character first and only vaguely gesturing at "other people" afterward; an image generator anchors much more reliably on an explicit named contrast than on a generic background mention placed later in the prompt. Only show a deliberately empty or sparse environment when the source material itself specifically calls for isolation or emptiness as part of the story's meaning (e.g. an abandoned building, a character who is pointedly alone) — otherwise default to a setting that looks as populated as that kind of place realistically would be.
-LANGUAGE RULE: Every single field in the schema must be written in English, full stop — with EXACTLY TWO exceptions: "dialogue" and "narrationLine". This holds even when the source material is itself written in another language, and even when that language matches the requested output language — analyze and describe the source in English regardless; do not let it leak into any other field just because that's the language you read it in. This covers every field without exception: "topic", "characterStyle", every field inside "treatment" (logline, tone, colorGrade, narrativeArc, sourceBeats, environment, timeOfDay, narratorVoice), every field inside "styleBlock" (description, and every character's and product's name/role/description), both fields inside "thumbnail" (prompt, textOverlay), and every scene field (beat, shotType, cameraMovement, lens, lighting, imagePrompt, videoAudioPrompt, transitionOut, soundCue, emotionStyle) — these feed English-only AI video/image tools and an English-reading director, so none of them may drift into the source or output language. The two exceptions — "dialogue" and "narrationLine" — must always be written in the requested output language, sounding natural and idiomatic for a native speaker, never a literal translation. Inside "videoAudioPrompt", if a scene has on-screen dialogue, quote that exact same line verbatim in the requested output language (matching "dialogue" word for word) even though every other word in that field stays in English — never translate the quoted line back to English. Narration is never quoted inside videoAudioPrompt at all, regardless of language, per the note on that field above.`;
+CROWD & SCENE POPULATION RULE: The 2-character cap above governs how many NAMED characters from styleBlock.characters can be listed in "charactersInScene" — it does not mean the scene itself should look empty of other people. Before writing each scene, decide whether its setting inherently implies other people being present — a city street, a competition or race with rivals and spectators, a school, a market, a stadium, or any other crowded event — and if so, populate "imagePrompt" and "videoAudioPrompt" with concrete, unnamed background people doing plausible things there (rival contestants with their own gear, clusters of spectators reacting, classmates in a hallway, vendors and passersby along the street) so the frame reads as the real, populated place it's supposed to be, not an empty set with only the named character(s) standing alone in it. Describe these background people directly in the prose of imagePrompt/videoAudioPrompt only — never add them to "charactersInScene" or styleBlock.characters, since they carry no individual identity that needs to stay consistent. CRITICAL — NEVER CLONE THE NAMED CHARACTER(S): every one of these background people must be a visually DIFFERENT person from every character in styleBlock.characters and from every other background person in the same scene — different build, different face shape, different hair color/style, different clothing color and style, different apparent age where plausible. Never describe a background person by reusing or lightly rewording a named character's own description (that renders as the same reference image duplicated across the crowd, which is wrong even when the wording is varied) — invent quick, generic one-clause looks for each instead (e.g. "a wiry boy in a faded green shirt," "a heavyset man with a straw hat and rolled sleeves," "two girls in patterned headscarves"). These background people need only enough description to read as distinct individuals in a still frame — not a full character-bible entry like the named cast gets. Background people must also belong to the story setting's culture and era, and be rendered in the same medium per RENDER STYLE LOCK. Whenever a scene both has a named character in "charactersInScene" AND background people per this rule, state the contrast explicitly and by name near the start of imagePrompt/videoAudioPrompt — e.g. "Unlike Ryan, the other racers around him are ..." or "Different from Mai, the shoppers nearby include ..." — naming the named character and immediately following with how the background people differ, rather than describing the named character first and only vaguely gesturing at "other people" afterward; an image generator anchors much more reliably on an explicit named contrast than on a generic background mention placed later in the prompt. Only show a deliberately empty or sparse environment when the source material itself specifically calls for isolation or emptiness as part of the story's meaning (e.g. an abandoned building, a character who is pointedly alone) — otherwise default to a setting that looks as populated as that kind of place realistically would be.
+LANGUAGE RULE: Every single field in the schema must be written in English, full stop — with EXACTLY TWO exceptions: "dialogue" and "narrationLine". This holds even when the source material is itself written in another language, and even when that language matches the requested output language — analyze and describe the source in English regardless; do not let it leak into any other field just because that's the language you read it in. This covers every field without exception: "topic", "characterStyle", every field inside "treatment" (logline, tone, colorGrade, narrativeArc, sourceBeats, setting, environment, timeOfDay, narratorVoice), every field inside "styleBlock" (description, and every character's and product's name/role/description/faceSignature), both fields inside "thumbnail" (prompt, textOverlay), and every scene field (beat, shotType, cameraMovement, lens, lighting, imagePrompt, videoAudioPrompt, transitionOut, soundCue, emotionStyle) — these feed English-only AI video/image tools and an English-reading director, so none of them may drift into the source or output language. (Character names may use the setting's own naming conventions, written in Latin script.) The two exceptions — "dialogue" and "narrationLine" — must always be written in the requested output language, sounding natural and idiomatic for a native speaker, never a literal translation. Inside "videoAudioPrompt", if a scene has on-screen dialogue, quote that exact same line verbatim in the requested output language (matching "dialogue" word for word) even though every other word in that field stays in English — never translate the quoted line back to English. Narration is never quoted inside videoAudioPrompt at all, regardless of language, per the note on that field above.`;
+}
+
+// Shared tail appended to every system prompt (opening and continuation):
+// style lock, setting lock, and story-craft rules, then the speech/visual/
+// outro/music toggles. Uses explicit values so a continuation batch obeys the
+// job's saved choices even if the form has since been changed.
+function jobRulesTail(styleName, customStyle, setting){
+  return styleLockRule(styleName, customStyle) + settingLockRule(setting) + storyCraftRule(setting) +
+    speechModeRule() + visualRegisterRule() + outroRule() + musicThemeRule();
+}
+
+function styleLabelFor(styleName, customStyle){
+  return styleName === 'Other' && customStyle ? `Other — ${customStyle}` : styleName;
 }
 
 async function generateScript(){
   const source = document.getElementById('source').value.trim();
   const minuteVal = parseFloat(document.getElementById('minute').value);
   const topic = document.getElementById('topic').value.trim();
+  const setting = getFormSetting();
+  const customStyle = currentStyle === 'Other' ? document.getElementById('customStyle').value.trim() : '';
   document.getElementById('errBox').style.display = 'none';
 
   if(!source){
     showError('Add source material before generating — paste the actual story, transcript, or a detailed description of what happens.');
+    return;
+  }
+  if(currentStyle === 'Other' && !customStyle){
+    showError('You picked "Other" as the character style — describe the style in the box under the style buttons (e.g. "claymation stop-motion") so every prompt can be locked to it.');
+    return;
+  }
+  if(document.getElementById('storySetting').value === 'custom' && !setting){
+    showError('You picked a custom story setting — describe it in the box under the setting dropdown, or choose one from the list.');
     return;
   }
 
@@ -1052,16 +1413,20 @@ async function generateScript(){
     // well short of the requested length.
     const targetSceneCount = totalSeconds ? Math.round(totalSeconds / 9) : null;
     const pacingToTargetNote = targetSceneCount ? ` PACING TO TARGET LENGTH: this video is requested at ${minuteVal} minute(s) (~${totalSeconds}s) total — at 8-10s per scene, that's roughly ${targetSceneCount} scenes across the ENTIRE video, not just this opening batch. Keep that target in mind while building treatment.sourceBeats: if the source material only yields noticeably fewer concrete beats than that (a short story being told), do not plan to rush through it in as few scenes as possible. Instead plan, from this very first batch, to give the story's more significant beats (confrontations, turning points, decisions, competitions, emotional moments) multiple scenes of genuine cinematic coverage spread across the whole video — an approach/anticipation shot, the core action, a reaction or consequence beat, a lingering emotional moment — the way a real film allocates several shots to one dramatic beat, never by inventing new plot events beyond the source (still per SOURCE-CONTENT RULE and TOPIC VS SOURCE PRIORITY RULE below). The story should only reach its Payoff once it has earned close to the requested length through real, faithful coverage — not conclude several minutes short of it.` : '';
-    const systemPrompt = baseSystemPrompt() + `\nRules: styleBlock.description must reflect the requested character style. This is the OPENING batch of a longer video — cover only roughly the first 40-50 seconds as consecutive 8-10 second scenes, starting at 0:00, and make sure this batch covers the "Hook" and the start of "Build". Keep total scenes in this batch between 3 and 5. Per SOURCE BEAT EXTRACTION: list treatment.sourceBeats as concrete, specific moments from the source material before writing any scenes, and make sure every scene in this batch clearly maps to one of them, in order — do not invent scenes that don't correspond to something the source actually describes.${pacingToTargetNote} Per HOOK & RETENTION: since this batch includes the Hook, open the very first scene already inside concrete action or an unresolved question pulled from sourceBeats — never a quiet establishing or waking-up moment — and write its logline/narration/dialogue to match: specific, active, no throat-clearing openers. If this is an ad/commercial piece, per ADS / COMMERCIAL STORYBOARD STRUCTURE this batch should open on ORDINARY WORLD with no product visible yet, saving PRODUCT INTRODUCTION for shortly after — otherwise ignore this sentence entirely. Vary shot size and camera movement scene to scene — never repeat the same combination twice in a row. Per VISUAL VARIETY: each scene's imagePrompt must show a visibly different pose/action/framing AND a visibly different specific background/set-dressing detail (a different spot within the one locked location, not the same patch of backdrop repeated) than the scene before it, even with environment and lighting locked — before finalizing, compare each imagePrompt to the one before it and rewrite either if they'd render as near-identical images, backgrounds included. Per ACTION CONTINUITY: each scene's opening action must visibly pick up from exactly where the previous scene's action ended — same body position, same object in hand, same emotional beat continuing — not a jump to an unrelated moment; check this against the previous scene before finalizing each one. Per CROWD & SCENE POPULATION RULE: if this batch's setting inherently implies other people (a city, a competition, a school, a market, a crowd of any kind), populate the imagery with concrete background people, not just the named cast alone in an empty-looking space — and make sure each of those background people is a visually distinct, randomly-generated look, never the named character's own description reused or reworded for someone else in the crowd. Per CHARACTER FACE VISIBILITY RULE: whenever a named character appears in this batch's scenes, keep their face clearly visible and unobstructed in imagePrompt — no back-of-head, silhouette, or face-hidden framing — so the reference-image animation workflow has a consistent face to lock onto. Per EXTENDED SINGLE-ACTION PACING RULE: if this batch depicts one continuous ongoing event (a race, chase, competition, struggle), do not let it sit unchanged for more than 3-4 scenes without a concrete development — introduce one, or compress toward the event's resolution instead of padding it. Keep imagePrompt and videoAudioPrompt concise enough that the whole response fits in the token budget — but this does NOT apply to "dialogue" or "narrationLine": those must always hit their full 20-25 word / 8-10 second length regardless, even if it means fewer scenes in this batch. Never shorten a spoken line just to save tokens. Per LANGUAGE RULE: every field must be in English except "dialogue" and "narrationLine" — even if the source material below is itself written in ${document.getElementById('language').value}, describe it in English; only the spoken lines follow ${document.getElementById('language').value}.` + speechModeRule() + visualRegisterRule() + outroRule() + musicThemeRule();
+    const systemPrompt = baseSystemPrompt() + `\nRules: styleBlock.description must reflect the requested character style per RENDER STYLE LOCK below. This is the OPENING batch of a longer video — cover only roughly the first 40-50 seconds as consecutive 8-10 second scenes, starting at 0:00, and make sure this batch covers the "Hook" and the start of "Build". Keep total scenes in this batch between 3 and 5. Per SOURCE BEAT EXTRACTION: list treatment.sourceBeats as concrete, specific moments from the source material (as retold per ORIGINAL RETELLING below) before writing any scenes, and make sure every scene in this batch clearly maps to one of them, in order — do not invent scenes that don't correspond to something in that list.${pacingToTargetNote} Per HOOK & RETENTION: since this batch includes the Hook, open the very first scene already inside concrete action or an unresolved question pulled from sourceBeats — never a quiet establishing or waking-up moment — and write its logline/narration/dialogue to match: specific, active, no throat-clearing openers. If this is an ad/commercial piece, per ADS / COMMERCIAL STORYBOARD STRUCTURE this batch should open on ORDINARY WORLD with no product visible yet, saving PRODUCT INTRODUCTION for shortly after — otherwise ignore this sentence entirely. Vary shot size and camera movement scene to scene — never repeat the same combination twice in a row. Per VISUAL VARIETY: each scene's imagePrompt must show a visibly different pose/action/framing AND a visibly different specific background/set-dressing detail (a different spot within the one locked location, not the same patch of backdrop repeated) than the scene before it, even with environment and lighting locked — before finalizing, compare each imagePrompt to the one before it and rewrite either if they'd render as near-identical images, backgrounds included. Per ACTION CONTINUITY: each scene's opening action must visibly pick up from exactly where the previous scene's action ended — same body position, same object in hand, same emotional beat continuing — not a jump to an unrelated moment; check this against the previous scene before finalizing each one. Per CROWD & SCENE POPULATION RULE: if this batch's setting inherently implies other people (a city, a competition, a school, a market, a crowd of any kind), populate the imagery with concrete background people, not just the named cast alone in an empty-looking space — and make sure each of those background people is a visually distinct, randomly-generated look, never the named character's own description reused or reworded for someone else in the crowd. Per CHARACTER FACE VISIBILITY RULE: whenever a named character appears in this batch's scenes, keep their face clearly visible and unobstructed in imagePrompt and restate their faceSignature — no back-of-head, silhouette, or face-hidden framing — so the reference-image animation workflow has a consistent face to lock onto. Per EXTENDED SINGLE-ACTION PACING RULE: if this batch depicts one continuous ongoing event (a race, chase, competition, struggle), do not let it sit unchanged for more than 3-4 scenes without a concrete development — introduce one, or compress toward the event's resolution instead of padding it. Keep imagePrompt and videoAudioPrompt concise enough that the whole response fits in the token budget — but this does NOT apply to "dialogue" or "narrationLine": those must always hit their full 20-25 word / 8-10 second length regardless, even if it means fewer scenes in this batch. Never shorten a spoken line just to save tokens. Per LANGUAGE RULE: every field must be in English except "dialogue" and "narrationLine" — even if the source material below is itself written in ${document.getElementById('language').value}, describe it in English; only the spoken lines follow ${document.getElementById('language').value}.` + jobRulesTail(currentStyle, customStyle, setting);
 
-    const userPrompt = `Source material:\n${source}\n\n${totalSeconds ? `Total video length: ${minuteVal} minutes (${totalSeconds}s)` : "Length not specified — treat as a short clip"}\n${topic ? `Retelling angle (secondary — a stylistic twist only, must never override or replace the source material's actual content above): ${topic}` : `No retelling angle given — follow the source material's own story directly, with no reframing.`}\nCharacter style: ${currentStyle}\nOutput language for dialogue/narration: ${document.getElementById('language').value}`;
+    const userPrompt = `Source material (a premise to retell originally — rename every character):\n${source}\n\n${totalSeconds ? `Total video length: ${minuteVal} minutes (${totalSeconds}s)` : "Length not specified — treat as a short clip"}\n${topic ? `Retelling angle (secondary — a stylistic twist only, must never override or replace the source material's actual content above): ${topic}` : `No retelling angle given — follow the source material's own story directly, with no reframing.`}\nCharacter / render style: ${styleLabelFor(currentStyle, customStyle)}\nStory setting / cultural context: ${setting || 'Auto — infer one setting from the source and lock it'}\nOutput language for dialogue/narration: ${document.getElementById('language').value}`;
 
-    const parsed = sanitizeParsedScenes(await callGeneration(systemPrompt, userPrompt));
+    const parsedRaw = sanitizeParsedScenes(await callGeneration(systemPrompt, userPrompt));
+    const nameChanges = (parsedRaw.treatment && Array.isArray(parsedRaw.treatment.nameChanges)) ? parsedRaw.treatment.nameChanges : [];
+    const parsed = applyNameChanges(parsedRaw, nameChanges);
 
     job = {
       jobId: 'job_' + Date.now(),
       topic: parsed.topic || topic,
-      characterStyle: currentStyle, // NOT parsed.characterStyle — the AI can echo back a descriptive sentence instead of the exact label (seen in practice), which breaks anything mapping against the fixed "3D"/"Anime"/"Realistic"/"Flat illustration" values. currentStyle is always exactly one of those 4, since it's set directly from the button click.
+      characterStyle: currentStyle, // NOT parsed.characterStyle — the AI can echo back a descriptive sentence instead of the exact label (seen in practice), which breaks anything mapping against the fixed style values. currentStyle is always exactly one of the style buttons' values, since it's set directly from the button click.
+      customStyle,
+      setting,
       language: document.getElementById('language').value,
       selectedVoiceId: null,
       treatment: parsed.treatment || null,
@@ -1071,6 +1436,7 @@ async function generateScript(){
       totalSeconds: totalSeconds,
       source, currentTopic: topic
     };
+    job.nameLeaks = findNameLeaks((job.styleBlock && job.styleBlock.characters) || [], source);
     doneMap = {};
     await loadProgress();
     renderResults();
@@ -1113,30 +1479,14 @@ async function continueScript(){
     const recentScenes = job.scenes.slice(-4);
     const recentScenesSummary = recentScenes.map(s => `Scene ${s.sceneNumber} (${s.beat || '—'}): ${(s.imagePrompt || '').slice(0, 220)}`).join('\n');
 
-    // COST OPTIMIZATION: baseSystemPrompt()'s schema always describes the FULL
-    // job shape (topic/characterStyle/treatment/styleBlock/thumbnail/scenes),
-    // but continueScript() below only ever reads parsed.scenes back out —
-    // "job.scenes = job.scenes.concat(parsed.scenes || [])" — every other key
-    // the model would otherwise regenerate (a full styleBlock with every
-    // character's ~200-word bible entry, a fresh thumbnail prompt, a full
-    // treatment object) was being silently thrown away, unread, on every
-    // single "Generate next scenes" click. That's pure wasted OUTPUT tokens
-    // (billed higher than input tokens) for zero benefit, so this override
-    // tells the model to only produce the one key that's actually used.
+    // COST OPTIMIZATION: continueScript() only ever reads parsed.scenes back
+    // out, so tell the model to only produce that one key — regenerating
+    // styleBlock/treatment/thumbnail here would be wasted output tokens.
     const outputOverride = `\nOUTPUT OVERRIDE FOR THIS CONTINUATION CALL: Ignore the top-level shape in the schema above for THIS response only — output ONLY a JSON object of the form {"scenes": [...]}, containing just this batch's new scene objects (each one following the "scenes" item schema exactly, same fields and rules as always). Do NOT include "topic", "characterStyle", "treatment", "styleBlock", or "thumbnail" in this response — those were already generated in the opening batch and are not read back from continuation responses, so regenerating them here only wastes tokens.`;
 
-    // COST OPTIMIZATION: the opening batch's SOURCE BEAT EXTRACTION pass already
-    // turned the full source material into a concrete, ordered sourceBeats list —
-    // that list, not the raw source text, is the anchor CONCRETE DETAIL FIDELITY
-    // and this rule ask the model to keep mapping scenes onto. Resending the
-    // entire original source (which can be a multi-thousand-word transcript) on
-    // every single "Generate next scenes" click was pure repeated cost for a
-    // long video's many batches. The raw text is only genuinely needed again for
-    // the narrower case the rule itself names — "if you reach the end of that
-    // list... extract further concrete beats from later in the source" — so
-    // only re-send it in full once there aren't many unused beats left; once
-    // that estimate looks tight, fall back to sending it in full every time,
-    // since it's cheap insurance next to a truncated/broken continuation.
+    // COST OPTIMIZATION: the opening batch already turned the source into an
+    // ordered sourceBeats list, so the full raw source is only re-sent once
+    // few unused beats remain.
     const priorBeats = job.treatment?.sourceBeats || [];
     const beatsRemainingEstimate = Math.max(0, priorBeats.length - job.scenes.length);
     const needsFullSourceText = priorBeats.length === 0 || beatsRemainingEstimate <= 4;
@@ -1144,36 +1494,33 @@ async function continueScript(){
       ? job.source
       : `(Full source text omitted for this batch to save tokens — it was already sent in full for the opening batch, and the source beats list below still has roughly ${beatsRemainingEstimate} unshown beat(s) to draw on. Work from those beat descriptions; once that list is nearly exhausted, a later batch will receive the full source text again so more beats can be extracted from it.)`;
 
-    // A short source story told at roughly one scene per beat will run out of
-    // beats — and hit the STOP CONDITION below — long before a generous
-    // requested video length is reached. Without an explicit target and
-    // remaining-runway figure, the model has no way to tell "this story is
-    // genuinely finished" apart from "I've only covered what few beats I
-    // extracted and there's much more requested time left" — so spell out
-    // both numbers and make the STOP CONDITION explicitly defer to this.
+    // Spell out the target and remaining runway so a short source story
+    // doesn't hit the STOP CONDITION long before the requested length.
     const estimatedTotalScenesNeeded = job.totalSeconds ? Math.round(job.totalSeconds / 9) : null;
     const remainingClamped = Math.max(0, remaining || 0);
     const pacingNote = estimatedTotalScenesNeeded ? ` PACING TO TARGET LENGTH: this video's target is roughly ${estimatedTotalScenesNeeded} scenes total (~${job.totalSeconds}s at 8-10s each) — ${job.scenes.length} have been written so far, with roughly ${remainingClamped}s (about ${Math.round(remainingClamped/9)} more scenes) of requested runway still remaining. If the unshown sourceBeats would otherwise wrap up well short of that target, that is NOT a reason to end early or trigger the STOP CONDITION below — instead slow down: give the remaining beats, especially the climax and its aftermath, fuller cinematic coverage across more scenes (an approach/anticipation shot, the core action itself, a reaction/consequence beat, a lingering emotional or reflective moment) so the story earns its way to something close to the requested length through real, faithful coverage. Only land the Payoff meaningfully before the target if the source material is genuinely too thin to stretch further even with generous, faithful coverage — never by inventing unrelated events to pad it.` : '';
 
-    const systemPrompt = baseSystemPrompt() + outputOverride + `\nRules:${pacingNote} STOP CONDITION — CHECK THIS SECOND, only once PACING TO TARGET LENGTH above rules out expanding further: if the story already reached a genuine ending in the scenes so far (the previous scene already lands as a Payoff — a concrete resolution, reveal, or the story's own stated moral/meaning per HOOK & RETENTION and LONG-TIMESPAN rules above — and there is nothing left in sourceBeats or the source material to depict, even with expanded coverage; OR the previous scene is already an "Outro" scene per OUTRO RULE below, in which case the video is fully closed no matter what) — do NOT invent more scenes just to fill a batch: instead output {"scenes": []} (an empty array) and nothing else. Never pad a finished story by re-staging, rephrasing, or looping back over content already shown in earlier scenes (e.g. repeating the climax or closing moral under new scene numbers) — that is worse than generating nothing. Only proceed past this check if there is a genuine, unshown next beat to depict. This CONTINUES an existing shot list — do not repeat earlier scenes. Start scene numbering at ${job.scenes.length + 1} and start the time range at ${formatTime(lastEndSeconds)}. Generate the next 3-5 consecutive scenes. ${remaining !== null && remaining <= 60 ? 'This is likely the final batch — land the "Payoff" beat by the end of the video.' : 'Continue developing the "Build" beat, saving "Payoff" for a later batch.'} Per SOURCE BEAT EXTRACTION: continue mapping scenes onto the sourceBeats list already established below, in order, picking up from wherever it left off — if you reach the end of that list before the video is done, extract further concrete beats from later in the source material and continue the same progression, never inventing an unrelated event. Per HOOK & RETENTION: keep escalating the specific question the Hook opened through this batch's Build scenes — no scene should just sit still or repeat what's already been shown — and if this is the final batch, make the Payoff scene's closing line land with real weight (a concrete turn, reveal, or the story's own stated meaning) rather than trailing off into a generic close. If this is an ad/commercial piece, per ADS / COMMERCIAL STORYBOARD STRUCTURE keep developing PRODUCT INTERACTION and TRANSFORMATION/AMPLIFICATION through this batch, and if this is the final batch, land the HERO / CLOSING SHOT on a clean, legible shot of the product — otherwise ignore this sentence entirely. Vary shot size and camera movement, and don't repeat the immediately preceding scene's combination. Per VISUAL VARIETY: this batch's first new imagePrompt must look clearly different (pose/action/framing, AND a different specific background spot within the one locked location) from the last scene of the previous batch quoted below, and every scene after that must keep differing from the one before it — never two near-identical frames in a row, backgrounds included, even with environment and lighting locked. Per ACTION CONTINUITY: this batch's first scene must pick up exactly where the previous batch's last scene left off (quoted below) — same body position, same object in hand, same emotional beat continuing — and every scene after that must keep flowing from the one before it, not jumping to unrelated moments. Per CROWD & SCENE POPULATION RULE: if the setting inherently implies other people (a city, a competition, a school, a market, a crowd of any kind), keep populating the imagery with concrete background people, not just the named cast alone in an empty-looking space — and make sure each of those background people is a visually distinct, randomly-generated look, never the named character's own description reused or reworded for someone else in the crowd. Per CHARACTER FACE VISIBILITY RULE: keep every named character's face clearly visible and unobstructed in imagePrompt for every scene they appear in — no back-of-head, silhouette, or face-hidden framing. Per EXTENDED SINGLE-ACTION PACING RULE: check the recent-scenes summary quoted below — if it shows the same ongoing event (a race, chase, competition, struggle) repeating for 3-4 scenes or more without a concrete development, this batch's first scene must supply one now (a lead change, an obstacle, a mistake, a crowd reaction, a decision) or compress toward that event's resolution, never simply extend it unchanged again. Keep imagePrompt and videoAudioPrompt concise enough that the whole response fits in the token budget — but this does NOT apply to "dialogue" or "narrationLine": those must always hit their full 20-25 word / 8-10 second length regardless, even if it means fewer scenes in this batch. Never shorten a spoken line just to save tokens. Per LANGUAGE RULE: every field must be in English except "dialogue" and "narrationLine" — even if the source material below is itself written in ${document.getElementById('language').value}, describe it in English; only the spoken lines follow ${document.getElementById('language').value}.` + speechModeRule() + visualRegisterRule() + outroRule() + musicThemeRule();
+    const systemPrompt = baseSystemPrompt() + outputOverride + `\nRules:${pacingNote} STOP CONDITION — CHECK THIS SECOND, only once PACING TO TARGET LENGTH above rules out expanding further: if the story already reached a genuine ending in the scenes so far (the previous scene already lands as a Payoff — a concrete resolution, reveal, or the story's own stated moral/meaning per HOOK & RETENTION and LONG-TIMESPAN rules above — and there is nothing left in sourceBeats or the source material to depict, even with expanded coverage; OR the previous scene is already an "Outro" scene per OUTRO RULE below, in which case the video is fully closed no matter what) — do NOT invent more scenes just to fill a batch: instead output {"scenes": []} (an empty array) and nothing else. Never pad a finished story by re-staging, rephrasing, or looping back over content already shown in earlier scenes (e.g. repeating the climax or closing moral under new scene numbers) — that is worse than generating nothing. Only proceed past this check if there is a genuine, unshown next beat to depict. This CONTINUES an existing shot list — do not repeat earlier scenes. Start scene numbering at ${job.scenes.length + 1} and start the time range at ${formatTime(lastEndSeconds)}. Generate the next 3-5 consecutive scenes. ${remaining !== null && remaining <= 60 ? 'This is likely the final batch — land the "Payoff" beat by the end of the video.' : 'Continue developing the "Build" beat, saving "Payoff" for a later batch.'} Per SOURCE BEAT EXTRACTION: continue mapping scenes onto the sourceBeats list already established below, in order, picking up from wherever it left off — if you reach the end of that list before the video is done, extract further concrete beats from later in the source material and continue the same progression, never inventing an unrelated event. Per HOOK & RETENTION and ORIGINAL RETELLING (b): keep escalating the specific question the Hook opened through this batch's Build scenes — raise stakes, pay off earlier foreshadowing, and end this batch on a hook — no scene should just sit still or repeat what's already been shown — and if this is the final batch, make the Payoff scene's closing line land with real weight (a concrete turn, reveal, or the story's own stated meaning) rather than trailing off into a generic close. If this is an ad/commercial piece, per ADS / COMMERCIAL STORYBOARD STRUCTURE keep developing PRODUCT INTERACTION and TRANSFORMATION/AMPLIFICATION through this batch, and if this is the final batch, land the HERO / CLOSING SHOT on a clean, legible shot of the product — otherwise ignore this sentence entirely. Vary shot size and camera movement, and don't repeat the immediately preceding scene's combination. Per VISUAL VARIETY: this batch's first new imagePrompt must look clearly different (pose/action/framing, AND a different specific background spot within the one locked location) from the last scene of the previous batch quoted below, and every scene after that must keep differing from the one before it — never two near-identical frames in a row, backgrounds included, even with environment and lighting locked. Per ACTION CONTINUITY: this batch's first scene must pick up exactly where the previous batch's last scene left off (quoted below) — same body position, same object in hand, same emotional beat continuing — and every scene after that must keep flowing from the one before it, not jumping to unrelated moments. Per CROWD & SCENE POPULATION RULE: if the setting inherently implies other people (a city, a competition, a school, a market, a crowd of any kind), keep populating the imagery with concrete background people, not just the named cast alone in an empty-looking space — and make sure each of those background people is a visually distinct, randomly-generated look, never the named character's own description reused or reworded for someone else in the crowd. Per CHARACTER FACE VISIBILITY RULE: keep every named character's face clearly visible and unobstructed in imagePrompt for every scene they appear in, restating their faceSignature — no back-of-head, silhouette, or face-hidden framing. Per EXTENDED SINGLE-ACTION PACING RULE: check the recent-scenes summary quoted below — if it shows the same ongoing event (a race, chase, competition, struggle) repeating for 3-4 scenes or more without a concrete development, this batch's first scene must supply one now (a lead change, an obstacle, a mistake, a crowd reaction, a decision) or compress toward that event's resolution, never simply extend it unchanged again. Keep imagePrompt and videoAudioPrompt concise enough that the whole response fits in the token budget — but this does NOT apply to "dialogue" or "narrationLine": those must always hit their full 20-25 word / 8-10 second length regardless, even if it means fewer scenes in this batch. Never shorten a spoken line just to save tokens. Per LANGUAGE RULE: every field must be in English except "dialogue" and "narrationLine" — even if the source material below is itself written in ${document.getElementById('language').value}, describe it in English; only the spoken lines follow ${document.getElementById('language').value}.` + jobRulesTail(job.characterStyle, job.customStyle || '', job.setting || '');
 
-    const userPrompt = `Source material:\n${sourceTextForPrompt}\n\n${job.currentTopic ? `Retelling angle (secondary — a stylistic twist only, must never override or replace the source material's actual content above): ${job.currentTopic}` : `No retelling angle given — follow the source material's own story directly, with no reframing.`}\nCharacter style: ${job.characterStyle}\nOutput language for dialogue/narration: ${document.getElementById('language').value}\n\nContinuing from the style, environment, and characters already established — reuse these exactly, do not invent new characters, and do not change the environment or time-of-day unless the story clearly moves to a new place or later time:\nStyle: ${job.styleBlock.description}\nEnvironment: ${job.treatment?.environment || 'not specified — infer from earlier scenes'}\nTime of day: ${job.treatment?.timeOfDay || 'not specified — infer from earlier scenes'}\nCharacters:\n${job.styleBlock.characters.map(c => `- ${c.name} (${c.role}): ${c.description}`).join('\n')}${Array.isArray(job.styleBlock.products) && job.styleBlock.products.length ? `\n\nProducts already established — reuse these exact descriptions, do not let the packaging redesign, recolor, or relabel itself:\n${job.styleBlock.products.map(p => `- ${p.name}: ${p.description}`).join('\n')}` : ''}\n\nSource beats identified so far (in order) — continue depicting whichever of these haven't been shown in scenes yet, then extract further beats from later in the source if this list runs out before the video does:\n${(job.treatment?.sourceBeats || []).map((b,i) => `${i+1}. ${b}`).join('\n') || '(none recorded yet — infer from the source and the last scene below)'}\n\nThe previous scene ended at ${formatTime(lastEndSeconds)}. Here is its exact imagePrompt (the visual frame) — your first new scene's imagePrompt must look clearly different from this one (pose/action/framing), not a near-repeat:\n"${lastScene ? lastScene.imagePrompt : 'opening of the video'}"\n\nAnd here is exactly what was happening in that scene's action, so the next scene can continue the story naturally rather than jumping to something unrelated:\n"${lastScene ? lastScene.videoAudioPrompt : 'opening of the video'}"\n\nRecent scenes so far (for EXTENDED SINGLE-ACTION PACING RULE — check whether these already show the same ongoing action/event without a concrete development, and if so, this batch must supply one or move it toward resolution):\n${recentScenesSummary || '(none yet)'}\n${job.totalSeconds ? `Total video length is ${job.totalSeconds}s.` : ''}`;
+    const nameChanges = (job.treatment && Array.isArray(job.treatment.nameChanges)) ? job.treatment.nameChanges : [];
+    const nameChangesText = nameChanges.length
+      ? `\n\nName changes already decided — ALWAYS use the new name, never the original, even where the source text below still uses the original:\n${nameChanges.map(n => `- ${n.original} → ${n.renamed}`).join('\n')}`
+      : '';
 
-    const parsed = sanitizeParsedScenes(await callGeneration(systemPrompt, userPrompt));
+    const userPrompt = `Source material (a premise being retold originally):\n${sourceTextForPrompt}\n\n${job.currentTopic ? `Retelling angle (secondary — a stylistic twist only, must never override or replace the source material's actual content above): ${job.currentTopic}` : `No retelling angle given — follow the source material's own story directly, with no reframing.`}\nCharacter / render style: ${styleLabelFor(job.characterStyle, job.customStyle)}\nStory setting / cultural context: ${job.setting || job.treatment?.setting || 'as established in the opening batch'}\nOutput language for dialogue/narration: ${document.getElementById('language').value}${nameChangesText}\n\nContinuing from the style, environment, and characters already established — reuse these exactly, do not invent new characters, and do not change the environment or time-of-day unless the story clearly moves to a new place or later time:\nStyle: ${job.styleBlock.description}\nEnvironment: ${job.treatment?.environment || 'not specified — infer from earlier scenes'}\nTime of day: ${job.treatment?.timeOfDay || 'not specified — infer from earlier scenes'}\nCharacters:\n${job.styleBlock.characters.map(c => `- ${c.name} (${c.role}): ${c.description}${c.faceSignature ? ` FACE: ${c.faceSignature}` : ''}`).join('\n')}${Array.isArray(job.styleBlock.products) && job.styleBlock.products.length ? `\n\nProducts already established — reuse these exact descriptions, do not let the packaging redesign, recolor, or relabel itself:\n${job.styleBlock.products.map(p => `- ${p.name}: ${p.description}`).join('\n')}` : ''}\n\nSource beats identified so far (in order) — continue depicting whichever of these haven't been shown in scenes yet, then extract further beats from later in the source if this list runs out before the video does:\n${(job.treatment?.sourceBeats || []).map((b,i) => `${i+1}. ${b}`).join('\n') || '(none recorded yet — infer from the source and the last scene below)'}\n\nThe previous scene ended at ${formatTime(lastEndSeconds)}. Here is its exact imagePrompt (the visual frame) — your first new scene's imagePrompt must look clearly different from this one (pose/action/framing), not a near-repeat:\n"${lastScene ? lastScene.imagePrompt : 'opening of the video'}"\n\nAnd here is exactly what was happening in that scene's action, so the next scene can continue the story naturally rather than jumping to something unrelated:\n"${lastScene ? lastScene.videoAudioPrompt : 'opening of the video'}"\n\nRecent scenes so far (for EXTENDED SINGLE-ACTION PACING RULE — check whether these already show the same ongoing action/event without a concrete development, and if so, this batch must supply one or move it toward resolution):\n${recentScenesSummary || '(none yet)'}\n${job.totalSeconds ? `Total video length is ${job.totalSeconds}s.` : ''}`;
+
+    const parsed = applyNameChanges(sanitizeParsedScenes(await callGeneration(systemPrompt, userPrompt)), nameChanges);
     const newScenes = parsed.scenes || [];
     if(!newScenes.length){
       // The model itself applied the STOP CONDITION above and correctly
       // found nothing left to depict — surface that plainly instead of
-      // silently re-rendering with no visible change, which would look like
-      // the click did nothing.
+      // silently re-rendering with no visible change.
       showToast('Story already complete — the model found nothing left to depict.');
     }
     job.scenes = job.scenes.concat(newScenes);
     renderResults();
-    // Auto-save each new batch too, same reasoning as the opening batch in
-    // generateScript() — every "Generate next scenes" click is a fresh
-    // credit spend, so it should never be at risk of getting lost just
-    // because "💾 Save job" wasn't clicked after this particular click.
+    // Auto-save each new batch too — every "Generate next scenes" click is a
+    // fresh credit spend and should never be lost.
     if(newScenes.length) await saveJobToStorage(true);
   }catch(e){
     showToast('Could not generate next batch: ' + e.message);
@@ -1193,24 +1540,9 @@ function formatTime(totalSec){
   return `${m}:${String(s).padStart(2,'0')}`;
 }
 
-// Nothing previously stopped "Generate next scenes" once the story had
-// already reached its ending — clicking it kept calling the API, and since
-// there was nothing left in the source to depict, the model would just
-// re-stage the last few scenes (the climax/moral) again under new scene
-// numbers instead of actually continuing anything, which read as a
-// confusing loop back over the ending. Two independent signals catch a
-// finished story: the last scene's own "beat" already reads as the Payoff
-// (the model is instructed to label the concluding beat this way), or the
-// requested video length has already been reached/exceeded. An "Outro" beat
-// (see OUTRO RULE / outroRule()) counts the same way — it's the closing
-// moral + like/share/subscribe scene the model appends right after the
-// Payoff when that toggle is on, so it's just as much "the end" as the
-// Payoff itself, and must stop the continue button the same way. Either
-// signal is enough — no need for all of them — since a false "not complete"
-// just leaves the button clickable as before, while a false "complete" only
-// requires starting a fresh job to keep going, which is the much safer
-// failure mode next to silently burning API credits on a looping
-// non-continuation.
+// A story is complete when the last scene's beat is Payoff/Outro, or the
+// requested length has been reached — either signal disables "Generate next
+// scenes" so it can't loop back over the ending and burn credits.
 function isStoryComplete(){
   if(!job || !Array.isArray(job.scenes) || !job.scenes.length) return false;
   const lastScene = job.scenes[job.scenes.length - 1];
@@ -1223,17 +1555,9 @@ function isStoryComplete(){
 function backToForm(){
   document.getElementById('resultsView').style.display = 'none';
   document.getElementById('formView').style.display = 'block';
-  // "job" is still sitting in memory at this point (backToForm() only hides
-  // the view, it never clears it) — show the "↩ Back to current scenes"
-  // button so clicking "← New job" isn't a dead end if you didn't mean to
-  // leave, or just want to glance back at what you already generated.
   updateResumeButtonVisibility();
 }
 
-// Flips resultsView back on using whatever is already in the "job" variable
-// — no storage round-trip, unlike loadSavedJob() — so this is instant and
-// works even for a job that was never explicitly saved (auto-save still
-// backs it up separately, but this button doesn't depend on that).
 function resumeCurrentJob(){
   if(!job){ showToast('No current job to return to — generate or load one first.'); return; }
   document.getElementById('formView').style.display = 'none';
@@ -1255,21 +1579,14 @@ async function saveProgress(){
   try{ await window.storage.set(storageKey(), JSON.stringify(doneMap)); }catch(e){}
 }
 async function toggleDone(n){
-  // Manual override: always resolves to fully done (green) or cleared,
-  // regardless of whether the automatic 'video' (amber) stage was set —
-  // this is also the only way to mark a silent scene done, since those have
-  // no CloneVoice line and so no "Copy → CloneVoice" button to trigger it.
+  // Manual override: always resolves to fully done (green) or cleared.
   doneMap[n] = doneMap[n] === 'done' ? null : 'done';
   await saveProgress();
   renderResults();
 }
 
-// Auto-advances the per-scene progress indicator when the user copies a
-// prompt out to the destination tool, so they don't have to also remember to
-// click the check button by hand. 'video' (amber) = copied to VideoExpress;
-// 'done' (green) = also copied to CloneVoice, i.e. fully wrapped up. Never
-// downgrades — a later video-prompt copy shouldn't knock a finished scene
-// back down to the partial stage.
+// 'video' (amber) = copied to VideoExpress; 'done' (green) = also copied to
+// CloneVoice. Never downgrades a finished scene.
 async function markCopyProgress(n, stage){
   if(stage === 'video' && doneMap[n] === 'done') return;
   doneMap[n] = stage;
@@ -1277,10 +1594,6 @@ async function markCopyProgress(n, stage){
   renderResults();
 }
 
-// `silent` is used by the auto-save calls after every generation batch (see
-// generateScript()/continueScript()) so the user isn't shown a toast after
-// every single "Generate next scenes" click — the manual "💾 Save job"
-// button still calls this with no argument so that one keeps its toast.
 async function saveJobToStorage(silent){
   try{
     await window.storage.set(`job:${job.jobId}`, JSON.stringify(job));
@@ -1399,19 +1712,39 @@ function updateSceneCharacter(sceneNumber, slot, value){
   showToast(`Scene ${sceneNumber} cast updated — remember to update the prompt text yourself if you change who's in the shot`);
 }
 
-// The shot-setup fields (shotType/cameraMovement/lens/lighting) are shown as
-// their own summary row in the UI, separate from imagePrompt/videoAudioPrompt
-// — but the model doesn't reliably weave all of them into that prose text,
-// and copying just the prompt field left them behind entirely when pasting
-// into VideoExpress. Fold them in explicitly rather than relying on the
-// model to have already said "medium shot" / "50mm" / etc. in words.
+// Shot-setup fields are folded into the copied prompt explicitly rather than
+// relying on the model to have said "medium shot" / "50mm" in words.
 function shotMetaLine(scene){
   return [scene.shotType, scene.cameraMovement, scene.lens, scene.lighting].filter(Boolean).join(', ');
 }
-function fullImagePrompt(scene){
+// Face signatures of the named characters in this scene, appended when the
+// model didn't already restate them — keeps the face spec identical in every
+// copied image prompt, which is what reference-image tools lock onto.
+function faceLockLine(scene){
+  const roster = (job.styleBlock && job.styleBlock.characters) || [];
   const base = scene.imagePrompt || '';
+  return (scene.charactersInScene || [])
+    .map(name => roster.find(c => c.name === name))
+    .filter(c => c && c.faceSignature && !base.includes(c.faceSignature.slice(0, 40)))
+    .map(c => `${c.name}'s face: ${c.faceSignature}`)
+    .join(' ');
+}
+// Adds a period if a fragment doesn't already end with terminal punctuation,
+// so the appended style/face/meta clauses read as separate sentences.
+function endSentence(str){
+  const t = (str || '').trim();
+  return (!t || /[.!?…"”]$/.test(t)) ? t : t + '.';
+}
+function fullImagePrompt(scene){
+  const base = endSentence(scene.imagePrompt || '');
   const meta = shotMetaLine(scene);
-  return meta ? `${base} ${meta}.` : base;
+  const face = faceLockLine(scene);
+  const neg = styleNegative();
+  let out = withStyleHeader(base);
+  if(face) out += ` ${endSentence(face)}`;
+  if(meta) out += ` ${meta}.`;
+  if(neg) out += ` ${neg}.`;
+  return out;
 }
 
 async function copyImagePrompt(scene){
@@ -1422,19 +1755,17 @@ const NEGATIVE_SUFFIX = "no text, no texture, no gore, no lip-sync, no watermark
 function fullVideoAudioPrompt(scene){
   let prompt = scene.videoAudioPrompt || '';
 
-  // Safety net: the model is instructed to fold dialogue into the prompt, but
-  // doesn't always actually do it (seen in practice — marked as a dialogue
-  // scene, then described only body language with no quoted line at all).
-  // Rather than trust instruction-following alone, guarantee it here.
+  // Safety net: guarantee on-screen dialogue is actually quoted in the prompt.
   if(scene.dialogue && !prompt.includes(scene.dialogue)){
     const speaker = (scene.charactersInScene && scene.charactersInScene[0]) || 'the character';
-    prompt = `${prompt} ${speaker} says, "${scene.dialogue}"`;
+    prompt = `${endSentence(prompt)} ${speaker} says, "${scene.dialogue}"`;
   }
 
   const meta = shotMetaLine(scene);
-  if(meta) prompt = `${prompt} ${meta}.`;
+  if(meta) prompt = `${endSentence(prompt)} ${meta}.`;
 
-  return `${prompt} ${NEGATIVE_SUFFIX}.`;
+  const neg = styleNegative();
+  return `${withStyleHeader(prompt)} ${NEGATIVE_SUFFIX}${neg ? `, ${neg}` : ''}.`;
 }
 
 async function copyVideoAudioPrompt(scene){
@@ -1473,9 +1804,7 @@ function openOrFocusArtistly(){
 }
 
 async function copyAllForAutomation(scene){
-  // Piggyback the notification permission request on this genuine click —
-  // browsers only honor requestPermission() inside a real user gesture, and
-  // this button already is one, so no separate "enable notifications" button needed.
+  // Piggyback the notification permission request on this genuine click.
   if('Notification' in window && Notification.permission === 'default'){
     Notification.requestPermission();
   }
@@ -1511,27 +1840,29 @@ async function copyAndOpenVoice(scene){
   await markCopyProgress(scene.sceneNumber, 'done');
   showToast(`Scene ${scene.sceneNumber} data copied — paste with the userscript's floating button on CloneVoice`);
 }
-// Builds a professional multi-view turnaround sheet prompt for a character —
-// this is what's copied to an image generator to produce the ONE reference
-// photo that then gets uploaded per-character in VideoExpress's "consistent
-// character" mode, so it needs to actually ask for a clean, multi-angle,
-// single-color-background reference sheet rather than a plain description.
+
+// Builds the character reference-sheet prompt that produces the ONE reference
+// image uploaded per character in VideoExpress's "consistent character" mode.
+// The sheet now reserves a large, dedicated FACE PORTRAIT AREA (front + 3/4
+// close-ups and an expression strip) next to the full-body turnaround — tiny
+// faces on full-body views gave the reference-image tools too few facial
+// pixels to lock identity from scene to scene.
 const DEFAULT_ACTION_POSES = ['a warm, natural smile with a relaxed, characterful gesture', 'walking forward with a relaxed, natural gait'];
 function characterSheetPrompt(c){
+  const spec = jobStyleSpec();
   const poses = (Array.isArray(c.actionPoses) && c.actionPoses.length >= 2) ? c.actionPoses.slice(0, 2) : DEFAULT_ACTION_POSES;
   const numericAge = c.age && /^\d+$/.test(String(c.age).trim());
   const demoBits = [numericAge ? `${c.age}-year-old` : null, c.gender || null, c.nationality || null].filter(Boolean);
   const ageClause = (c.age && !numericAge) ? ` (age ${c.age})` : '';
   const identity = (demoBits.length || ageClause) ? `a ${demoBits.length ? demoBits.join(', ') + ' ' : ''}character${ageClause} — ` : '';
-  // Restates age/gender/nationality as their own explicit hard constraint, right next
-  // to the consistency instruction below — image generators have been seen letting
-  // the apparent age, ethnicity, or gender drift between views of the same turnaround
-  // sheet (front view reading as one age/culture, the back or a 3/4 view reading as
-  // another) unless this is spelled out on its own rather than only implied once, up
-  // front, in the opening description.
+  // Restates age/gender/nationality as an explicit hard constraint — image
+  // generators otherwise let apparent age/ethnicity drift between views.
   const identityLockBits = [c.age ? `age ${c.age}` : null, c.gender || null, c.nationality || null].filter(Boolean);
   const identityLock = identityLockBits.length ? ` This is the SAME person — ${identityLockBits.join(', ')} — in every single view; never let the apparent age, gender, ethnicity, or skin tone shift from one view to the next. A viewer comparing any two views side by side must read them as one individual, not two different people who happen to wear similar clothes.` : '';
-  return `Create a professional character sheet of ${identity}${c.description} Show the character's FULL BODY, head to toe, in every view — no cropped headshots or bust shots. Show at least six standard full-body views: a full-body front view, a full-body left side view, a full-body right side view, a full-body back view, and two full-body 3/4 views, plus two additional full-body action poses — ${poses[0]}, and ${poses[1]}. Ensure the character remains perfectly consistent in appearance across all views, maintaining the exact facial features, hair texture, skin tone, apparent age, and body proportions along with clothing folds.${identityLock} Rendered in a clean, high-quality style — ${job.styleBlock.description} — with soft lighting and smooth textures, against a plain background using a single flat or gently blended color only (one hue, no gradient mixing multiple colors, no scenery, no props, no texture), suitable for animation or 3D modeling reference.`;
+  const faceSpec = c.faceSignature ? ` FACE IDENTITY — must match exactly in every panel: ${c.faceSignature}.` : '';
+  const setting = jobSettingText();
+  const settingClause = setting ? ` Wardrobe, hairstyle, and accessories are authentic to ${setting}.` : '';
+  return `${spec.tag}. Create a professional character reference sheet of ${identity}${endSentence(c.description)}${faceSpec}${settingClause} SHEET LAYOUT, landscape: (1) FACE PORTRAIT AREA — the entire left 40% of the sheet: two LARGE, sharply detailed head-and-shoulders portrait close-ups stacked vertically, a front-facing portrait on top and a 3/4-view portrait below, each filling most of its half so the face is big and crisp — eyes, irises, eyelids, eyebrows, nose, lips, jawline, cheekbones, ears, hairline, skin detail, and any distinguishing marks clearly readable; calm natural expression; soft, even frontal lighting with no shadows across the face; nothing covering the face (no hair over the eyes, no hands, props, hats, or masks). Beneath them, a row of three smaller head close-ups showing neutral, happy, and worried expressions with identical facial structure. (2) FULL-BODY TURNAROUND AREA — the right 60%: head-to-toe full-body views — front, left side, right side, back, and 3/4 view — plus two full-body action poses: ${poses[0]}, and ${poses[1]}. Keep the face visible and recognizable in every full-body view except the back view. Ensure the character remains perfectly consistent across all panels, maintaining the exact facial features, hair texture, skin tone, apparent age, and body proportions along with clothing folds.${identityLock} Rendered strictly in this style: ${job.styleBlock.description} — with soft lighting and smooth textures, against a plain background using a single flat or gently blended color only (one hue, no gradient mixing multiple colors, no scenery, no props, no texture), suitable for animation or 3D modeling reference. No text, labels, or watermarks.${spec.negative ? ` ${spec.negative}.` : ''}`;
 }
 async function copyCharacter(index){
   const c = job.styleBlock.characters[index];
@@ -1551,14 +1882,19 @@ async function copyProduct(index){
   showToast(`${p.name} description copied`);
 }
 
+function fullThumbnailPrompt(){
+  if(!job.thumbnail || !job.thumbnail.prompt) return '';
+  const neg = styleNegative();
+  return `${endSentence(withStyleHeader(job.thumbnail.prompt))}${neg ? ` ${neg}.` : ''}`;
+}
 async function copyThumbnailPrompt(){
   if(!job.thumbnail || !job.thumbnail.prompt){ showToast('No thumbnail prompt for this job'); return; }
-  await copyText(job.thumbnail.prompt);
+  await copyText(fullThumbnailPrompt());
   showToast('Thumbnail prompt copied');
 }
 async function copyThumbnailToArtistly(){
   if(!job.thumbnail || !job.thumbnail.prompt){ showToast('No thumbnail prompt for this job'); return; }
-  const payload = { source: 'scriptgen-artistly', character: 'YouTube Thumbnail', prompt: job.thumbnail.prompt };
+  const payload = { source: 'scriptgen-artistly', character: 'YouTube Thumbnail', prompt: fullThumbnailPrompt() };
   await copyText(JSON.stringify(payload));
   openOrFocusArtistly();
   showToast(`Thumbnail prompt copied — paste with the userscript's floating button on Artistly`);
@@ -1568,7 +1904,10 @@ function renderResults(){
   const t = job.treatment || {};
   const characters = job.styleBlock.characters || [];
   const products = job.styleBlock.products || [];
+  const nameChanges = Array.isArray(t.nameChanges) ? t.nameChanges.filter(n => n && n.original && n.renamed) : [];
+  const leaks = Array.isArray(job.nameLeaks) ? job.nameLeaks : [];
   document.getElementById('charCardWrap').innerHTML = `
+    ${leaks.length ? `<div class="warn-box">⚠ These character names also appear in your Source: <b>${leaks.join(', ')}</b>. The model may have reused an original name — regenerate, or edit the names before producing.</div>` : ''}
     ${t.logline ? `
     <div class="treatment-card">
       <div class="tag">Director's treatment</div>
@@ -1576,17 +1915,19 @@ function renderResults(){
       <div class="treatment-grid">
         <div class="treatment-item"><b>Tone</b><span>${t.tone || '—'}</span></div>
         <div class="treatment-item"><b>Color grade</b><span>${t.colorGrade || '—'}</span></div>
+        <div class="treatment-item"><b>Setting</b><span>${t.setting || job.setting || '—'}</span></div>
         <div class="treatment-item"><b>Environment</b><span>${t.environment || '—'}</span></div>
         <div class="treatment-item"><b>Time of day</b><span>${t.timeOfDay || '—'}</span></div>
         ${t.narratorVoice ? `<div class="treatment-item"><b>Narrator voice</b><span>${t.narratorVoice}</span></div>` : ''}
+        ${nameChanges.length ? `<div class="treatment-item treatment-arc"><b>Renamed from source</b><span>${nameChanges.map(n => `${n.original} → ${n.renamed}`).join(' · ')}</span></div>` : ''}
         <div class="treatment-item treatment-arc"><b>Narrative arc</b><span>${t.narrativeArc || '—'}</span></div>
-        ${Array.isArray(t.sourceBeats) && t.sourceBeats.length ? `<div class="treatment-item treatment-arc"><b>Source beats</b><span>${t.sourceBeats.map((b,i) => `${i+1}. ${b}`).join('<br>')}</span></div>` : ''}
+        ${Array.isArray(t.sourceBeats) && t.sourceBeats.length ? `<div class="treatment-item treatment-arc"><b>Story beats</b><span>${t.sourceBeats.map((b,i) => `${i+1}. ${b}`).join('<br>')}</span></div>` : ''}
       </div>
     </div>` : ''}
     ${job.thumbnail && job.thumbnail.prompt ? `
     <div class="char-card" style="border-color:var(--teal-dim);">
       <div class="tag" style="color:var(--teal);">🖼️ YouTube Thumbnail</div>
-      <div class="cd">${job.thumbnail.prompt}</div>
+      <div class="cd">${fullThumbnailPrompt()}</div>
       ${job.thumbnail.textOverlay ? `<div class="cd" style="margin-top:8px;color:var(--text-dim);"><b>Suggested text overlay:</b> "${job.thumbnail.textOverlay}"</div>` : ''}
       <div class="btn-row" style="margin-top:12px;">
         <button class="btn btn-video" onclick="copyThumbnailPrompt()">Copy Thumbnail Prompt</button>
@@ -1594,13 +1935,15 @@ function renderResults(){
       </div>
     </div>` : ''}
     <div class="char-card" style="margin-bottom:8px;">
-      <div class="tag">Render style · ${job.characterStyle}</div>
+      <div class="tag">Render style · ${styleLabelFor(job.characterStyle, job.customStyle)}</div>
       <p style="margin:0;">${job.styleBlock.description}</p>
+      <div class="cd" style="margin-top:8px;"><b>Locked style tag (prepended to every prompt):</b> ${jobStyleSpec().tag}</div>
     </div>
     ${characters.map((c, i) => `
     <div class="char-card">
       <div class="tag">${c.name} · ${c.role}</div>
       <div class="cd">${c.description}</div>
+      ${c.faceSignature ? `<div class="cd" style="margin-top:8px;"><b>Face signature:</b> ${c.faceSignature}</div>` : ''}
       ${Array.isArray(c.actionPoses) && c.actionPoses.length ? `<div class="cd" style="margin-top:8px;color:var(--text-dim);"><b>Sheet poses:</b> ${c.actionPoses.join(' · ')}</div>` : ''}
       <div class="btn-row" style="margin-top:12px;">
         <button class="btn btn-video" onclick="copyCharacter(${i})">Copy Character Sheet</button>
@@ -1633,8 +1976,8 @@ function renderResults(){
     })()}
   `;
 
-  document.getElementById('scenesWrap').innerHTML = job.scenes.map(scene => {
-    const progress = doneMap[scene.sceneNumber] || null; // null | 'video' (amber, copied to VideoExpress) | 'done' (green, also copied to CloneVoice)
+  document.getElementById('scenesWrap').innerHTML = job.scenes.map((scene, idx) => {
+    const progress = doneMap[scene.sceneNumber] || null; // null | 'video' (amber) | 'done' (green)
     const isDone = progress === 'done';
     const line = scriptLine(scene);
     return `
@@ -1661,13 +2004,13 @@ function renderResults(){
           <div class="line-label">Image Prompt (starting frame)</div>
           <div class="prompt-box">${fullImagePrompt(scene)}</div>
           <div class="btn-row" style="margin-bottom:14px;">
-            <button class="btn btn-video" onclick='copyImagePrompt(job.scenes[${scene.sceneNumber-1}])'>Copy Image Prompt</button>
+            <button class="btn btn-video" onclick='copyImagePrompt(job.scenes[${idx}])'>Copy Image Prompt</button>
           </div>
 
           <div class="line-label">Video and Audio Prompt (motion + sound)</div>
           <div class="prompt-box">${fullVideoAudioPrompt(scene)}</div>
           <div class="btn-row">
-            <button class="btn btn-video" onclick='copyVideoAudioPrompt(job.scenes[${scene.sceneNumber-1}])'>Copy Video/Audio Prompt</button>
+            <button class="btn btn-video" onclick='copyVideoAudioPrompt(job.scenes[${idx}])'>Copy Video/Audio Prompt</button>
           </div>
 
           ${line ? `<div class="line-label" style="margin-top:12px;">${scene.dialogue?'Dialogue':'Narration'} (for CloneVoice) · <span style="color:var(--teal);text-transform:capitalize;">${scene.emotionStyle || 'default'}</span></div><p class="quote">"${line}"</p>` : ''}
@@ -1676,8 +2019,8 @@ function renderResults(){
             <span class="ex-item">🔊 <b>Sound:</b> ${scene.soundCue || '—'}</span>
           </div>
           <div class="btn-row">
-            <button class="btn btn-video" onclick='copyAllForAutomation(job.scenes[${scene.sceneNumber-1}])' style="background:var(--done);color:#0A1F0D;">⚡ Copy All → VideoExpress</button>
-            ${line ? `<button class="btn btn-voice" onclick='copyAndOpenVoice(job.scenes[${scene.sceneNumber-1}])'>Copy → CloneVoice</button>` : ''}
+            <button class="btn btn-video" onclick='copyAllForAutomation(job.scenes[${idx}])' style="background:var(--done);color:#0A1F0D;">⚡ Copy All → VideoExpress</button>
+            ${line ? `<button class="btn btn-voice" onclick='copyAndOpenVoice(job.scenes[${idx}])'>Copy → CloneVoice</button>` : ''}
             <button class="btn btn-check ${progress?'on':''} ${progress==='video'?'partial':''}" onclick="toggleDone(${scene.sceneNumber})">${progress?'✓':'○'}</button>
           </div>
         </div>
@@ -1685,10 +2028,7 @@ function renderResults(){
     `;
   }).join('');
 
-  // Disable "Generate next scenes" once the story's already reached its
-  // ending (see isStoryComplete()) — otherwise clicking it just burns API
-  // credits re-generating scenes that loop back over the finale instead of
-  // continuing anything, which is confusing and wasteful in equal measure.
+  // Disable "Generate next scenes" once the story's already reached its ending.
   const continueBtn = document.getElementById('continueBtn');
   if(continueBtn){
     if(isStoryComplete()){
