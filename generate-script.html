@@ -1400,7 +1400,7 @@ LANGUAGE RULE: Every single field in the schema must be written in English, full
 // outro/music toggles. Uses explicit values so a continuation batch obeys the
 // job's saved choices even if the form has since been changed.
 function blockingRule(){
-  return `\nIMAGE-TO-VIDEO CHARACTER REFERENCE RULE — HARD CONSTRAINT: each scene's video is generated FROM its starting image. The video model only SEES the picture — it has never been told who "Ren" or "Master Hwan" is, so a name in videoAudioPrompt means nothing to it and the action or line gets assigned to a random person. Therefore: (1) For each scene, decide "blocking" — which side of the frame each character stands on (viewer's left/right) — and make "imagePrompt" place them exactly there, stated plainly ("Ren stands on the LEFT side of the frame, Master Hwan on the RIGHT"). (2) In "videoAudioPrompt", NEVER use a character's name outside quoted speech. Refer to every character only by what is visible: position + their "visualTag", e.g. "the young boy in the indigo robe on the left", "the elderly bald monk on the right" — and repeat that same descriptor every time instead of a pronoun (he, she, him) that could point to either person. Spoken lines inside quotation marks keep names exactly as spoken. (3) Give each visible character ONE main physical action (at most two in 8-10 seconds), each in its own clause starting with that character's descriptor, in real time order ("First…, then…, while…"). (4) If the key visual action — raising or showing an object, handing something over, pointing — belongs to the character who is NOT speaking, open the prompt with that character and that action; then give the line, and state that the speaker does not do it ("the boy on the left keeps his hands folded and only speaks"). (5) Attribute speech as: <descriptor> speaks: "<line>" — and state that the other character stays silent with a closed mouth. (6) Set "speaker" (a name — for the app, not the video model) and never put stage directions inside "dialogue". Keep each action beat small enough for one 8-10 second shot.`;
+  return `\nIMAGE-TO-VIDEO CHARACTER REFERENCE RULE — HARD CONSTRAINT: each scene's video is generated FROM its starting image. The video model only SEES the picture — it has never been told who "Ren" or "Master Hwan" is, so a name in videoAudioPrompt means nothing to it and the action or line gets assigned to a random person. Therefore: (1) For each scene, decide "blocking" — which side of the frame each character stands on (viewer's left/right) — and make "imagePrompt" place them exactly there, stated plainly ("Ren stands on the LEFT side of the frame, Master Hwan on the RIGHT"). (2) In "videoAudioPrompt", NEVER use a character's name outside quoted speech. Refer to every character only by what is visible: position + their "visualTag", e.g. "the young boy in the indigo robe on the left", "the elderly bald monk on the right" — and repeat that same descriptor every time instead of a pronoun (he, she, him) that could point to either person. Spoken lines inside quotation marks keep names exactly as spoken. (3) Give each visible character ONE main physical action (at most two in 8-10 seconds), each in its own clause starting with that character's descriptor, in real time order ("First…, then…, while…"). (4) If the key visual action — raising or showing an object, handing something over, pointing — belongs to the character who is NOT speaking, open the prompt with that character and that action; then give the line, and state that the speaker does not do it ("the boy on the left keeps his hands folded and only speaks"). (5) Attribute speech as: <descriptor> speaks: "<line>" — and state that the other character stays silent with a closed mouth. (6) Set "speaker" (a name — for the app, not the video model) and never put stage directions inside "dialogue". Keep each action beat small enough for one 8-10 second shot. (7) STARTING-FRAME MATCH: "imagePrompt" is the frozen FIRST FRAME of "videoAudioPrompt". Write the videoAudioPrompt first in your head, then make imagePrompt show exactly its starting moment: the same characters on the same sides, facing the same directions, in the pose they hold just BEFORE the first action, holding or standing next to every prop the action will use (if the monk will raise a bellflower, the bellflower is already in or right beside the monk's hand in the image — never beside the other character), same background spot, same shot size and angle. The video must not introduce any person, animal, or key prop that isn't visible in the image, and must not end on a different location. Describe characters in imagePrompt with the same visualTag + position wording as videoAudioPrompt. (8) In any scene with two characters, especially one with dialogue, use a camera move that keeps left and right stable — static, slow push-in, slow pull-back, gentle pan or tilt, or a slight handheld drift. NEVER orbit, arc, or dolly around the characters, never cross the line between them, and avoid over-the-shoulder shots that hide a face: these swap or hide who is who mid-shot and the video model loses track.`;
 }
 
 function jobRulesTail(styleName, customStyle, setting){
@@ -1759,7 +1759,7 @@ function faceLockLine(scene){
   return (scene.charactersInScene || [])
     .map(name => roster.find(c => c.name === name))
     .filter(c => c && c.faceSignature && !base.includes(c.faceSignature.slice(0, 40)))
-    .map(c => `${c.name}'s face: ${c.faceSignature}`)
+    .map(c => `Face of ${characterDescriptor(c.name, scene)}: ${c.faceSignature}`)
     .join(' ');
 }
 // Adds a period if a fragment doesn't already end with terminal punctuation,
@@ -1830,25 +1830,34 @@ function nameToDescriptor(text, scene){
     return out.replace(/\b(Master|Mr|Mrs|Ms|Miss|Sir|Lady|Lord|Old|Young)\s+(the\s)/g, '$2');
   }).join('');
 }
-function compositionLine(scene){
+// One FRAME LOCK line, built from the same data and appended to BOTH the
+// image prompt and the video prompt, so the starting image and the video
+// describe the same people, in the same positions, with the same shot.
+// withNames=true (image only) adds the name in brackets so it can be matched
+// to the uploaded character reference; the video version has no names.
+function frameLockLine(scene, withNames){
   const blocking = sceneBlocking(scene);
-  if(!blocking.length) return '';
-  if(blocking.length === 1){
-    const b = blocking[0];
-    return `Composition: ${b.name} (${characterDescriptor(b.name, scene)}) is the only named character in frame, face clearly visible.`;
-  }
-  return 'Composition: ' + blocking.map(b => `${b.name} (${characterDescriptor(b.name, {charactersInScene:[b.name]})}) stands on the ${b.position.toUpperCase()} side of the frame`).join('; ') + ', both faces clearly visible.';
+  const who = blocking.map(b => {
+    const tag = characterDescriptor(b.name, { charactersInScene: [b.name] });
+    const nm = withNames ? ` (${b.name})` : '';
+    if(blocking.length === 1) return `${tag}${nm}, face clearly visible`;
+    return `${tag}${nm} on the ${b.position.toUpperCase()} side of the frame`;
+  });
+  const parts = [];
+  if(who.length) parts.push(who.join(', ') + (who.length > 1 ? ', both faces clearly visible' : ''));
+  const meta = nameToDescriptor(shotMetaLine(scene), scene);
+  if(meta) parts.push(meta);
+  return parts.length ? `Frame: ${parts.join('; ')}.` : '';
 }
 function fullImagePrompt(scene){
-  const base = endSentence(scene.imagePrompt || '');
-  const meta = shotMetaLine(scene);
+  const base = endSentence(nameToDescriptor(scene.imagePrompt || '', scene).replace(/(^|[.!?]\s+)the /g, (m, pre) => pre + 'The '));
   const face = faceLockLine(scene);
-  const comp = compositionLine(scene);
+  const frame = frameLockLine(scene, true);
   const neg = styleNegative();
   let out = withStyleHeader(base);
-  if(comp) out += ` ${comp}`;
   if(face) out += ` ${endSentence(face)}`;
-  if(meta) out += ` ${meta}.`;
+  if(frame) out += ` ${frame}`;
+  out += ' This is the opening frame of the shot: characters in their starting pose, just before the action begins.';
   if(neg) out += ` ${neg}.`;
   return out;
 }
@@ -1882,8 +1891,9 @@ function fullVideoAudioPrompt(scene){
     if(others.length) prompt = `${endSentence(prompt)} Only ${who} moves their mouth and talks; ${others.join(' and ')} stays silent with a closed mouth.`;
   }
 
-  const meta = nameToDescriptor(shotMetaLine(scene), scene);
-  if(meta) prompt = `${endSentence(prompt)} ${meta}.`;
+  const frame = frameLockLine(scene, false);
+  if(frame) prompt = `${endSentence(prompt)} ${frame}`;
+  prompt = `${endSentence(prompt)} Start exactly from the provided starting image — same characters, positions, poses, props, background, and framing; no new characters appear.`;
 
   return `${withStyleHeader(prompt)} ${videoNegativeLine(scene, !!line)}.`;
 }
