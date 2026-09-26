@@ -1056,6 +1056,25 @@ async function callGeneration(systemPrompt, userPrompt){
 // quoting it as if that character were speaking on camera (e.g. the
 // "Narrator says, \"...\"" bug seen in a book-reading job). Rather than trust
 // the prompt alone, detect and repair that shape here before it's rendered.
+// Models sometimes put stage directions inside "dialogue" — e.g.
+// 'Ren bows and says, "Master Hwan, …"' — which then gets quoted inside the
+// video prompt as nested quotes and hands the action to the wrong person.
+// Keep only the spoken words, and remember who the prefix said was talking.
+const SPEECH_VERBS_RE = '(?:says?|said|asks?|asked|whispers?|murmurs?|mutters?|replies?|answers?|shouts?|calls?|exclaims?|speaks?)';
+function splitSpokenLine(raw){
+  let line = (raw || '').trim();
+  let speakerHint = null;
+  const m = line.match(new RegExp(`^([^"“]{0,120}?)\\b${SPEECH_VERBS_RE}\\b[^"“]*["“]([\\s\\S]+)$`, 'i'));
+  if(m){
+    const nameMatch = m[1].trim().match(/^([\p{Lu}][\p{L}'-]*(?:\s+[\p{Lu}][\p{L}'-]*)*)/u);
+    if(nameMatch) speakerHint = nameMatch[1];
+    line = m[2];
+  }
+  line = line.trim().replace(/^["“'‘]+/, '').replace(/["”'’]+$/, '').trim();
+  return { line, speakerHint };
+}
+function cleanSpokenLine(raw){ return raw ? splitSpokenLine(raw).line : raw; }
+
 const NARRATOR_NAME_RE = /\b(narrator|storyteller|story\s*teller|voice[\s-]?over)\b/i;
 
 function sanitizeParsedScenes(parsed){
@@ -1063,6 +1082,12 @@ function sanitizeParsedScenes(parsed){
   const roster = (parsed.styleBlock && parsed.styleBlock.characters) || [];
 
   parsed.scenes.forEach(scene => {
+    if(scene.dialogue){
+      const { line, speakerHint } = splitSpokenLine(scene.dialogue);
+      if(!scene.speaker && speakerHint) scene.speaker = speakerHint;
+      scene.dialogue = line || null;
+    }
+    if(scene.narrationLine) scene.narrationLine = cleanSpokenLine(scene.narrationLine);
     // Safety net for the MIXED-mode rule ("each scene is dialogue OR
     // narration, never both at once"): the model sometimes still populates
     // both fields for the same scene. Resolve it by keeping whichever one is
@@ -1313,6 +1338,7 @@ Output ONLY raw JSON, no markdown fences, no preamble. Schema:
         "nationality": string (the character's nationality or ethnic background — it MUST match the story setting per STORY SETTING rule; inferred from the source material's setting and cultural context only when no setting was chosen — e.g. "Vietnamese", "Nigerian", "Japanese". If the setting is generic, fictional, or otherwise gives no cultural anchor, describe the general appearance/ancestry implied instead of guessing a specific country, e.g. "East Asian appearance" or "Northern European appearance" — never silently default to one ethnicity without a reason from the source or setting),
         "faceSignature": string (a precise, compact FACIAL IDENTITY spec used to keep this face identical in every image — 35-60 words covering, in this order: face shape; skin tone; eye shape, size, color and eyelid type; eyebrow shape and thickness; nose shape; lip shape and fullness; jaw and chin; cheekbones; hairline and exact hairstyle/color framing the face; and 1-2 permanent distinguishing marks (a mole under the left eye, a small scar on the chin, a gap in the front teeth). Concrete physical terms only, no mood words, written in the chosen render medium's terms (e.g. "stylized 3D" proportions for 3D)),
         "description": string (a full character-design-bible entry, professional animation/VFX studio level of detail — must open by naming the render medium (e.g. "A stylized 3D-animated ..."), and must include: approximate age, build/body type, facial structure and distinguishing features consistent with faceSignature, exact hair color/length/style, eye color and shape, skin tone and texture quality, complete wardrobe described with fabric type and how it behaves/moves (period- and culture-accurate per STORY SETTING), color palette of the outfit, any signature accessory, and a note on posture/expression that conveys personality. Write it as a spec someone could hand to an animator to draw the same character every time, not a casual one-line description.),
+        "visualTag": string (a SHORT on-screen identifier of 4-8 words that a video model can match to this character just by LOOKING at the image — no name, only what is visible: apparent age + gender word + the single most distinctive visible feature, e.g. "the young boy in the indigo robe", "the elderly bald monk in grey robes". Must be clearly different from every other character's visualTag),
         "actionPoses": array of exactly 2 strings (two brief, natural action/expression poses for this character, used to generate a turnaround character-reference sheet — NOT tied to any specific scene. Each should be a single, simple physical beat suited to a static reference image, e.g. "smiling warmly while tucking a strand of hair behind her ear" or "walking forward with a relaxed, confident gait". Per CHARACTER SHEET POSES RULE below, choose poses that actually fit THIS character's personality and role as established by the source material — do not reuse the same two generic poses for every character.)
       }
     ],
@@ -1342,7 +1368,9 @@ Output ONLY raw JSON, no markdown fences, no preamble. Schema:
       "videoAudioPrompt": string (Write this as ONE continuous flowing prompt, in this EXACT structural order — like a professional shot description, not labeled sections: 1) SUBJECT — briefly name who or what is in the scene: a character pulled from charactersInScene, OR, when charactersInScene is deliberately empty per the SUBJECT RULE, the actual non-human subject itself (a chart, a vehicle, a product, a document, etc.) — never invent a person just to fill this slot. 2) ACTION — the beat-by-beat physical action and performance, and how characters interact with each other if more than one is present. REQUIRED: if this scene has on-screen "dialogue" (a visible character speaking), the ACTION portion MUST include the exact quoted line, in the requested output language, and name which character speaks it — do not omit it, do not paraphrase it, do not drop it to save space. The quoted line itself stays in the requested output language even though the rest of the prompt is English; e.g. she turns to him and says, "..." 3) ENVIRONMENT — briefly restate the setting and time-of-day/weather (matching treatment.environment and treatment.timeOfDay exactly, do not vary it). 4) STYLE — the render style, color grade, and lighting quality for this shot, matching styleBlock.description and treatment.colorGrade. 5) CAMERA MOVEMENT — how the camera moves during this shot. 6) AUDIO — the ambient/environmental sound, specific and concrete (weather, room tone, background noise, birds, wind, water, magical/fantastical sound effects where the story calls for it — never generic). This is diegetic sound design only — NEVER include background music, a score, theme music, or any musical cue of any kind; no "piano swell," no "beat drop," nothing that isn't a sound that would actually occur at this location. Example shape WITHOUT dialogue: "A woman in a flowing red dress walks to the closed glass door, opens it, steps inside, and pulls it shut behind her on a city rooftop at golden hour, the skyline reflected in the glass, warm light, shallow depth of field, soft film grade, the camera glides smoothly behind her, settling outside the door, soft footsteps, a gentle door latch, light wind, a faint city hum." Example shape WITH dialogue: "A woman in a flowing red dress reaches the glass door and pauses, turning back to the man behind her, and says, "Wait — are you sure about this?" on a city rooftop at golden hour, the skyline reflected in the glass, warm light, shallow depth of field, soft film grade, the camera holds steady on both of them, soft footsteps fading, a light wind, a faint city hum." If this scene instead has a "narrationLine" (voiceover, not spoken by anyone on screen), do NOT reference, quote, or mention it anywhere in this prompt at all — narration is generated entirely separately for CloneVoice and has no place in a video-generation prompt; this scene's videoAudioPrompt should read as if no narration existed. Concretely: NEVER write a pattern like she whispers, "..." or he says, "..." that quotes or paraphrases the narrationLine as if it were spoken on camera — that turns silent voiceover into fabricated lip-synced dialogue, which is wrong even if the quoted words match the narration exactly. A narration scene's ACTION should describe physical behavior only (what the character does, how they move) with no quoted speech of any kind.),
       "transitionOut": string (e.g. "hard cut", "cross dissolve", "match cut on motion"),
       "soundCue": string (a DIEGETIC/environmental sound only — something that would actually exist at this location, e.g. "birds calling in the canopy", "wind through the leaves", "a distant river current", "footsteps on stone", "a soft magical chime" if the story calls for something fantastical. NEVER a musical score cue — no "piano swell", no "beat drop", no theme music, no soundtrack of any kind; this field is environmental sound design, not a music cue),
-      "dialogue": string or null (if present, this is what fills the character's full 8-10 second screen moment — a natural spoken line at real speaking pace runs roughly 20-25 words for that duration. TOO SHORT (do not do this): "I can't believe it." (5 words, ~2 seconds — reads as a fragment). CORRECT LENGTH: "I can't believe you actually found this place — I've been looking for it for years, ever since my grandmother first told me the story." (~26 words, ~9-10 seconds — a genuine complete thought). Write a full sentence, sometimes two short ones, the way a person would actually speak in that moment. Still sound natural and unforced, never padded with filler just to hit a word count.),
+      "blocking": array of { "name": string, "position": "left" | "right" | "center" } (where each character in charactersInScene stands IN THE FRAME, from the viewer's point of view — decided once per scene, used identically by imagePrompt and videoAudioPrompt. With two characters, one is "left" and one is "right". Empty array when charactersInScene is empty),
+      "speaker": string or null (the "name" of the character who speaks "dialogue" in this scene, exactly as in styleBlock.characters — null when there is no dialogue),
+      "dialogue": string or null (ONLY the words spoken — no speaker name, no "says", no stage directions, no surrounding quotation marks. If present, this is what fills the character's full 8-10 second screen moment — a natural spoken line at real speaking pace runs roughly 20-25 words for that duration. TOO SHORT (do not do this): "I can't believe it." (5 words, ~2 seconds — reads as a fragment). CORRECT LENGTH: "I can't believe you actually found this place — I've been looking for it for years, ever since my grandmother first told me the story." (~26 words, ~9-10 seconds — a genuine complete thought). Write a full sentence, sometimes two short ones, the way a person would actually speak in that moment. Still sound natural and unforced, never padded with filler just to hit a word count.),
       "narrationLine": string or null (same duration logic as dialogue — this needs to fill 8-10 seconds of spoken voiceover, roughly 20-25 words at natural pace. TOO SHORT (do not do this): "A quiet morning began." (4 words, ~1-2 seconds). FLAT/EXPOSITORY (avoid this even at correct length): "The fisherman went out every day for thirty years and pulled up his net, which had fish and also junk in it." — this states facts but carries no cinematic weight. CINEMATIC (the actual goal): "In the quiet hours before the city woke, she moved through the empty streets alone, carrying a secret she wasn't ready to share with anyone yet." — notice the sensory detail ("quiet hours," "empty streets"), the emotional undercurrent, and the varied sentence rhythm, not just a plain statement of events. Write like a documentary or fable narrator: use imagery and sensory detail instead of stating facts, let emotion live in specific images rather than being named outright, and vary sentence rhythm rather than defaulting to simple subject-verb-object statements. Avoid cramming two unrelated ideas together just to hit length; one well-built, evocative sentence that actually takes 8-10 seconds to say aloud is the goal.),
       "emotionStyle": string (one of exactly: "default", "calm", "happy", "confident", "warm" — the delivery tone that best fits this scene's dialogue or narration line, based on what's actually being said and the emotional beat of the moment. Use "default" only when the line is genuinely neutral/matter-of-fact — otherwise pick whichever of the other four best matches. If there's no dialogue or narration in this scene, still include a best-guess value here in case narration gets added later, but it won't be used.)
     }
@@ -1371,8 +1399,12 @@ LANGUAGE RULE: Every single field in the schema must be written in English, full
 // style lock, setting lock, and story-craft rules, then the speech/visual/
 // outro/music toggles. Uses explicit values so a continuation batch obeys the
 // job's saved choices even if the form has since been changed.
+function blockingRule(){
+  return `\nIMAGE-TO-VIDEO CHARACTER REFERENCE RULE — HARD CONSTRAINT: each scene's video is generated FROM its starting image. The video model only SEES the picture — it has never been told who "Ren" or "Master Hwan" is, so a name in videoAudioPrompt means nothing to it and the action or line gets assigned to a random person. Therefore: (1) For each scene, decide "blocking" — which side of the frame each character stands on (viewer's left/right) — and make "imagePrompt" place them exactly there, stated plainly ("Ren stands on the LEFT side of the frame, Master Hwan on the RIGHT"). (2) In "videoAudioPrompt", NEVER use a character's name outside quoted speech. Refer to every character only by what is visible: position + their "visualTag", e.g. "the young boy in the indigo robe on the left", "the elderly bald monk on the right" — and repeat that same descriptor every time instead of a pronoun (he, she, him) that could point to either person. Spoken lines inside quotation marks keep names exactly as spoken. (3) Give each visible character ONE main physical action (at most two in 8-10 seconds), each in its own clause starting with that character's descriptor, in real time order ("First…, then…, while…"). (4) If the key visual action — raising or showing an object, handing something over, pointing — belongs to the character who is NOT speaking, open the prompt with that character and that action; then give the line, and state that the speaker does not do it ("the boy on the left keeps his hands folded and only speaks"). (5) Attribute speech as: <descriptor> speaks: "<line>" — and state that the other character stays silent with a closed mouth. (6) Set "speaker" (a name — for the app, not the video model) and never put stage directions inside "dialogue". Keep each action beat small enough for one 8-10 second shot.`;
+}
+
 function jobRulesTail(styleName, customStyle, setting){
-  return styleLockRule(styleName, customStyle) + settingLockRule(setting) + storyCraftRule(setting) +
+  return blockingRule() + styleLockRule(styleName, customStyle) + settingLockRule(setting) + storyCraftRule(setting) +
     speechModeRule() + visualRegisterRule() + outroRule() + musicThemeRule();
 }
 
@@ -1427,6 +1459,7 @@ async function generateScript(){
       characterStyle: currentStyle, // NOT parsed.characterStyle — the AI can echo back a descriptive sentence instead of the exact label (seen in practice), which breaks anything mapping against the fixed style values. currentStyle is always exactly one of the style buttons' values, since it's set directly from the button click.
       customStyle,
       setting,
+      musicTheme: document.getElementById('musicTheme').checked,
       language: document.getElementById('language').value,
       selectedVoiceId: null,
       treatment: parsed.treatment || null,
@@ -1678,7 +1711,7 @@ async function deleteSavedJob(jobId){
 }
 
 function scriptLine(scene){
-  return scene.dialogue || scene.narrationLine || "";
+  return cleanSpokenLine(scene.dialogue || scene.narrationLine || "") || "";
 }
 
 function buildCharacterPicker(scene){
@@ -1735,12 +1768,85 @@ function endSentence(str){
   const t = (str || '').trim();
   return (!t || /[.!?…"”]$/.test(t)) ? t : t + '.';
 }
+// ---- Visual references for image-to-video -------------------------------
+// The video model only sees the starting image, so names mean nothing to it.
+// Every character is referred to by screen position + a visible descriptor,
+// and the image prompt is forced to place them in those same positions.
+function fallbackVisualTag(c){
+  const g = (c.gender || '').toLowerCase();
+  const n = parseInt(String(c.age || '').match(/\d+/)?.[0] || '', 10);
+  const female = /female|woman|girl/.test(g), male = !female && /male|man|boy/.test(g);
+  let noun = female ? 'woman' : male ? 'man' : 'person';
+  let adj = '';
+  if(!isNaN(n)){
+    if(n < 13){ noun = female ? 'girl' : male ? 'boy' : 'child'; }
+    else if(n < 20){ noun = female ? 'girl' : male ? 'boy' : 'teen'; adj = 'teenage'; }
+    else if(n < 35) adj = 'young';
+    else if(n < 55) adj = 'middle-aged';
+    else adj = 'elderly';
+  }
+  return `the ${adj ? adj + ' ' : ''}${noun}`;
+}
+function sceneBlocking(scene){
+  const cast = (scene.charactersInScene || []).filter(Boolean);
+  const given = Array.isArray(scene.blocking) ? scene.blocking : [];
+  const defaults = cast.length === 1 ? ['center'] : ['left', 'right', 'center'];
+  return cast.map((name, i) => {
+    const b = given.find(x => x && x.name === name);
+    const pos = (b && /^(left|right|center)$/i.test(b.position || '')) ? b.position.toLowerCase() : defaults[i] || 'center';
+    return { name, position: pos };
+  });
+}
+function characterDescriptor(name, scene){
+  const c = ((job.styleBlock && job.styleBlock.characters) || []).find(x => x.name === name) || { name };
+  let tag = (c.visualTag || fallbackVisualTag(c)).trim();
+  if(!/^(the|a|an)\s/i.test(tag)) tag = 'the ' + tag;
+  const blocking = sceneBlocking(scene);
+  const pos = (blocking.find(b => b.name === name) || {}).position;
+  if(blocking.length < 2 || !pos) return tag;
+  return pos === 'center' ? `${tag} in the center` : `${tag} on the ${pos}`;
+}
+// Replaces character names with visual descriptors everywhere EXCEPT inside
+// quoted speech (a spoken "Master Hwan, …" must stay as spoken).
+function nameToDescriptor(text, scene){
+  const roster = ((job.styleBlock && job.styleBlock.characters) || []).map(c => c.name).filter(Boolean);
+  if(!roster.length || !text) return text;
+  const pairs = [];
+  roster.forEach(name => {
+    const desc = characterDescriptor(name, scene);
+    pairs.push([name, desc]);
+    name.split(/[\s\-]+/).forEach(tok => {
+      if(tok.length >= 3 && !NAME_STOPWORDS.has(tok) && tok !== name) pairs.push([tok, desc]);
+    });
+  });
+  pairs.sort((a, b) => b[0].length - a[0].length);
+  return text.split(/("[^"]*"|“[^”]*”)/).map((part, i) => {
+    if(i % 2 === 1) return part; // quoted speech
+    let out = part;
+    pairs.forEach(([nm, desc]) => {
+      out = out.replace(wholeWordRe(nm), (m, pre) => pre + desc);
+    });
+    // tidy "the Master the elderly monk" style leftovers from honorifics
+    return out.replace(/\b(Master|Mr|Mrs|Ms|Miss|Sir|Lady|Lord|Old|Young)\s+(the\s)/g, '$2');
+  }).join('');
+}
+function compositionLine(scene){
+  const blocking = sceneBlocking(scene);
+  if(!blocking.length) return '';
+  if(blocking.length === 1){
+    const b = blocking[0];
+    return `Composition: ${b.name} (${characterDescriptor(b.name, scene)}) is the only named character in frame, face clearly visible.`;
+  }
+  return 'Composition: ' + blocking.map(b => `${b.name} (${characterDescriptor(b.name, {charactersInScene:[b.name]})}) stands on the ${b.position.toUpperCase()} side of the frame`).join('; ') + ', both faces clearly visible.';
+}
 function fullImagePrompt(scene){
   const base = endSentence(scene.imagePrompt || '');
   const meta = shotMetaLine(scene);
   const face = faceLockLine(scene);
+  const comp = compositionLine(scene);
   const neg = styleNegative();
   let out = withStyleHeader(base);
+  if(comp) out += ` ${comp}`;
   if(face) out += ` ${endSentence(face)}`;
   if(meta) out += ` ${meta}.`;
   if(neg) out += ` ${neg}.`;
@@ -1751,22 +1857,37 @@ async function copyImagePrompt(scene){
   await copyText(fullImagePrompt(scene));
   showToast(`Scene ${scene.sceneNumber} image prompt copied`);
 }
-const NEGATIVE_SUFFIX = "no text, no texture, no gore, no lip-sync, no watermark, no background music, no score, no soundtrack";
+// Negative line built per scene: the old fixed suffix said "no lip-sync" and
+// "no background music" even on dialogue scenes and music-theme jobs,
+// contradicting the prompt it was attached to.
+function videoNegativeLine(scene, hasDialogue){
+  const musicOn = (job && typeof job.musicTheme === 'boolean') ? job.musicTheme : !!document.getElementById('musicTheme')?.checked;
+  const parts = ['no text', 'no texture', 'no gore', 'no watermark'];
+  if(!hasDialogue) parts.push('no lip-sync', 'no talking mouths');
+  if(!musicOn) parts.push('no background music', 'no score', 'no soundtrack');
+  const neg = styleNegative();
+  return parts.join(', ') + (neg ? `, ${neg}` : '');
+}
 function fullVideoAudioPrompt(scene){
-  let prompt = scene.videoAudioPrompt || '';
+  const { line, speakerHint } = splitSpokenLine(scene.dialogue || '');
+  const cast = (scene.charactersInScene || []).filter(Boolean);
+  const speaker = scene.speaker || speakerHint || cast[0] || null;
+  let prompt = nameToDescriptor(scene.videoAudioPrompt || '', scene).replace(/(^|[.!?]\s+)the /g, (m, pre) => pre + 'The ');
 
-  // Safety net: guarantee on-screen dialogue is actually quoted in the prompt.
-  if(scene.dialogue && !prompt.includes(scene.dialogue)){
-    const speaker = (scene.charactersInScene && scene.charactersInScene[0]) || 'the character';
-    prompt = `${endSentence(prompt)} ${speaker} says, "${scene.dialogue}"`;
+  if(line){
+    const who = speaker && cast.includes(speaker) ? characterDescriptor(speaker, scene) : (speaker ? nameToDescriptor(speaker, scene) : 'the character');
+    const others = cast.filter(n => n !== speaker).map(n => characterDescriptor(n, scene));
+    // Guarantee the line is quoted once and clearly attributed by LOOK/POSITION.
+    if(!prompt.includes(line)) prompt = `${endSentence(prompt)} ${cap(who)} speaks: "${line}"`;
+    if(others.length) prompt = `${endSentence(prompt)} Only ${who} moves their mouth and talks; ${others.join(' and ')} stays silent with a closed mouth.`;
   }
 
-  const meta = shotMetaLine(scene);
+  const meta = nameToDescriptor(shotMetaLine(scene), scene);
   if(meta) prompt = `${endSentence(prompt)} ${meta}.`;
 
-  const neg = styleNegative();
-  return `${withStyleHeader(prompt)} ${NEGATIVE_SUFFIX}${neg ? `, ${neg}` : ''}.`;
+  return `${withStyleHeader(prompt)} ${videoNegativeLine(scene, !!line)}.`;
 }
+function cap(str){ return str ? str.charAt(0).toUpperCase() + str.slice(1) : str; }
 
 async function copyVideoAudioPrompt(scene){
   await copyText(fullVideoAudioPrompt(scene));
@@ -1943,6 +2064,7 @@ function renderResults(){
     <div class="char-card">
       <div class="tag">${c.name} · ${c.role}</div>
       <div class="cd">${c.description}</div>
+      <div class="cd" style="margin-top:8px;"><b>Called in video prompts:</b> ${c.visualTag || fallbackVisualTag(c)}</div>
       ${c.faceSignature ? `<div class="cd" style="margin-top:8px;"><b>Face signature:</b> ${c.faceSignature}</div>` : ''}
       ${Array.isArray(c.actionPoses) && c.actionPoses.length ? `<div class="cd" style="margin-top:8px;color:var(--text-dim);"><b>Sheet poses:</b> ${c.actionPoses.join(' · ')}</div>` : ''}
       <div class="btn-row" style="margin-top:12px;">
