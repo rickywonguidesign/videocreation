@@ -82,6 +82,45 @@
 
   /* results */
   #resultsView{display:none;}
+
+  /* results layout: scenes scroll on the left, info accordions on the right */
+  .console:has(#resultsView[style*="block"]){max-width:1480px;height:100vh;display:flex;flex-direction:column;padding-bottom:20px;}
+  .console:has(#resultsView[style*="block"]) #resultsView{flex:1;min-height:0;flex-direction:column;}
+  .console:has(#resultsView[style*="block"]) #resultsView[style*="block"]{display:flex !important;}
+  .results-topbar{display:flex;justify-content:space-between;align-items:center;gap:10px;margin-bottom:14px;flex-shrink:0;}
+  .results-grid{display:grid;grid-template-columns:420px minmax(0,1fr);gap:20px;flex:1;min-height:0;}
+  .results-grid .side-col{order:1;}
+  .results-grid .scenes-col{order:2;}
+  .scenes-col{overflow-y:auto;min-height:0;padding-right:8px;overscroll-behavior:contain;}
+  .side-col{overflow-y:auto;min-height:0;padding-right:4px;}
+  .col-head{font-family:'IBM Plex Mono',monospace;font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:var(--text-dim);margin:0 0 10px;display:flex;justify-content:space-between;}
+  .scenes-col::-webkit-scrollbar,.side-col::-webkit-scrollbar{width:8px;}
+  .scenes-col::-webkit-scrollbar-thumb,.side-col::-webkit-scrollbar-thumb{background:var(--line);border-radius:4px;}
+  @media (max-width:980px){
+    .console:has(#resultsView[style*="block"]){height:auto;display:block;}
+    .results-grid{display:flex;flex-direction:column;}
+    .scenes-col,.side-col{overflow:visible;padding-right:0;}
+    .side-col{order:-1;}
+  }
+
+  /* accordions */
+  .acc{background:var(--panel);border:1px solid var(--line);border-radius:8px;margin-bottom:10px;overflow:hidden;}
+  .acc > summary{list-style:none;cursor:pointer;padding:12px 14px;display:flex;align-items:center;justify-content:space-between;gap:10px;
+    font-family:'IBM Plex Mono',monospace;font-size:11px;letter-spacing:.07em;text-transform:uppercase;color:var(--text);}
+  .acc > summary::-webkit-details-marker{display:none;}
+  .acc > summary::after{content:'▸';color:var(--text-dim);transition:transform .15s;font-size:12px;}
+  .acc[open] > summary::after{transform:rotate(90deg);}
+  .acc > summary:hover{background:var(--panel-raised);}
+  .acc[open] > summary{border-bottom:1px solid var(--line);}
+  .acc .acc-sub{color:var(--text-dim);text-transform:none;letter-spacing:0;font-size:11px;margin-left:6px;font-weight:400;}
+  .acc-body{padding:14px;}
+  .acc-body.char-card,.acc-body.treatment-card{background:none;border:none;border-radius:0;margin:0;padding:14px;}
+  .btn-check{min-width:34px !important;}
+  .acc.acc-treatment{border-color:var(--teal-dim);}
+  .acc.acc-char{border-color:var(--amber-dim);}
+  .acc-group-label{font-family:'IBM Plex Mono',monospace;font-size:10px;letter-spacing:.08em;text-transform:uppercase;color:var(--text-dim);margin:16px 2px 8px;}
+  .side-col .treatment-grid{grid-template-columns:1fr;}
+  .side-col .btn{min-width:0;}
   .back-btn{background:none;border:1px solid var(--line);color:var(--text-dim);font-family:'IBM Plex Mono',monospace;font-size:11px;padding:6px 10px;border-radius:5px;cursor:pointer;margin-bottom:18px;}
   .back-btn:hover{color:var(--text);border-color:var(--text-dim);}
 
@@ -162,52 +201,36 @@
 <div class="console">
   <div id="formView">
     <h1>New scene job</h1>
-    <div
-      style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:6px;gap:10px;flex-wrap:wrap;">
-      <p class="subhead" style="margin-bottom:0;">Paste your source, set the
-        window and topic, then generate the character style and per-scene
-        prompts.</p>
+    <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:6px;gap:10px;flex-wrap:wrap;">
+      <p class="subhead" style="margin-bottom:0;">Paste your source, set the window and topic, then generate the character style and per-scene prompts.</p>
       <div style="display:flex;gap:8px;">
-        <button class="back-btn" id="resumeJobBtn" onclick="resumeCurrentJob()"
-          style="display:none;">↩ Back to current scenes</button>
-        <button class="back-btn" onclick="openSavedModal()">📂 Load saved
-          job</button>
+        <button class="back-btn" id="resumeJobBtn" onclick="resumeCurrentJob()" style="display:none;">↩ Back to current scenes</button>
+        <button class="back-btn" onclick="openSavedModal()">📂 Load saved job</button>
       </div>
     </div>
 
     <div class="top-settings">
       <div class="key-field">
-        <div class="key-label-row"><span class="key-icon">🔑</span><span>AI
-            provider &amp; API key</span></div>
-        <select id="aiProvider" class="select-dark"
-          style="margin-top:0;margin-bottom:8px;" onchange="onProviderChange()">
+        <div class="key-label-row"><span class="key-icon">🔑</span><span>AI provider &amp; API key</span></div>
+        <select id="aiProvider" class="select-dark" style="margin-top:0;margin-bottom:8px;" onchange="onProviderChange()">
           <option value="openai">OpenAI</option>
           <option value="deepseek">DeepSeek (lowest cost)</option>
-          <option value="openrouter">OpenRouter (any model — Gemini, Claude,
-            Llama…)</option>
+          <option value="openrouter">OpenRouter (any model — Gemini, Claude, Llama…)</option>
         </select>
-        <input type="password" id="openaiKey" placeholder="sk-..."
-          autocomplete="off" oninput="onKeyInput()">
-        <div class="hint">Key is used only for this session and never saved.
-          Leave blank to use the built-in generator (only works inside
-          Claude.ai's preview — when running this file on your own machine, add
-          a key and start the bundled backend server below).</div>
+        <input type="password" id="openaiKey" placeholder="sk-..." autocomplete="off" oninput="onKeyInput()">
+        <div class="hint">Key is used only for this session and never saved. Leave blank to use the built-in generator (only works inside Claude.ai's preview — when running this file on your own machine, add a key and start the bundled backend server below).</div>
         <div class="key-status" id="keyStatus">Key set for this session</div>
         <input type="text" id="backendUrl"
           placeholder="Backend URL, e.g. http://localhost:3000 (run: node backend/server.js)"
           style="margin-top:8px;font-size:11px;"
           oninput="try{localStorage.setItem('backendUrl', this.value)}catch(e){}">
-        <select id="openaiModel" class="select-dark"
-          onchange="onModelChange()"></select>
-        <input type="text" id="customModel"
-          placeholder="Custom model ID, e.g. google/gemini-3.8-flash"
-          style="display:none;margin-top:8px;font-size:12px;"
+        <select id="openaiModel" class="select-dark" onchange="onModelChange()"></select>
+        <input type="text" id="customModel" placeholder="Custom model ID, e.g. google/gemini-3.8-flash" style="display:none;margin-top:8px;font-size:12px;"
           oninput="try{localStorage.setItem('customModel', this.value)}catch(e){}">
         <div class="model-note" id="modelNote"></div>
       </div>
       <div class="lang-field">
-        <div class="key-label-row"><span
-            class="key-icon">🌐</span><span>Language</span></div>
+        <div class="key-label-row"><span class="key-icon">🌐</span><span>Language</span></div>
         <select id="language">
           <option value="English">English</option>
           <option value="Vietnamese">Vietnamese</option>
@@ -219,30 +242,21 @@
           <option value="Thai">Thai</option>
           <option value="Indonesian">Indonesian</option>
         </select>
-        <div class="hint">Dialogue &amp; narration only — all technical prompts
-          stay in English for VideoExpress/CloneVoice.</div>
+        <div class="hint">Dialogue &amp; narration only — all technical prompts stay in English for VideoExpress/CloneVoice.</div>
       </div>
     </div>
 
     <div class="field">
       <label>Source — link, story, or script</label>
-      <textarea id="source"
-        placeholder="Paste a video link, or paste the story/script text directly..."></textarea>
-      <div class="hint">Note: this can't fetch and watch a video link on its own
-        — if you paste a link, also paste the transcript, caption text, or a
-        description of what happens, so there's actual content to work from. The
-        source is treated as a premise: characters are always renamed and the
-        story is retold as an original piece.</div>
+      <textarea id="source" placeholder="Paste a video link, or paste the story/script text directly..."></textarea>
+      <div class="hint">Note: this can't fetch and watch a video link on its own — if you paste a link, also paste the transcript, caption text, or a description of what happens, so there's actual content to work from. The source is treated as a premise: characters are always renamed and the story is retold as an original piece.</div>
     </div>
 
     <div class="row">
       <div class="field">
         <label>Video length (minutes)</label>
-        <input type="number" id="minute" min="1" step="0.5"
-          placeholder="e.g. 8">
-        <div class="hint">Total length of the source video. Long videos generate
-          in batches — you'll get the opening scenes first, with a button to
-          continue.</div>
+        <input type="number" id="minute" min="1" step="0.5" placeholder="e.g. 8">
+        <div class="hint">Total length of the source video. Long videos generate in batches — you'll get the opening scenes first, with a button to continue.</div>
       </div>
       <div class="field">
         <label>Retelling angle (optional)</label>
@@ -250,272 +264,137 @@
           placeholder="e.g. vlog style, documentary style, ads style — leave blank to follow the source directly">
         <datalist id="topicSuggestions">
           <option value="Documentary style">
-            <option value="Fable / folk-tale style">
-              <option value="Fairy tale style">
-                <option value="Motivational / inspirational style">
-                  <option value="Vlog style (talks directly to camera)">
-                    <option value="Ads / commercial style">
-                      <option value="Storytelling style">
-                        <option
-                          value="Silent / cinematic (no dialogue or narration)">
-                          <option value="Modernize the setting">
-                            <option value="Reframe for a different audience">
-                              <option value="Give it a lighter, comedic tone">
-                                <option
-                                  value="Give it a darker, more dramatic tone">
-                                  <option value="Happy-ending twist">
-                                    <option
-                                      value="Set it in a different industry">
-                                      <option
-                                        value="Minimalist, understated retelling">
-                                      </datalist>
-                                      <div class="hint">Optional. A stylistic
-                                        angle or twist on the retelling — it
-                                        never replaces the actual content in
-                                        Source above. It controls HOW the story
-                                        is told, in narration/dialogue AND in
-                                        the visual look: mention "documentary",
-                                        "fable", "fairy tale", "motivational",
-                                        "vlog", "ads", or "storytelling" to set
-                                        that voice and visual register; mention
-                                        "silent" or "cinematic, no dialogue" to
-                                        turn off all speech. Leave blank to let
-                                        the AI decide.</div>
-                                    </div>
-                                  </div>
+          <option value="Fable / folk-tale style">
+          <option value="Fairy tale style">
+          <option value="Motivational / inspirational style">
+          <option value="Vlog style (talks directly to camera)">
+          <option value="Ads / commercial style">
+          <option value="Storytelling style">
+          <option value="Silent / cinematic (no dialogue or narration)">
+          <option value="Modernize the setting">
+          <option value="Reframe for a different audience">
+          <option value="Give it a lighter, comedic tone">
+          <option value="Give it a darker, more dramatic tone">
+          <option value="Happy-ending twist">
+          <option value="Set it in a different industry">
+          <option value="Minimalist, understated retelling">
+        </datalist>
+        <div class="hint">Optional. A stylistic angle or twist on the retelling — it never replaces the actual content in Source above. It controls HOW the story is told, in narration/dialogue AND in the visual look: mention "documentary", "fable", "fairy tale", "motivational", "vlog", "ads", or "storytelling" to set that voice and visual register; mention "silent" or "cinematic, no dialogue" to turn off all speech. Leave blank to let the AI decide.</div>
+      </div>
+    </div>
 
-                                  <div class="field">
-                                    <label>Story setting / cultural
-                                      context</label>
-                                    <select id="storySetting"
-                                      class="select-full"
-                                      onchange="onSettingChange()">
-                                      <option value>Auto — infer from the
-                                        source</option>
-                                      <optgroup label="Asia">
-                                        <option
-                                          value="traditional rural Vietnam (village life, rice paddies, thatched and tiled-roof houses, áo bà ba and nón lá)">Vietnamese
-                                          — traditional / rural</option>
-                                        <option
-                                          value="modern-day Vietnam (Saigon/Hanoi streets, motorbikes, street food, shophouses)">Vietnamese
-                                          — modern</option>
-                                        <option
-                                          value="ancient imperial China (Tang-to-Qing dynasty era: hanfu robes, tiled pagoda roofs, courtyard homes, lanterns, calligraphy)">Chinese
-                                          — ancient / imperial</option>
-                                        <option
-                                          value="modern-day China (contemporary cities, apartment blocks, night markets)">Chinese
-                                          — modern</option>
-                                        <option
-                                          value="feudal Japan (Edo period: kimono and hakama, samurai, wooden machiya, shoji screens, torii gates)">Japanese
-                                          — feudal / Edo</option>
-                                        <option
-                                          value="modern-day Japan (Tokyo streets, konbini, trains, apartments)">Japanese
-                                          — modern</option>
-                                        <option
-                                          value="Joseon-dynasty Korea (hanbok, gat hats, hanok houses with curved tiled roofs, ondol floors)">Korean
-                                          — Joseon dynasty</option>
-                                        <option
-                                          value="modern-day South Korea (Seoul neighborhoods, cafés, apartments, subway)">Korean
-                                          — modern</option>
-                                        <option
-                                          value="traditional / ancient India (saris and dhotis, temples, havelis, village wells, marketplaces)">Indian
-                                          — traditional / ancient</option>
-                                        <option
-                                          value="modern-day India (bustling cities, auto-rickshaws, bazaars, apartments)">Indian
-                                          — modern</option>
-                                        <option
-                                          value="traditional Siam / Thailand (wooden stilt houses, temples with gilded roofs, floating markets)">Thai
-                                          — traditional</option>
-                                      </optgroup>
-                                      <optgroup
-                                        label="Middle East &amp; Africa">
-                                        <option
-                                          value="Arabian Nights-era Middle East (desert cities, souks, domes and minarets, flowing robes, oil lamps)">Middle
-                                          Eastern / Arabian Nights</option>
-                                        <option
-                                          value="Ancient Egypt (Nile, pyramids and temples, linen garments, papyrus, hieroglyph-carved stone)">Ancient
-                                          Egyptian</option>
-                                        <option
-                                          value="traditional African village (sub-Saharan: mud-brick and thatched homes, wax-print and woven textiles, savanna)">African
-                                          — traditional village</option>
-                                      </optgroup>
-                                      <optgroup label="Europe">
-                                        <option
-                                          value="Ancient Greece / Rome (marble columns, togas and chitons, agoras, olive groves)">Ancient
-                                          Greek / Roman</option>
-                                        <option
-                                          value="medieval Europe (stone castles, timber-framed villages, tunics and cloaks, candlelight, no modern technology)">European
-                                          — medieval</option>
-                                        <option
-                                          value="Nordic Viking age (longhouses, longships, fur and wool clothing, fjords)">Nordic
-                                          / Viking</option>
-                                        <option
-                                          value="Victorian-era Europe, 19th century (gas lamps, cobblestone streets, top hats, corsets, horse carriages)">European
-                                          — Victorian / 19th c.</option>
-                                        <option
-                                          value="modern-day Europe (contemporary European towns and cities)">European
-                                          — modern</option>
-                                      </optgroup>
-                                      <optgroup label="Americas">
-                                        <option
-                                          value="the American Old West, 1870s-1890s (frontier towns, saloons, ranches, cowboy hats, horses, desert)">American
-                                          — Old West</option>
-                                        <option
-                                          value="modern-day United States (suburban homes, diners, highways, city apartments)">American
-                                          — modern</option>
-                                        <option
-                                          value="Latin America (colorful colonial towns, plazas, markets, mountains and jungle)">Latin
-                                          American</option>
-                                      </optgroup>
-                                      <optgroup label="Other eras">
-                                        <option
-                                          value="the prehistoric Stone Age (caves, animal-hide clothing, stone and bone tools, fire, mammoths, untouched wilderness — no metal, no buildings, no writing)">Prehistoric
-                                          / Stone Age</option>
-                                        <option
-                                          value="a futuristic sci-fi world (advanced cities, holographic interfaces, sleek technology)">Futuristic
-                                          sci-fi</option>
-                                      </optgroup>
-                                      <option value="custom">Custom…</option>
-                                    </select>
-                                    <input type="text" id="settingCustom"
-                                      placeholder="Describe the setting, e.g. 1920s Shanghai jazz-age, or a Mongolian steppe nomad camp"
-                                      style="display:none;margin-top:8px;">
-                                    <div class="hint">Strictly enforced:
-                                      environment, architecture, props,
-                                      clothing, hairstyles, food, and every
-                                      character's ethnicity and name will match
-                                      this culture and era — no anachronisms or
-                                      cultural mixing. If the source is set
-                                      elsewhere, the story is transposed into
-                                      this setting.</div>
-                                  </div>
+    <div class="field">
+      <label>Story setting / cultural context</label>
+      <select id="storySetting" class="select-full" onchange="onSettingChange()">
+        <option value="">Auto — infer from the source</option>
+        <optgroup label="Asia">
+          <option value="traditional rural Vietnam (village life, rice paddies, thatched and tiled-roof houses, áo bà ba and nón lá)">Vietnamese — traditional / rural</option>
+          <option value="modern-day Vietnam (Saigon/Hanoi streets, motorbikes, street food, shophouses)">Vietnamese — modern</option>
+          <option value="ancient imperial China (Tang-to-Qing dynasty era: hanfu robes, tiled pagoda roofs, courtyard homes, lanterns, calligraphy)">Chinese — ancient / imperial</option>
+          <option value="modern-day China (contemporary cities, apartment blocks, night markets)">Chinese — modern</option>
+          <option value="feudal Japan (Edo period: kimono and hakama, samurai, wooden machiya, shoji screens, torii gates)">Japanese — feudal / Edo</option>
+          <option value="modern-day Japan (Tokyo streets, konbini, trains, apartments)">Japanese — modern</option>
+          <option value="Joseon-dynasty Korea (hanbok, gat hats, hanok houses with curved tiled roofs, ondol floors)">Korean — Joseon dynasty</option>
+          <option value="modern-day South Korea (Seoul neighborhoods, cafés, apartments, subway)">Korean — modern</option>
+          <option value="traditional / ancient India (saris and dhotis, temples, havelis, village wells, marketplaces)">Indian — traditional / ancient</option>
+          <option value="modern-day India (bustling cities, auto-rickshaws, bazaars, apartments)">Indian — modern</option>
+          <option value="traditional Siam / Thailand (wooden stilt houses, temples with gilded roofs, floating markets)">Thai — traditional</option>
+        </optgroup>
+        <optgroup label="Middle East &amp; Africa">
+          <option value="Arabian Nights-era Middle East (desert cities, souks, domes and minarets, flowing robes, oil lamps)">Middle Eastern / Arabian Nights</option>
+          <option value="Ancient Egypt (Nile, pyramids and temples, linen garments, papyrus, hieroglyph-carved stone)">Ancient Egyptian</option>
+          <option value="traditional African village (sub-Saharan: mud-brick and thatched homes, wax-print and woven textiles, savanna)">African — traditional village</option>
+        </optgroup>
+        <optgroup label="Europe">
+          <option value="Ancient Greece / Rome (marble columns, togas and chitons, agoras, olive groves)">Ancient Greek / Roman</option>
+          <option value="medieval Europe (stone castles, timber-framed villages, tunics and cloaks, candlelight, no modern technology)">European — medieval</option>
+          <option value="Nordic Viking age (longhouses, longships, fur and wool clothing, fjords)">Nordic / Viking</option>
+          <option value="Victorian-era Europe, 19th century (gas lamps, cobblestone streets, top hats, corsets, horse carriages)">European — Victorian / 19th c.</option>
+          <option value="modern-day Europe (contemporary European towns and cities)">European — modern</option>
+        </optgroup>
+        <optgroup label="Americas">
+          <option value="the American Old West, 1870s-1890s (frontier towns, saloons, ranches, cowboy hats, horses, desert)">American — Old West</option>
+          <option value="modern-day United States (suburban homes, diners, highways, city apartments)">American — modern</option>
+          <option value="Latin America (colorful colonial towns, plazas, markets, mountains and jungle)">Latin American</option>
+        </optgroup>
+        <optgroup label="Other eras">
+          <option value="the prehistoric Stone Age (caves, animal-hide clothing, stone and bone tools, fire, mammoths, untouched wilderness — no metal, no buildings, no writing)">Prehistoric / Stone Age</option>
+          <option value="a futuristic sci-fi world (advanced cities, holographic interfaces, sleek technology)">Futuristic sci-fi</option>
+        </optgroup>
+        <option value="custom">Custom…</option>
+      </select>
+      <input type="text" id="settingCustom" placeholder="Describe the setting, e.g. 1920s Shanghai jazz-age, or a Mongolian steppe nomad camp" style="display:none;margin-top:8px;">
+      <div class="hint">Strictly enforced: environment, architecture, props, clothing, hairstyles, food, and every character's ethnicity and name will match this culture and era — no anachronisms or cultural mixing. If the source is set elsewhere, the story is transposed into this setting.</div>
+    </div>
 
-                                  <div class="field">
-                                    <label>Character style</label>
-                                    <div class="style-toggle">
-                                      <div class="style-opt" data-style="Human"
-                                        onclick="selectStyle(this)">Human</div>
-                                      <div class="style-opt" data-style="2D"
-                                        onclick="selectStyle(this)">2D</div>
-                                      <div class="style-opt active"
-                                        data-style="3D"
-                                        onclick="selectStyle(this)">3D</div>
-                                      <div class="style-opt"
-                                        data-style="Photorealistic (Cinematic)"
-                                        onclick="selectStyle(this)">Photorealistic
-                                        (Cinematic)</div>
-                                      <div class="style-opt" data-style="Other"
-                                        onclick="selectStyle(this)">Other</div>
-                                    </div>
-                                    <input type="text" id="customStyle"
-                                      placeholder="Describe the style, e.g. claymation stop-motion, watercolor storybook, anime cel-shaded"
-                                      style="display:none;margin-top:8px;">
-                                    <div class="hint">Locked into every prompt:
-                                      each copied image, video, character-sheet,
-                                      and thumbnail prompt starts with an
-                                      explicit style tag and ends with a
-                                      negative style line (e.g. 3D/2D prompts
-                                      explicitly exclude photographs and real
-                                      humans).</div>
-                                  </div>
+    <div class="field">
+      <label>Character style</label>
+      <div class="style-toggle">
+        <div class="style-opt" data-style="Human" onclick="selectStyle(this)">Human</div>
+        <div class="style-opt" data-style="2D" onclick="selectStyle(this)">2D</div>
+        <div class="style-opt active" data-style="3D" onclick="selectStyle(this)">3D</div>
+        <div class="style-opt" data-style="Photorealistic (Cinematic)" onclick="selectStyle(this)">Photorealistic (Cinematic)</div>
+        <div class="style-opt" data-style="Other" onclick="selectStyle(this)">Other</div>
+      </div>
+      <input type="text" id="customStyle" placeholder="Describe the style, e.g. claymation stop-motion, watercolor storybook, anime cel-shaded" style="display:none;margin-top:8px;">
+      <div class="hint">Locked into every prompt: each copied image, video, character-sheet, and thumbnail prompt starts with an explicit style tag and ends with a negative style line (e.g. 3D/2D prompts explicitly exclude photographs and real humans).</div>
+    </div>
 
-                                  <div class="field">
-                                    <label class="check-label"><input
-                                        type="checkbox"
-                                        id="dialogueMode"><span>Dialogue
-                                        Mode</span></label>
-                                    <div class="hint">Every scene gets a spoken
-                                      dialogue line, quoted directly inside the
-                                      Video/Audio Prompt for VideoExpress.
-                                      Combine with Narration-first below to get
-                                      both — dialogue in the video prompt,
-                                      narration separately for CloneVoice.</div>
-                                  </div>
+    <div class="field">
+      <label class="check-label"><input type="checkbox" id="dialogueMode"><span>Dialogue Mode</span></label>
+      <div class="hint">Every scene gets a spoken dialogue line, quoted directly inside the Video/Audio Prompt for VideoExpress. Combine with Narration-first below to get both — dialogue in the video prompt, narration separately for CloneVoice.</div>
+    </div>
 
-                                  <div class="field">
-                                    <label class="check-label"><input
-                                        type="checkbox"
-                                        id="narrationFirst"><span>Narration-first
-                                        storytelling mode</span></label>
-                                    <div class="hint">Every scene gets a
-                                      voiceover narration line, kept entirely
-                                      separate from the Video/Audio Prompt —
-                                      generated for CloneVoice, not
-                                      VideoExpress. Check only this for a pure
-                                      narration piece; check both for narration
-                                      + dialogue together.</div>
-                                  </div>
+    <div class="field">
+      <label class="check-label"><input type="checkbox" id="narrationFirst"><span>Narration-first storytelling mode</span></label>
+      <div class="hint">Every scene gets a voiceover narration line, kept entirely separate from the Video/Audio Prompt — generated for CloneVoice, not VideoExpress. Check only this for a pure narration piece; check both for narration + dialogue together.</div>
+    </div>
 
-                                  <div class="field">
-                                    <label class="check-label"><input
-                                        type="checkbox" id="outroCta"
-                                        checked><span>Closing moral +
-                                        like/share/subscribe</span></label>
-                                    <div class="hint">Adds one or two extra
-                                      scenes right after the story's real
-                                      ending: a closing line that states the
-                                      story's own meaning outright, then a
-                                      natural like/share/subscribe nudge written
-                                      in the same voice as the rest of the
-                                      narration. Uncheck for silent/cinematic
-                                      pieces or client work with no CTA.</div>
-                                  </div>
+    <div class="field">
+      <label class="check-label"><input type="checkbox" id="outroCta" checked><span>Closing moral + like/share/subscribe</span></label>
+      <div class="hint">Adds one or two extra scenes right after the story's real ending: a closing line that states the story's own meaning outright, then a natural like/share/subscribe nudge written in the same voice as the rest of the narration. Uncheck for silent/cinematic pieces or client work with no CTA.</div>
+    </div>
 
-                                  <div class="field">
-                                    <label class="check-label"><input
-                                        type="checkbox"
-                                        id="musicTheme"><span>Add background
-                                        music theme</span></label>
-                                    <div class="hint">Designs one consistent
-                                      musical theme for the whole video and
-                                      weaves a short description of how it
-                                      sounds into every scene's Video/Audio
-                                      Prompt, following the story's emotional
-                                      arc. Leave unchecked to keep Video/Audio
-                                      Prompt to environmental sound only.</div>
-                                  </div>
+    <div class="field">
+      <label class="check-label"><input type="checkbox" id="musicTheme"><span>Add background music theme</span></label>
+      <div class="hint">Designs one consistent musical theme for the whole video and weaves a short description of how it sounds into every scene's Video/Audio Prompt, following the story's emotional arc. Leave unchecked to keep Video/Audio Prompt to environmental sound only.</div>
+    </div>
 
-                                  <button class="generate-btn" id="genBtn"
-                                    onclick="generateScript()">
-                                    <span class="spinner"></span><span
-                                      id="genLabel">Generate script</span>
-                                  </button>
-                                  <div class="err-box" id="errBox"></div>
-                                </div>
+    <button class="generate-btn" id="genBtn" onclick="generateScript()">
+      <span class="spinner"></span><span id="genLabel">Generate script</span>
+    </button>
+    <div class="err-box" id="errBox"></div>
+  </div>
 
-                                <div id="resultsView">
-                                  <div
-                                    style="display:flex;justify-content:space-between;align-items:center;margin-bottom:18px;">
-                                    <button class="back-btn"
-                                      onclick="backToForm()"
-                                      style="margin-bottom:0;">← New
-                                      job</button>
-                                    <button class="back-btn"
-                                      onclick="saveJobToStorage()"
-                                      style="margin-bottom:0;border-color:var(--done);color:var(--done);">💾
-                                      Save job</button>
-                                  </div>
-                                  <div id="charCardWrap"></div>
-                                  <div id="scenesWrap"></div>
-                                  <button class="generate-btn" id="continueBtn"
-                                    onclick="continueScript()"
-                                    style="background:var(--teal);color:#08201F;">Generate
-                                    next scenes</button>
-                                </div>
-                              </div>
+  <div id="resultsView">
+    <div class="results-topbar">
+      <button class="back-btn" onclick="backToForm()" style="margin-bottom:0;">← New job</button>
+      <button class="back-btn" onclick="saveJobToStorage()" style="margin-bottom:0;border-color:var(--done);color:var(--done);">💾 Save job</button>
+    </div>
+    <div class="results-grid">
+      <div class="scenes-col" id="scenesCol">
+        <div class="col-head"><span>Scenes</span><span id="sceneCount"></span></div>
+        <div id="scenesWrap"></div>
+        <button class="generate-btn" id="continueBtn" onclick="continueScript()" style="background:var(--teal);color:#08201F;margin-bottom:10px;">Generate next scenes</button>
+      </div>
+      <aside class="side-col">
+        <div id="charCardWrap"></div>
+      </aside>
+    </div>
+  </div>
+</div>
 
-                              <div class="toast mono" id="toast"></div>
+<div class="toast mono" id="toast"></div>
 
-                              <div class="modal-overlay" id="savedModal">
-                                <div class="modal-panel">
-                                  <h3>Saved jobs</h3>
-                                  <div id="savedList"></div>
-                                  <button class="modal-close"
-                                    onclick="closeSavedModal()">Close</button>
-                                </div>
-                              </div>
+<div class="modal-overlay" id="savedModal">
+  <div class="modal-panel">
+    <h3>Saved jobs</h3>
+    <div id="savedList"></div>
+    <button class="modal-close" onclick="closeSavedModal()">Close</button>
+  </div>
+</div>
 
-                              <script>
+<script>
 // window.storage only exists inside Claude.ai's artifact sandbox — this page now runs
 // standalone on your own server, so we back the same API with localStorage instead.
 if(!window.storage){
@@ -1469,6 +1348,7 @@ async function generateScript(){
       totalSeconds: totalSeconds,
       source, currentTopic: topic
     };
+    accOpenState = {};
     job.nameLeaks = findNameLeaks((job.styleBlock && job.styleBlock.characters) || [], source);
     doneMap = {};
     await loadProgress();
@@ -1688,6 +1568,7 @@ async function loadSavedJob(jobId){
     const res = await window.storage.get(`job:${jobId}`);
     if(!res){ showToast('That saved job could not be found'); return; }
     job = JSON.parse(res.value);
+    accOpenState = {};
     await loadProgress();
     renderResults();
     closeSavedModal();
@@ -2031,82 +1912,112 @@ async function copyThumbnailToArtistly(){
   showToast(`Thumbnail prompt copied — paste with the userscript's floating button on Artistly`);
 }
 
+let accOpenState = {}; // which right-side accordions are open, kept across re-renders
 function renderResults(){
   const t = job.treatment || {};
   const characters = job.styleBlock.characters || [];
   const products = job.styleBlock.products || [];
   const nameChanges = Array.isArray(t.nameChanges) ? t.nameChanges.filter(n => n && n.original && n.renamed) : [];
   const leaks = Array.isArray(job.nameLeaks) ? job.nameLeaks : [];
-  document.getElementById('charCardWrap').innerHTML = `
+  const side = document.getElementById('charCardWrap');
+  // renderResults() runs after every copy click — remember which accordions
+  // are open so re-rendering doesn't snap them all shut.
+  side.querySelectorAll('details[data-acc]').forEach(d => { accOpenState[d.dataset.acc] = d.open; });
+  const openAttr = (key, def) => ((key in accOpenState) ? accOpenState[key] : def) ? 'open' : '';
+  const voiceList = VOICE_LISTS_BY_LANGUAGE[job.language];
+
+  side.innerHTML = `
     ${leaks.length ? `<div class="warn-box">⚠ These character names also appear in your Source: <b>${leaks.join(', ')}</b>. The model may have reused an original name — regenerate, or edit the names before producing.</div>` : ''}
+
     ${t.logline ? `
-    <div class="treatment-card">
-      <div class="tag">Director's treatment</div>
-      <p class="logline">${t.logline}</p>
-      <div class="treatment-grid">
-        <div class="treatment-item"><b>Tone</b><span>${t.tone || '—'}</span></div>
-        <div class="treatment-item"><b>Color grade</b><span>${t.colorGrade || '—'}</span></div>
-        <div class="treatment-item"><b>Setting</b><span>${t.setting || job.setting || '—'}</span></div>
-        <div class="treatment-item"><b>Environment</b><span>${t.environment || '—'}</span></div>
-        <div class="treatment-item"><b>Time of day</b><span>${t.timeOfDay || '—'}</span></div>
-        ${t.narratorVoice ? `<div class="treatment-item"><b>Narrator voice</b><span>${t.narratorVoice}</span></div>` : ''}
-        ${nameChanges.length ? `<div class="treatment-item treatment-arc"><b>Renamed from source</b><span>${nameChanges.map(n => `${n.original} → ${n.renamed}`).join(' · ')}</span></div>` : ''}
-        <div class="treatment-item treatment-arc"><b>Narrative arc</b><span>${t.narrativeArc || '—'}</span></div>
-        ${Array.isArray(t.sourceBeats) && t.sourceBeats.length ? `<div class="treatment-item treatment-arc"><b>Story beats</b><span>${t.sourceBeats.map((b,i) => `${i+1}. ${b}`).join('<br>')}</span></div>` : ''}
+    <details class="acc acc-treatment" data-acc="treatment" ${openAttr('treatment', true)}>
+      <summary><span>🎬 Director's treatment</span></summary>
+      <div class="acc-body treatment-card">
+        <p class="logline">${t.logline}</p>
+        <div class="treatment-grid">
+          <div class="treatment-item"><b>Tone</b><span>${t.tone || '—'}</span></div>
+          <div class="treatment-item"><b>Color grade</b><span>${t.colorGrade || '—'}</span></div>
+          <div class="treatment-item"><b>Setting</b><span>${t.setting || job.setting || '—'}</span></div>
+          <div class="treatment-item"><b>Environment</b><span>${t.environment || '—'}</span></div>
+          <div class="treatment-item"><b>Time of day</b><span>${t.timeOfDay || '—'}</span></div>
+          ${t.narratorVoice ? `<div class="treatment-item"><b>Narrator voice</b><span>${t.narratorVoice}</span></div>` : ''}
+          ${nameChanges.length ? `<div class="treatment-item"><b>Renamed from source</b><span>${nameChanges.map(n => `${n.original} → ${n.renamed}`).join(' · ')}</span></div>` : ''}
+          <div class="treatment-item"><b>Narrative arc</b><span>${t.narrativeArc || '—'}</span></div>
+        </div>
       </div>
-    </div>` : ''}
+    </details>` : ''}
+
+    ${Array.isArray(t.sourceBeats) && t.sourceBeats.length ? `
+    <details class="acc" data-acc="beats" ${openAttr('beats', false)}>
+      <summary><span>🧭 Story beats <span class="acc-sub">${t.sourceBeats.length}</span></span></summary>
+      <div class="acc-body treatment-item"><span>${t.sourceBeats.map((b,i) => `${i+1}. ${b}`).join('<br>')}</span></div>
+    </details>` : ''}
+
+    ${voiceList ? `
+    <details class="acc" data-acc="voice" ${openAttr('voice', false)}>
+      <summary><span>🎙️ Narrator voice <span class="acc-sub">${(voiceList.find(v => v.id === job.selectedVoiceId) || {}).name || 'manual'}</span></span></summary>
+      <div class="acc-body">
+        <select id="voiceSelect" onchange="job.selectedVoiceId = this.value || null; renderResults();" class="select-full">
+          <option value="">— Let me pick manually in CloneVoice —</option>
+          ${voiceList.map(v => `<option value="${v.id}" ${job.selectedVoiceId === v.id ? 'selected' : ''}>${v.name}</option>`).join('')}
+        </select>
+        <div class="hint">Pick a voice here and the automation clicks it directly in CloneVoice. Leave on the default option to keep choosing manually.</div>
+      </div>
+    </details>` : ''}
+
+    <details class="acc" data-acc="style" ${openAttr('style', false)}>
+      <summary><span>🎨 Render style <span class="acc-sub">${styleLabelFor(job.characterStyle, job.customStyle)}</span></span></summary>
+      <div class="acc-body char-card">
+        <p style="margin:0;">${job.styleBlock.description}</p>
+        <div class="cd" style="margin-top:8px;"><b>Locked style tag (prepended to every prompt):</b> ${jobStyleSpec().tag}</div>
+      </div>
+    </details>
+
     ${job.thumbnail && job.thumbnail.prompt ? `
-    <div class="char-card" style="border-color:var(--teal-dim);">
-      <div class="tag" style="color:var(--teal);">🖼️ YouTube Thumbnail</div>
-      <div class="cd">${fullThumbnailPrompt()}</div>
-      ${job.thumbnail.textOverlay ? `<div class="cd" style="margin-top:8px;color:var(--text-dim);"><b>Suggested text overlay:</b> "${job.thumbnail.textOverlay}"</div>` : ''}
-      <div class="btn-row" style="margin-top:12px;">
-        <button class="btn btn-video" onclick="copyThumbnailPrompt()">Copy Thumbnail Prompt</button>
-        <button class="btn btn-voice" onclick="copyThumbnailToArtistly()">Copy → Artistly</button>
+    <details class="acc" data-acc="thumb" ${openAttr('thumb', false)}>
+      <summary><span>🖼️ YouTube thumbnail</span></summary>
+      <div class="acc-body char-card">
+        <div class="cd">${fullThumbnailPrompt()}</div>
+        ${job.thumbnail.textOverlay ? `<div class="cd" style="margin-top:8px;"><b>Suggested text overlay:</b> "${job.thumbnail.textOverlay}"</div>` : ''}
+        <div class="btn-row" style="margin-top:12px;">
+          <button class="btn btn-video" onclick="copyThumbnailPrompt()">Copy Thumbnail Prompt</button>
+          <button class="btn btn-voice" onclick="copyThumbnailToArtistly()">Copy → Artistly</button>
+        </div>
       </div>
-    </div>` : ''}
-    <div class="char-card" style="margin-bottom:8px;">
-      <div class="tag">Render style · ${styleLabelFor(job.characterStyle, job.customStyle)}</div>
-      <p style="margin:0;">${job.styleBlock.description}</p>
-      <div class="cd" style="margin-top:8px;"><b>Locked style tag (prepended to every prompt):</b> ${jobStyleSpec().tag}</div>
-    </div>
+    </details>` : ''}
+
+    ${characters.length ? `<div class="acc-group-label">Characters · ${characters.length}</div>` : ''}
     ${characters.map((c, i) => `
-    <div class="char-card">
-      <div class="tag">${c.name} · ${c.role}</div>
-      <div class="cd">${c.description}</div>
-      <div class="cd" style="margin-top:8px;"><b>Called in video prompts:</b> ${c.visualTag || fallbackVisualTag(c)}</div>
-      ${c.faceSignature ? `<div class="cd" style="margin-top:8px;"><b>Face signature:</b> ${c.faceSignature}</div>` : ''}
-      ${Array.isArray(c.actionPoses) && c.actionPoses.length ? `<div class="cd" style="margin-top:8px;color:var(--text-dim);"><b>Sheet poses:</b> ${c.actionPoses.join(' · ')}</div>` : ''}
-      <div class="btn-row" style="margin-top:12px;">
-        <button class="btn btn-video" onclick="copyCharacter(${i})">Copy Character Sheet</button>
-        <button class="btn btn-voice" onclick="copyToArtistly(${i})">Copy → Artistly</button>
+    <details class="acc acc-char" data-acc="char-${i}" ${openAttr('char-' + i, false)}>
+      <summary><span>👤 ${c.name}<span class="acc-sub">${c.role || ''}</span></span></summary>
+      <div class="acc-body char-card">
+        <div class="cd">${c.description}</div>
+        <div class="cd" style="margin-top:8px;"><b>Called in video prompts:</b> ${c.visualTag || fallbackVisualTag(c)}</div>
+        ${c.faceSignature ? `<div class="cd" style="margin-top:8px;"><b>Face signature:</b> ${c.faceSignature}</div>` : ''}
+        ${Array.isArray(c.actionPoses) && c.actionPoses.length ? `<div class="cd" style="margin-top:8px;"><b>Sheet poses:</b> ${c.actionPoses.join(' · ')}</div>` : ''}
+        <div class="btn-row" style="margin-top:12px;">
+          <button class="btn btn-video" onclick="copyCharacter(${i})">Copy Character Sheet</button>
+          <button class="btn btn-voice" onclick="copyToArtistly(${i})">Copy → Artistly</button>
+        </div>
       </div>
-    </div>
-    `).join('')}
+    </details>`).join('')}
+
+    ${products.length ? `<div class="acc-group-label">Products · ${products.length}</div>` : ''}
     ${products.map((p, i) => `
-    <div class="char-card">
-      <div class="tag">${p.name} · Product</div>
-      <div class="cd">${p.description}</div>
-      <div class="btn-row" style="margin-top:12px;">
-        <button class="btn btn-video" onclick="copyProduct(${i})">Copy Prompt</button>
+    <details class="acc acc-char" data-acc="prod-${i}" ${openAttr('prod-' + i, false)}>
+      <summary><span>📦 ${p.name}</span></summary>
+      <div class="acc-body char-card">
+        <div class="cd">${p.description}</div>
+        <div class="btn-row" style="margin-top:12px;">
+          <button class="btn btn-video" onclick="copyProduct(${i})">Copy Prompt</button>
+        </div>
       </div>
-    </div>
-    `).join('')}
-    ${(() => {
-      const voiceList = VOICE_LISTS_BY_LANGUAGE[job.language];
-      if(!voiceList) return '';
-      return `
-    <div class="field" style="margin-top:8px;margin-bottom:22px;">
-      <label>Narrator voice (CloneVoice)</label>
-      <select id="voiceSelect" onchange="job.selectedVoiceId = this.value || null;" style="width:100%;background:var(--panel);border:1px solid var(--line);border-radius:6px;color:var(--text);font-family:'IBM Plex Mono',monospace;font-size:13px;padding:11px 12px;">
-        <option value="">— Let me pick manually in CloneVoice —</option>
-        ${voiceList.map(v => `<option value="${v.id}" ${job.selectedVoiceId === v.id ? 'selected' : ''}>${v.name}</option>`).join('')}
-      </select>
-      <div class="hint">Pick a voice here and the automation clicks it directly in CloneVoice — no manual selection needed. Leave on the default option to keep choosing manually.</div>
-    </div>
-    `;
-    })()}
+    </details>`).join('')}
   `;
+
+  const doneCount = job.scenes.filter(sc => doneMap[sc.sceneNumber] === 'done').length;
+  const countEl = document.getElementById('sceneCount');
+  if(countEl) countEl.textContent = `${job.scenes.length} scenes · ${doneCount} done`;
 
   document.getElementById('scenesWrap').innerHTML = job.scenes.map((scene, idx) => {
     const progress = doneMap[scene.sceneNumber] || null; // null | 'video' (amber) | 'done' (green)
