@@ -201,36 +201,52 @@
 <div class="console">
   <div id="formView">
     <h1>New scene job</h1>
-    <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:6px;gap:10px;flex-wrap:wrap;">
-      <p class="subhead" style="margin-bottom:0;">Paste your source, set the window and topic, then generate the character style and per-scene prompts.</p>
+    <div
+      style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:6px;gap:10px;flex-wrap:wrap;">
+      <p class="subhead" style="margin-bottom:0;">Paste your source, set the
+        window and topic, then generate the character style and per-scene
+        prompts.</p>
       <div style="display:flex;gap:8px;">
-        <button class="back-btn" id="resumeJobBtn" onclick="resumeCurrentJob()" style="display:none;">↩ Back to current scenes</button>
-        <button class="back-btn" onclick="openSavedModal()">📂 Load saved job</button>
+        <button class="back-btn" id="resumeJobBtn" onclick="resumeCurrentJob()"
+          style="display:none;">↩ Back to current scenes</button>
+        <button class="back-btn" onclick="openSavedModal()">📂 Load saved
+          job</button>
       </div>
     </div>
 
     <div class="top-settings">
       <div class="key-field">
-        <div class="key-label-row"><span class="key-icon">🔑</span><span>AI provider &amp; API key</span></div>
-        <select id="aiProvider" class="select-dark" style="margin-top:0;margin-bottom:8px;" onchange="onProviderChange()">
+        <div class="key-label-row"><span class="key-icon">🔑</span><span>AI
+            provider &amp; API key</span></div>
+        <select id="aiProvider" class="select-dark"
+          style="margin-top:0;margin-bottom:8px;" onchange="onProviderChange()">
           <option value="openai">OpenAI</option>
           <option value="deepseek">DeepSeek (lowest cost)</option>
-          <option value="openrouter">OpenRouter (any model — Gemini, Claude, Llama…)</option>
+          <option value="openrouter">OpenRouter (any model — Gemini, Claude,
+            Llama…)</option>
         </select>
-        <input type="password" id="openaiKey" placeholder="sk-..." autocomplete="off" oninput="onKeyInput()">
-        <div class="hint">Key is used only for this session and never saved. Leave blank to use the built-in generator (only works inside Claude.ai's preview — when running this file on your own machine, add a key and start the bundled backend server below).</div>
+        <input type="password" id="openaiKey" placeholder="sk-..."
+          autocomplete="off" oninput="onKeyInput()">
+        <div class="hint">Key is used only for this session and never saved.
+          Leave blank to use the built-in generator (only works inside
+          Claude.ai's preview — when running this file on your own machine, add
+          a key and start the bundled backend server below).</div>
         <div class="key-status" id="keyStatus">Key set for this session</div>
         <input type="text" id="backendUrl"
           placeholder="Backend URL, e.g. http://localhost:3000 (run: node backend/server.js)"
           style="margin-top:8px;font-size:11px;"
           oninput="try{localStorage.setItem('backendUrl', this.value)}catch(e){}">
-        <select id="openaiModel" class="select-dark" onchange="onModelChange()"></select>
-        <input type="text" id="customModel" placeholder="Custom model ID, e.g. google/gemini-3.8-flash" style="display:none;margin-top:8px;font-size:12px;"
+        <select id="openaiModel" class="select-dark"
+          onchange="onModelChange()"></select>
+        <input type="text" id="customModel"
+          placeholder="Custom model ID, e.g. google/gemini-3.8-flash"
+          style="display:none;margin-top:8px;font-size:12px;"
           oninput="try{localStorage.setItem('customModel', this.value)}catch(e){}">
         <div class="model-note" id="modelNote"></div>
       </div>
       <div class="lang-field">
-        <div class="key-label-row"><span class="key-icon">🌐</span><span>Language</span></div>
+        <div class="key-label-row"><span
+            class="key-icon">🌐</span><span>Language</span></div>
         <select id="language">
           <option value="English">English</option>
           <option value="Vietnamese">Vietnamese</option>
@@ -242,21 +258,30 @@
           <option value="Thai">Thai</option>
           <option value="Indonesian">Indonesian</option>
         </select>
-        <div class="hint">Dialogue &amp; narration only — all technical prompts stay in English for VideoExpress/CloneVoice.</div>
+        <div class="hint">Dialogue &amp; narration only — all technical prompts
+          stay in English for VideoExpress/CloneVoice.</div>
       </div>
     </div>
 
     <div class="field">
       <label>Source — link, story, or script</label>
-      <textarea id="source" placeholder="Paste a video link, or paste the story/script text directly..."></textarea>
-      <div class="hint">Note: this can't fetch and watch a video link on its own — if you paste a link, also paste the transcript, caption text, or a description of what happens, so there's actual content to work from. The source is treated as a premise: characters are always renamed and the story is retold as an original piece.</div>
+      <textarea id="source"
+        placeholder="Paste a video link, or paste the story/script text directly..."></textarea>
+      <div class="hint">Note: this can't fetch and watch a video link on its own
+        — if you paste a link, also paste the transcript, caption text, or a
+        description of what happens, so there's actual content to work from. The
+        source is treated as a premise: characters are always renamed and the
+        story is retold as an original piece.</div>
     </div>
 
     <div class="row">
       <div class="field">
         <label>Video length (minutes)</label>
-        <input type="number" id="minute" min="1" step="0.5" placeholder="e.g. 8">
-        <div class="hint">Total length of the source video. Long videos generate in batches — you'll get the opening scenes first, with a button to continue.</div>
+        <input type="number" id="minute" min="1" step="0.5"
+          placeholder="e.g. 8">
+        <div class="hint">Total length of the source video. Long videos generate
+          in batches — you'll get the opening scenes first, with a button to
+          continue.</div>
       </div>
       <div class="field">
         <label>Retelling angle (optional)</label>
@@ -264,137 +289,281 @@
           placeholder="e.g. vlog style, documentary style, ads style — leave blank to follow the source directly">
         <datalist id="topicSuggestions">
           <option value="Documentary style">
-          <option value="Fable / folk-tale style">
-          <option value="Fairy tale style">
-          <option value="Motivational / inspirational style">
-          <option value="Vlog style (talks directly to camera)">
-          <option value="Ads / commercial style">
-          <option value="Storytelling style">
-          <option value="Silent / cinematic (no dialogue or narration)">
-          <option value="Modernize the setting">
-          <option value="Reframe for a different audience">
-          <option value="Give it a lighter, comedic tone">
-          <option value="Give it a darker, more dramatic tone">
-          <option value="Happy-ending twist">
-          <option value="Set it in a different industry">
-          <option value="Minimalist, understated retelling">
-        </datalist>
-        <div class="hint">Optional. A stylistic angle or twist on the retelling — it never replaces the actual content in Source above. It controls HOW the story is told, in narration/dialogue AND in the visual look: mention "documentary", "fable", "fairy tale", "motivational", "vlog", "ads", or "storytelling" to set that voice and visual register; mention "silent" or "cinematic, no dialogue" to turn off all speech. Leave blank to let the AI decide.</div>
-      </div>
-    </div>
+            <option value="Fable / folk-tale style">
+              <option value="Fairy tale style">
+                <option value="Motivational / inspirational style">
+                  <option value="Vlog style (talks directly to camera)">
+                    <option value="Ads / commercial style">
+                      <option value="Storytelling style">
+                        <option
+                          value="Silent / cinematic (no dialogue or narration)">
+                          <option value="Modernize the setting">
+                            <option value="Reframe for a different audience">
+                              <option value="Give it a lighter, comedic tone">
+                                <option
+                                  value="Give it a darker, more dramatic tone">
+                                  <option value="Happy-ending twist">
+                                    <option
+                                      value="Set it in a different industry">
+                                      <option
+                                        value="Minimalist, understated retelling">
+                                      </datalist>
+                                      <div class="hint">Optional. A stylistic
+                                        angle or twist on the retelling — it
+                                        never replaces the actual content in
+                                        Source above. It controls HOW the story
+                                        is told, in narration/dialogue AND in
+                                        the visual look: mention "documentary",
+                                        "fable", "fairy tale", "motivational",
+                                        "vlog", "ads", or "storytelling" to set
+                                        that voice and visual register; mention
+                                        "silent" or "cinematic, no dialogue" to
+                                        turn off all speech. Leave blank to let
+                                        the AI decide.</div>
+                                    </div>
+                                  </div>
 
-    <div class="field">
-      <label>Story setting / cultural context</label>
-      <select id="storySetting" class="select-full" onchange="onSettingChange()">
-        <option value="">Auto — infer from the source</option>
-        <optgroup label="Asia">
-          <option value="traditional rural Vietnam (village life, rice paddies, thatched and tiled-roof houses, áo bà ba and nón lá)">Vietnamese — traditional / rural</option>
-          <option value="modern-day Vietnam (Saigon/Hanoi streets, motorbikes, street food, shophouses)">Vietnamese — modern</option>
-          <option value="ancient imperial China (Tang-to-Qing dynasty era: hanfu robes, tiled pagoda roofs, courtyard homes, lanterns, calligraphy)">Chinese — ancient / imperial</option>
-          <option value="modern-day China (contemporary cities, apartment blocks, night markets)">Chinese — modern</option>
-          <option value="feudal Japan (Edo period: kimono and hakama, samurai, wooden machiya, shoji screens, torii gates)">Japanese — feudal / Edo</option>
-          <option value="modern-day Japan (Tokyo streets, konbini, trains, apartments)">Japanese — modern</option>
-          <option value="Joseon-dynasty Korea (hanbok, gat hats, hanok houses with curved tiled roofs, ondol floors)">Korean — Joseon dynasty</option>
-          <option value="modern-day South Korea (Seoul neighborhoods, cafés, apartments, subway)">Korean — modern</option>
-          <option value="traditional / ancient India (saris and dhotis, temples, havelis, village wells, marketplaces)">Indian — traditional / ancient</option>
-          <option value="modern-day India (bustling cities, auto-rickshaws, bazaars, apartments)">Indian — modern</option>
-          <option value="traditional Siam / Thailand (wooden stilt houses, temples with gilded roofs, floating markets)">Thai — traditional</option>
-        </optgroup>
-        <optgroup label="Middle East &amp; Africa">
-          <option value="Arabian Nights-era Middle East (desert cities, souks, domes and minarets, flowing robes, oil lamps)">Middle Eastern / Arabian Nights</option>
-          <option value="Ancient Egypt (Nile, pyramids and temples, linen garments, papyrus, hieroglyph-carved stone)">Ancient Egyptian</option>
-          <option value="traditional African village (sub-Saharan: mud-brick and thatched homes, wax-print and woven textiles, savanna)">African — traditional village</option>
-        </optgroup>
-        <optgroup label="Europe">
-          <option value="Ancient Greece / Rome (marble columns, togas and chitons, agoras, olive groves)">Ancient Greek / Roman</option>
-          <option value="medieval Europe (stone castles, timber-framed villages, tunics and cloaks, candlelight, no modern technology)">European — medieval</option>
-          <option value="Nordic Viking age (longhouses, longships, fur and wool clothing, fjords)">Nordic / Viking</option>
-          <option value="Victorian-era Europe, 19th century (gas lamps, cobblestone streets, top hats, corsets, horse carriages)">European — Victorian / 19th c.</option>
-          <option value="modern-day Europe (contemporary European towns and cities)">European — modern</option>
-        </optgroup>
-        <optgroup label="Americas">
-          <option value="the American Old West, 1870s-1890s (frontier towns, saloons, ranches, cowboy hats, horses, desert)">American — Old West</option>
-          <option value="modern-day United States (suburban homes, diners, highways, city apartments)">American — modern</option>
-          <option value="Latin America (colorful colonial towns, plazas, markets, mountains and jungle)">Latin American</option>
-        </optgroup>
-        <optgroup label="Other eras">
-          <option value="the prehistoric Stone Age (caves, animal-hide clothing, stone and bone tools, fire, mammoths, untouched wilderness — no metal, no buildings, no writing)">Prehistoric / Stone Age</option>
-          <option value="a futuristic sci-fi world (advanced cities, holographic interfaces, sleek technology)">Futuristic sci-fi</option>
-        </optgroup>
-        <option value="custom">Custom…</option>
-      </select>
-      <input type="text" id="settingCustom" placeholder="Describe the setting, e.g. 1920s Shanghai jazz-age, or a Mongolian steppe nomad camp" style="display:none;margin-top:8px;">
-      <div class="hint">Strictly enforced: environment, architecture, props, clothing, hairstyles, food, and every character's ethnicity and name will match this culture and era — no anachronisms or cultural mixing. If the source is set elsewhere, the story is transposed into this setting.</div>
-    </div>
+                                  <div class="field">
+                                    <label>Story setting / cultural
+                                      context</label>
+                                    <select id="storySetting"
+                                      class="select-full"
+                                      onchange="onSettingChange()">
+                                      <option value>Auto — infer from the
+                                        source</option>
+                                      <optgroup label="Asia">
+                                        <option
+                                          value="traditional rural Vietnam (village life, rice paddies, thatched and tiled-roof houses, áo bà ba and nón lá)">Vietnamese
+                                          — traditional / rural</option>
+                                        <option
+                                          value="modern-day Vietnam (Saigon/Hanoi streets, motorbikes, street food, shophouses)">Vietnamese
+                                          — modern</option>
+                                        <option
+                                          value="ancient imperial China (Tang-to-Qing dynasty era: hanfu robes, tiled pagoda roofs, courtyard homes, lanterns, calligraphy)">Chinese
+                                          — ancient / imperial</option>
+                                        <option
+                                          value="modern-day China (contemporary cities, apartment blocks, night markets)">Chinese
+                                          — modern</option>
+                                        <option
+                                          value="feudal Japan (Edo period: kimono and hakama, samurai, wooden machiya, shoji screens, torii gates)">Japanese
+                                          — feudal / Edo</option>
+                                        <option
+                                          value="modern-day Japan (Tokyo streets, konbini, trains, apartments)">Japanese
+                                          — modern</option>
+                                        <option
+                                          value="Joseon-dynasty Korea (hanbok, gat hats, hanok houses with curved tiled roofs, ondol floors)">Korean
+                                          — Joseon dynasty</option>
+                                        <option
+                                          value="modern-day South Korea (Seoul neighborhoods, cafés, apartments, subway)">Korean
+                                          — modern</option>
+                                        <option
+                                          value="traditional / ancient India (saris and dhotis, temples, havelis, village wells, marketplaces)">Indian
+                                          — traditional / ancient</option>
+                                        <option
+                                          value="modern-day India (bustling cities, auto-rickshaws, bazaars, apartments)">Indian
+                                          — modern</option>
+                                        <option
+                                          value="traditional Siam / Thailand (wooden stilt houses, temples with gilded roofs, floating markets)">Thai
+                                          — traditional</option>
+                                      </optgroup>
+                                      <optgroup
+                                        label="Middle East &amp; Africa">
+                                        <option
+                                          value="Arabian Nights-era Middle East (desert cities, souks, domes and minarets, flowing robes, oil lamps)">Middle
+                                          Eastern / Arabian Nights</option>
+                                        <option
+                                          value="Ancient Egypt (Nile, pyramids and temples, linen garments, papyrus, hieroglyph-carved stone)">Ancient
+                                          Egyptian</option>
+                                        <option
+                                          value="traditional African village (sub-Saharan: mud-brick and thatched homes, wax-print and woven textiles, savanna)">African
+                                          — traditional village</option>
+                                      </optgroup>
+                                      <optgroup label="Europe">
+                                        <option
+                                          value="Ancient Greece / Rome (marble columns, togas and chitons, agoras, olive groves)">Ancient
+                                          Greek / Roman</option>
+                                        <option
+                                          value="medieval Europe (stone castles, timber-framed villages, tunics and cloaks, candlelight, no modern technology)">European
+                                          — medieval</option>
+                                        <option
+                                          value="Nordic Viking age (longhouses, longships, fur and wool clothing, fjords)">Nordic
+                                          / Viking</option>
+                                        <option
+                                          value="Victorian-era Europe, 19th century (gas lamps, cobblestone streets, top hats, corsets, horse carriages)">European
+                                          — Victorian / 19th c.</option>
+                                        <option
+                                          value="modern-day Europe (contemporary European towns and cities)">European
+                                          — modern</option>
+                                      </optgroup>
+                                      <optgroup label="Americas">
+                                        <option
+                                          value="the American Old West, 1870s-1890s (frontier towns, saloons, ranches, cowboy hats, horses, desert)">American
+                                          — Old West</option>
+                                        <option
+                                          value="modern-day United States (suburban homes, diners, highways, city apartments)">American
+                                          — modern</option>
+                                        <option
+                                          value="Latin America (colorful colonial towns, plazas, markets, mountains and jungle)">Latin
+                                          American</option>
+                                      </optgroup>
+                                      <optgroup label="Other eras">
+                                        <option
+                                          value="the prehistoric Stone Age (caves, animal-hide clothing, stone and bone tools, fire, mammoths, untouched wilderness — no metal, no buildings, no writing)">Prehistoric
+                                          / Stone Age</option>
+                                        <option
+                                          value="a futuristic sci-fi world (advanced cities, holographic interfaces, sleek technology)">Futuristic
+                                          sci-fi</option>
+                                      </optgroup>
+                                      <option value="custom">Custom…</option>
+                                    </select>
+                                    <input type="text" id="settingCustom"
+                                      placeholder="Describe the setting, e.g. 1920s Shanghai jazz-age, or a Mongolian steppe nomad camp"
+                                      style="display:none;margin-top:8px;">
+                                    <div class="hint">Strictly enforced:
+                                      environment, architecture, props,
+                                      clothing, hairstyles, food, and every
+                                      character's ethnicity and name will match
+                                      this culture and era — no anachronisms or
+                                      cultural mixing. If the source is set
+                                      elsewhere, the story is transposed into
+                                      this setting.</div>
+                                  </div>
 
-    <div class="field">
-      <label>Character style</label>
-      <div class="style-toggle">
-        <div class="style-opt" data-style="Human" onclick="selectStyle(this)">Human</div>
-        <div class="style-opt" data-style="2D" onclick="selectStyle(this)">2D</div>
-        <div class="style-opt active" data-style="3D" onclick="selectStyle(this)">3D</div>
-        <div class="style-opt" data-style="Photorealistic (Cinematic)" onclick="selectStyle(this)">Photorealistic (Cinematic)</div>
-        <div class="style-opt" data-style="Other" onclick="selectStyle(this)">Other</div>
-      </div>
-      <input type="text" id="customStyle" placeholder="Describe the style, e.g. claymation stop-motion, watercolor storybook, anime cel-shaded" style="display:none;margin-top:8px;">
-      <div class="hint">Locked into every prompt: each copied image, video, character-sheet, and thumbnail prompt starts with an explicit style tag and ends with a negative style line (e.g. 3D/2D prompts explicitly exclude photographs and real humans).</div>
-    </div>
+                                  <div class="field">
+                                    <label>Character style</label>
+                                    <div class="style-toggle">
+                                      <div class="style-opt" data-style="Human"
+                                        onclick="selectStyle(this)">Human</div>
+                                      <div class="style-opt" data-style="2D"
+                                        onclick="selectStyle(this)">2D</div>
+                                      <div class="style-opt active"
+                                        data-style="3D"
+                                        onclick="selectStyle(this)">3D</div>
+                                      <div class="style-opt"
+                                        data-style="Photorealistic (Cinematic)"
+                                        onclick="selectStyle(this)">Photorealistic
+                                        (Cinematic)</div>
+                                      <div class="style-opt" data-style="Other"
+                                        onclick="selectStyle(this)">Other</div>
+                                    </div>
+                                    <input type="text" id="customStyle"
+                                      placeholder="Describe the style, e.g. claymation stop-motion, watercolor storybook, anime cel-shaded"
+                                      style="display:none;margin-top:8px;">
+                                    <div class="hint">Locked into every prompt:
+                                      each copied image, video, character-sheet,
+                                      and thumbnail prompt starts with an
+                                      explicit style tag and ends with a
+                                      negative style line (e.g. 3D/2D prompts
+                                      explicitly exclude photographs and real
+                                      humans).</div>
+                                  </div>
 
-    <div class="field">
-      <label class="check-label"><input type="checkbox" id="dialogueMode"><span>Dialogue Mode</span></label>
-      <div class="hint">Every scene gets a spoken dialogue line, quoted directly inside the Video/Audio Prompt for VideoExpress. Combine with Narration-first below to get both — dialogue in the video prompt, narration separately for CloneVoice.</div>
-    </div>
+                                  <div class="field">
+                                    <label class="check-label"><input
+                                        type="checkbox"
+                                        id="dialogueMode"><span>Dialogue
+                                        Mode</span></label>
+                                    <div class="hint">Every scene gets a spoken
+                                      dialogue line, quoted directly inside the
+                                      Video/Audio Prompt for VideoExpress.
+                                      Combine with Narration-first below to get
+                                      both — dialogue in the video prompt,
+                                      narration separately for CloneVoice.</div>
+                                  </div>
 
-    <div class="field">
-      <label class="check-label"><input type="checkbox" id="narrationFirst"><span>Narration-first storytelling mode</span></label>
-      <div class="hint">Every scene gets a voiceover narration line, kept entirely separate from the Video/Audio Prompt — generated for CloneVoice, not VideoExpress. Check only this for a pure narration piece; check both for narration + dialogue together.</div>
-    </div>
+                                  <div class="field">
+                                    <label class="check-label"><input
+                                        type="checkbox"
+                                        id="narrationFirst"><span>Narration-first
+                                        storytelling mode</span></label>
+                                    <div class="hint">Every scene gets a
+                                      voiceover narration line, kept entirely
+                                      separate from the Video/Audio Prompt —
+                                      generated for CloneVoice, not
+                                      VideoExpress. Check only this for a pure
+                                      narration piece; check both for narration
+                                      + dialogue together.</div>
+                                  </div>
 
-    <div class="field">
-      <label class="check-label"><input type="checkbox" id="outroCta" checked><span>Closing moral + like/share/subscribe</span></label>
-      <div class="hint">Adds one or two extra scenes right after the story's real ending: a closing line that states the story's own meaning outright, then a natural like/share/subscribe nudge written in the same voice as the rest of the narration. Uncheck for silent/cinematic pieces or client work with no CTA.</div>
-    </div>
+                                  <div class="field">
+                                    <label class="check-label"><input
+                                        type="checkbox" id="outroCta"
+                                        checked><span>Closing moral +
+                                        like/share/subscribe</span></label>
+                                    <div class="hint">Adds one or two extra
+                                      scenes right after the story's real
+                                      ending: a closing line that states the
+                                      story's own meaning outright, then a
+                                      natural like/share/subscribe nudge written
+                                      in the same voice as the rest of the
+                                      narration. Uncheck for silent/cinematic
+                                      pieces or client work with no CTA.</div>
+                                  </div>
 
-    <div class="field">
-      <label class="check-label"><input type="checkbox" id="musicTheme"><span>Add background music theme</span></label>
-      <div class="hint">Designs one consistent musical theme for the whole video and weaves a short description of how it sounds into every scene's Video/Audio Prompt, following the story's emotional arc. Leave unchecked to keep Video/Audio Prompt to environmental sound only.</div>
-    </div>
+                                  <div class="field">
+                                    <label class="check-label"><input
+                                        type="checkbox"
+                                        id="musicTheme"><span>Add background
+                                        music theme</span></label>
+                                    <div class="hint">Designs one consistent
+                                      musical theme for the whole video and
+                                      weaves a short description of how it
+                                      sounds into every scene's Video/Audio
+                                      Prompt, following the story's emotional
+                                      arc. Leave unchecked to keep Video/Audio
+                                      Prompt to environmental sound only.</div>
+                                  </div>
 
-    <button class="generate-btn" id="genBtn" onclick="generateScript()">
-      <span class="spinner"></span><span id="genLabel">Generate script</span>
-    </button>
-    <div class="err-box" id="errBox"></div>
-  </div>
+                                  <button class="generate-btn" id="genBtn"
+                                    onclick="generateScript()">
+                                    <span class="spinner"></span><span
+                                      id="genLabel">Generate script</span>
+                                  </button>
+                                  <div class="err-box" id="errBox"></div>
+                                </div>
 
-  <div id="resultsView">
-    <div class="results-topbar">
-      <button class="back-btn" onclick="backToForm()" style="margin-bottom:0;">← New job</button>
-      <button class="back-btn" onclick="saveJobToStorage()" style="margin-bottom:0;border-color:var(--done);color:var(--done);">💾 Save job</button>
-    </div>
-    <div class="results-grid">
-      <div class="scenes-col" id="scenesCol">
-        <div class="col-head"><span>Scenes</span><span id="sceneCount"></span></div>
-        <div id="scenesWrap"></div>
-        <button class="generate-btn" id="continueBtn" onclick="continueScript()" style="background:var(--teal);color:#08201F;margin-bottom:10px;">Generate next scenes</button>
-      </div>
-      <aside class="side-col">
-        <div id="charCardWrap"></div>
-      </aside>
-    </div>
-  </div>
-</div>
+                                <div id="resultsView">
+                                  <div class="results-topbar">
+                                    <button class="back-btn"
+                                      onclick="backToForm()"
+                                      style="margin-bottom:0;">← New
+                                      job</button>
+                                    <button class="back-btn"
+                                      onclick="saveJobToStorage()"
+                                      style="margin-bottom:0;border-color:var(--done);color:var(--done);">💾
+                                      Save job</button>
+                                  </div>
+                                  <div class="results-grid">
+                                    <div class="scenes-col" id="scenesCol">
+                                      <div
+                                        class="col-head"><span>Scenes</span><span
+                                          id="sceneCount"></span></div>
+                                      <div id="scenesWrap"></div>
+                                      <button class="generate-btn"
+                                        id="continueBtn"
+                                        onclick="continueScript()"
+                                        style="background:var(--teal);color:#08201F;margin-bottom:10px;">Generate
+                                        next scenes</button>
+                                    </div>
+                                    <aside class="side-col">
+                                      <div id="charCardWrap"></div>
+                                    </aside>
+                                  </div>
+                                </div>
+                              </div>
 
-<div class="toast mono" id="toast"></div>
+                              <div class="toast mono" id="toast"></div>
 
-<div class="modal-overlay" id="savedModal">
-  <div class="modal-panel">
-    <h3>Saved jobs</h3>
-    <div id="savedList"></div>
-    <button class="modal-close" onclick="closeSavedModal()">Close</button>
-  </div>
-</div>
+                              <div class="modal-overlay" id="savedModal">
+                                <div class="modal-panel">
+                                  <h3>Saved jobs</h3>
+                                  <div id="savedList"></div>
+                                  <button class="modal-close"
+                                    onclick="closeSavedModal()">Close</button>
+                                </div>
+                              </div>
 
-<script>
+                              <script>
 // window.storage only exists inside Claude.ai's artifact sandbox — this page now runs
 // standalone on your own server, so we back the same API with localStorage instead.
 if(!window.storage){
