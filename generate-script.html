@@ -193,6 +193,8 @@
     background:var(--bg);border:1px solid var(--line);border-radius:4px;color:var(--text);
     font-family:'IBM Plex Mono',monospace;font-size:11px;padding:4px 6px;max-width:160px;
   }
+  .ret-line{font-size:11px;line-height:1.5;color:var(--done);padding:3px 0;}
+  .ret-line.warn{color:var(--amber);}
   .plan-row{display:flex;gap:8px;align-items:flex-start;padding:5px 0;border-bottom:1px solid var(--line);font-size:11px;line-height:1.45;}
   .plan-row:last-of-type{border-bottom:none;}
   .plan-row b{color:var(--text);font-weight:600;}
@@ -377,6 +379,11 @@
       <div class="hint">Designs one consistent musical theme for the whole video and weaves a short description of how it sounds into every scene's Video/Audio Prompt, following the story's emotional arc. Leave unchecked to keep Video/Audio Prompt to environmental sound only.</div>
     </div>
 
+    <div class="field">
+      <label class="check-label"><input type="checkbox" id="retentionMode" checked onchange="try{localStorage.setItem('retentionMode', this.checked ? '1' : '0')}catch(e){}"><span>Story doctor — restructure for retention (keep viewers to the end)</span></label>
+      <div class="hint">Rebuilds the plan around what keeps people watching: a hook that's a visible puzzle, a two-stage mystery (the first answer opens a deeper question), stakes raised early, one secret held until ~70-85% of the video, clues planted early that pay off later, no recaps, "show before tell" at the reveal, the lesson stated once, and a mirror ending. Core events, ending, and moral never change. A "Retention check" panel then grades the plan before you spend credits on video.</div>
+    </div>
+
     <button class="generate-btn" id="genBtn" onclick="generateScript()">
       <span class="spinner"></span><span id="genLabel">Generate script</span>
     </button>
@@ -529,6 +536,8 @@ function getSelectedModel(){
     const savedProvider = localStorage.getItem('aiProvider');
     if(savedProvider && PROVIDERS[savedProvider]) provider = savedProvider;
     preferred = localStorage.getItem(`model:${provider}`) || (provider === 'openai' ? localStorage.getItem('openaiModel') : null);
+    const savedRetention = localStorage.getItem('retentionMode');
+    if(savedRetention !== null) document.getElementById('retentionMode').checked = savedRetention === '1';
     const savedExpand = localStorage.getItem('expandMode');
     if(savedExpand) document.getElementById('expandMode').value = savedExpand;
     const savedCustom = localStorage.getItem('customModel');
@@ -1414,9 +1423,126 @@ function findRepeats(scenes){
   return out;
 }
 
-function jobRulesTail(styleName, customStyle, setting){
+// ---------------------------------------------------------------------------
+// STORY DOCTOR — RETENTION STRUCTURE
+// Optional (checkbox "Story doctor"). Restructures the plan so viewers stay to
+// the end: a visible puzzle as the hook, a two-stage mystery, stakes raised in
+// public, one secret held until late, planted clues that pay off, no recaps,
+// show-before-tell at the reveal, one lesson stated once, and a mirror ending.
+// The model also returns treatment.retentionMap, which checkRetention() below
+// validates so weak structure is flagged before any credits go into video.
+// ---------------------------------------------------------------------------
+function isRetentionFormOn(){
+  const el = document.getElementById('retentionMode');
+  return !!(el && el.checked);
+}
+
+function retentionPlanRule(){
+  return `\nSTORY DOCTOR — RETENTION STRUCTURE (applies to sourceBeats and treatment.outline; it refines ORIGINAL RETELLING, HOOK & RETENTION and PLANNING & EXPANSION. You MAY reorder WHEN information is revealed, merge redundant beats, cut recaps, and add small visual clues — but never change the core events, the ending, or the moral):
+1. HOOK = A VISIBLE PUZZLE: row 1 shows a concrete action, choice, or object that looks wrong or strange and whose reason is hidden (a choice that seems foolish, an object that shouldn't be there, a reaction that doesn't fit). The viewer must be asking "why?" within the first 3 seconds.
+2. TWO-STAGE MYSTERY: Mystery A is the surface question (e.g. "is he a fool?"). Answer it around the middle (35-60% of rows) — and that answer must OPEN Mystery B, a deeper "then why?" or "how?", which is held until the reveal at 65-85% of rows. Never answer both at once.
+3. STAKES BEFORE THE MIDPOINT: by about 30% of rows, reveal a hidden relationship, cost, or threat — ideally in public — so failure now hurts someone the viewer cares about (reputation, position, family, money, safety).
+4. HIDE THE SECRET: decide the one secret the story turns on and the single row where it is revealed. Before that row, no narration, dialogue, image, or thumbnail may state or clearly hint the answer — only small clues a viewer would only notice in hindsight. The thumbnail and its textOverlay tease the QUESTION, never the answer.
+5. PLANT & PAYOFF: plant at least 2 small concrete visual clues early (an object, a sound, a gesture, a habit) and pay each one off visibly later. Every character, object, or conflict introduced must pay off by the end — e.g. rivals introduced early must be shown reacting at the payoff. No dropped threads.
+6. NO RECAPS: no character ever retells or summarizes events the viewer already watched, and no row restates earlier information in dialogue. Cut straight to the next new thing.
+7. SHOW BEFORE TELL: at the reveal, the character SHOWS (leads somewhere, opens something, demonstrates) instead of explaining — and when a character is asked "why?" just before the reveal, they answer with an action ("Come, I'll show you"), not an explanation. Frame the reacting face first, then the revealed thing; the explaining line comes only after the visual reveal.
+8. ONE LESSON, ONCE: after the reveal, the reason is stated in ONE line and the virtue is demonstrated by an action, never listed ("patience, silence, long-term thinking"). At most 2 rows of explanation after the reveal.
+9. MIRROR ENDING: the Payoff repeats a situation from the first act — same place, same people, same test — with the reaction reversed, so the change lands without words. End on one strong final image and one closing line.
+10. OPEN LOOPS: every 3-4 rows, end a row on an unanswered micro-question (a glance, a closing door, an interrupted line, a sound off-screen); end each act on a stronger one. The row right before the reveal is the most suspenseful row of the video.
+11. VISUAL TURNING POINTS: every turning point is something you SEE happen (an object, an action, a reaction), not a conversation. At most 1 in 3 rows may be mainly people talking.
+12. EXPANSION, if any, must serve this structure — add pressure on the secret, raise the stakes, add clues, or build the rivals — never a side trip that pauses the mystery.
+Use these outline "beat" labels where they apply: "Hook", "Stakes", "Midpoint", "Reveal", "Payoff", "Outro" (others may use "Build").
+Also add to the treatment object: "retentionMap": { "hookQuestion": string, "mysteryA": string, "mysteryAAnsweredRow": number, "mysteryB": string, "secret": string (the answer that must stay hidden), "revealRow": number, "stakes": string, "stakesRow": number, "plants": array of { "clue": string, "plantRow": number, "payoffRow": number }, "mirrorEnding": string, "openLoopRows": array of numbers } — all in English, row numbers referring to treatment.outline.`;
+}
+
+// Applied to every batch (opening and continuation) when the job has it on.
+function retentionWriteRule(on){
+  if(!on) return '';
+  return `\nSTORY DOCTOR — WRITING RULES (follow treatment.retentionMap): never reveal or clearly hint the secret before its reveal row — not in narration, dialogue, imagePrompt, or videoAudioPrompt. In a clue-planting row, show the clue in frame without anyone commenting on it. In a payoff row, show the clue clearly so the viewer connects it back. No character retells events the viewer already saw. In the reveal row, frame the reacting face first, then the revealed thing; the explanation comes after. After the reveal, give the reason in one line and show the virtue through an action. End every scene with a forward pull — a glance, an unfinished action, an unanswered question.`;
+}
+
+function getRetentionMap(){
+  return (job && job.treatment && job.treatment.retentionMap && typeof job.treatment.retentionMap === 'object') ? job.treatment.retentionMap : null;
+}
+
+// Tells a continuation batch exactly which retention duties fall inside it.
+function retentionBatchNote(rows){
+  const m = getRetentionMap();
+  if(!job.retentionMode || !m || !rows || !rows.length) return '';
+  const inBatch = n => rows.some(r => r.row === +n);
+  const lines = [];
+  if(m.secret && +m.revealRow) lines.push(`SECRET — must stay hidden until row ${m.revealRow}: ${m.secret}`);
+  if(inBatch(m.mysteryAAnsweredRow)) lines.push(`Row ${m.mysteryAAnsweredRow} answers Mystery A ("${m.mysteryA}") — and that answer must open Mystery B ("${m.mysteryB}").`);
+  if(inBatch(m.stakesRow)) lines.push(`Row ${m.stakesRow} raises the stakes: ${m.stakes}`);
+  if(inBatch(m.revealRow)) lines.push(`Row ${m.revealRow} is THE REVEAL — show before tell, reacting face first. The row before it must be the most suspenseful.`);
+  (Array.isArray(m.plants) ? m.plants : []).forEach(p => {
+    if(inBatch(p.plantRow)) lines.push(`Row ${p.plantRow} plants a clue (show it, nobody comments): ${p.clue}`);
+    if(inBatch(p.payoffRow)) lines.push(`Row ${p.payoffRow} pays off the clue planted in row ${p.plantRow}: ${p.clue}`);
+  });
+  (Array.isArray(m.openLoopRows) ? m.openLoopRows : []).filter(inBatch).forEach(n => lines.push(`Row ${n} ends on an open loop.`));
+  if(m.mirrorEnding && rows.some(r => /payoff/i.test(r.beat))) lines.push(`Mirror ending: ${m.mirrorEnding}`);
+  return lines.length ? `\nSTORY DOCTOR DUTIES IN THIS BATCH:\n${lines.map(l => '- ' + l).join('\n')}\n` : '';
+}
+
+// Checks the plan's structure against the method. It can't promise viewers
+// will stay, but it catches the structural problems that make them leave.
+function checkRetention(){
+  const outline = getOutline();
+  const m = getRetentionMap();
+  const ok = [], warn = [];
+  if(!outline){ warn.push('No scene plan saved for this job, so the structure can\'t be checked.'); return { ok, warn }; }
+  if(!m){ warn.push('The model didn\'t return a retention map — regenerate, or try a stronger model.'); return { ok, warn }; }
+  const N = outline.length;
+  const pct = n => Math.round((+n / N) * 100);
+  const valid = n => Number.isFinite(+n) && +n >= 1 && +n <= N;
+
+  if(m.hookQuestion) ok.push(`Hook question: ${m.hookQuestion}`); else warn.push('No hook question defined.');
+
+  if(valid(m.mysteryAAnsweredRow)){
+    const p = pct(m.mysteryAAnsweredRow);
+    (p >= 30 && p <= 65 ? ok : warn).push(`Mystery A answered at row ${m.mysteryAAnsweredRow} (${p}%)${p < 30 ? ' — too early, the first question dies fast' : p > 65 ? ' — too late, the middle drags' : ''}.`);
+  }else warn.push('No midpoint answer row for Mystery A.');
+
+  if(valid(m.revealRow)){
+    const p = pct(m.revealRow);
+    (p >= 60 && p <= 90 ? ok : warn).push(`Secret revealed at row ${m.revealRow} of ${N} (${p}%)${p < 60 ? ' — too early, viewers can leave once it\'s known' : p > 90 ? ' — very late, little time to land the payoff' : ''}.`);
+    if(valid(m.mysteryAAnsweredRow) && +m.mysteryAAnsweredRow >= +m.revealRow) warn.push('Mystery A is answered at or after the reveal — they should be two separate turns.');
+    const tail = N - +m.revealRow;
+    if(tail > Math.max(4, Math.round(N * 0.3))) warn.push(`${tail} rows after the reveal — the ending may feel long once the secret is out.`);
+  }else warn.push('No reveal row defined for the secret.');
+
+  if(valid(m.stakesRow)){
+    const p = pct(m.stakesRow);
+    (p <= 40 ? ok : warn).push(`Stakes raised at row ${m.stakesRow} (${p}%)${p > 40 ? ' — late; the first half may feel low-stakes' : ''}.`);
+  }else warn.push('No stakes row defined.');
+
+  const plants = Array.isArray(m.plants) ? m.plants : [];
+  const goodPlants = plants.filter(p => valid(p.plantRow) && valid(p.payoffRow) && +p.payoffRow > +p.plantRow);
+  (goodPlants.length >= 2 ? ok : warn).push(`${goodPlants.length} planted clue(s) with a later payoff${goodPlants.length < 2 ? ' — aim for at least 2' : ''}.`);
+  if(plants.length > goodPlants.length) warn.push(`${plants.length - goodPlants.length} clue(s) have no valid later payoff row.`);
+
+  if(m.mirrorEnding) ok.push(`Mirror ending: ${m.mirrorEnding}`); else warn.push('No mirror ending planned.');
+
+  const loops = (Array.isArray(m.openLoopRows) ? m.openLoopRows : []).filter(valid).map(Number).sort((a,b) => a - b);
+  let maxGap = 0, prev = 0;
+  loops.concat([+m.revealRow || N]).forEach(n => { maxGap = Math.max(maxGap, n - prev); prev = n; });
+  (loops.length && maxGap <= 5 ? ok : warn).push(loops.length ? `Open loops at rows ${loops.join(', ')}${maxGap > 5 ? ` — a gap of ${maxGap} rows with no open question` : ''}.` : 'No open-loop rows planned.');
+
+  // Scene-level: flag written lines before the reveal that may give the secret away.
+  if(m.secret && valid(m.revealRow)){
+    const key = [...wordSet(m.secret)].filter(w => w.length > 4);
+    (job.scenes || []).filter(s => +s.outlineRow && +s.outlineRow < +m.revealRow).forEach(s => {
+      const text = `${s.narrationLine || ''} ${s.dialogue || ''}`;
+      const hits = key.filter(w => wordSet(text).has(w));
+      if(key.length && hits.length >= Math.max(2, Math.ceil(key.length * 0.5))) warn.push(`Scene ${s.sceneNumber}'s line may hint the secret early (${hits.join(', ')}).`);
+    });
+  }
+  return { ok, warn };
+}
+
+function jobRulesTail(styleName, customStyle, setting, retentionOn){
   return blockingRule() + styleLockRule(styleName, customStyle) + settingLockRule(setting) + storyCraftRule(setting) +
-    speechModeRule() + visualRegisterRule() + outroRule() + musicThemeRule();
+    speechModeRule() + visualRegisterRule() + outroRule() + musicThemeRule() + retentionWriteRule(retentionOn);
 }
 
 function styleLabelFor(styleName, customStyle){
@@ -1457,10 +1583,11 @@ async function generateScript(){
     const targetSceneCount = totalSeconds ? Math.round(totalSeconds / 9) : null;
     const expandMode = getExpandMode();
     const outroOn = !!(document.getElementById('outroCta') && document.getElementById('outroCta').checked);
-    const planNote = planningRule(targetSceneCount, expandMode, outroOn);
-    const systemPrompt = baseSystemPrompt() + `\nRules: styleBlock.description must reflect the requested character style per RENDER STYLE LOCK below. This is the OPENING batch of a longer video — cover only roughly the first 40-50 seconds as consecutive 8-10 second scenes, starting at 0:00, and make sure this batch covers the "Hook" and the start of "Build". Work in this order: (1) per SOURCE BEAT EXTRACTION, list treatment.sourceBeats as concrete, specific moments from the source material (as retold per ORIGINAL RETELLING below); (2) per PLANNING & EXPANSION RULE below, build treatment.locations and the FULL treatment.outline for the whole video; (3) only then write scenes — for outline rows 1-${BATCH_SIZE} ONLY (fewer if the outline is shorter), one scene per row, each with "outlineRow" set and depicting exactly that row.${planNote} Per HOOK & RETENTION: since this batch includes the Hook, open the very first scene already inside concrete action or an unresolved question pulled from sourceBeats — never a quiet establishing or waking-up moment — and write its logline/narration/dialogue to match: specific, active, no throat-clearing openers. If this is an ad/commercial piece, per ADS / COMMERCIAL STORYBOARD STRUCTURE this batch should open on ORDINARY WORLD with no product visible yet, saving PRODUCT INTRODUCTION for shortly after — otherwise ignore this sentence entirely. Vary shot size and camera movement scene to scene — never repeat the same combination twice in a row. Per VISUAL VARIETY: each scene's imagePrompt must show a visibly different pose/action/framing AND a visibly different specific background/set-dressing detail (a different spot within the one locked location, not the same patch of backdrop repeated) than the scene before it, even with environment and lighting locked — before finalizing, compare each imagePrompt to the one before it and rewrite either if they'd render as near-identical images, backgrounds included. Per ACTION CONTINUITY: each scene's opening action must visibly pick up from exactly where the previous scene's action ended — same body position, same object in hand, same emotional beat continuing — not a jump to an unrelated moment; check this against the previous scene before finalizing each one. Per CROWD & SCENE POPULATION RULE: if this batch's setting inherently implies other people (a city, a competition, a school, a market, a crowd of any kind), populate the imagery with concrete background people, not just the named cast alone in an empty-looking space — and make sure each of those background people is a visually distinct, randomly-generated look, never the named character's own description reused or reworded for someone else in the crowd. Per CHARACTER FACE VISIBILITY RULE: whenever a named character appears in this batch's scenes, keep their face clearly visible and unobstructed in imagePrompt and restate their faceSignature — no back-of-head, silhouette, or face-hidden framing — so the reference-image animation workflow has a consistent face to lock onto. Per EXTENDED SINGLE-ACTION PACING RULE: if this batch depicts one continuous ongoing event (a race, chase, competition, struggle), do not let it sit unchanged for more than 3-4 scenes without a concrete development — introduce one, or compress toward the event's resolution instead of padding it. Keep imagePrompt and videoAudioPrompt concise enough that the whole response fits in the token budget — but this does NOT apply to "dialogue" or "narrationLine": those must always hit their full 20-25 word / 8-10 second length regardless, even if it means fewer scenes in this batch. Never shorten a spoken line just to save tokens. Per LANGUAGE RULE: every field must be in English except "dialogue" and "narrationLine" — even if the source material below is itself written in ${document.getElementById('language').value}, describe it in English; only the spoken lines follow ${document.getElementById('language').value}.` + jobRulesTail(currentStyle, customStyle, setting);
+    const retentionOn = isRetentionFormOn();
+    const planNote = planningRule(targetSceneCount, expandMode, outroOn) + (retentionOn ? retentionPlanRule() : '');
+    const systemPrompt = baseSystemPrompt() + `\nRules: styleBlock.description must reflect the requested character style per RENDER STYLE LOCK below. This is the OPENING batch of a longer video — cover only roughly the first 40-50 seconds as consecutive 8-10 second scenes, starting at 0:00, and make sure this batch covers the "Hook" and the start of "Build". Work in this order: (1) per SOURCE BEAT EXTRACTION, list treatment.sourceBeats as concrete, specific moments from the source material (as retold per ORIGINAL RETELLING below); (2) per PLANNING & EXPANSION RULE below, build treatment.locations and the FULL treatment.outline for the whole video; (3) only then write scenes — for outline rows 1-${BATCH_SIZE} ONLY (fewer if the outline is shorter), one scene per row, each with "outlineRow" set and depicting exactly that row.${planNote} Per HOOK & RETENTION: since this batch includes the Hook, open the very first scene already inside concrete action or an unresolved question pulled from sourceBeats — never a quiet establishing or waking-up moment — and write its logline/narration/dialogue to match: specific, active, no throat-clearing openers. If this is an ad/commercial piece, per ADS / COMMERCIAL STORYBOARD STRUCTURE this batch should open on ORDINARY WORLD with no product visible yet, saving PRODUCT INTRODUCTION for shortly after — otherwise ignore this sentence entirely. Vary shot size and camera movement scene to scene — never repeat the same combination twice in a row. Per VISUAL VARIETY: each scene's imagePrompt must show a visibly different pose/action/framing AND a visibly different specific background/set-dressing detail (a different spot within the one locked location, not the same patch of backdrop repeated) than the scene before it, even with environment and lighting locked — before finalizing, compare each imagePrompt to the one before it and rewrite either if they'd render as near-identical images, backgrounds included. Per ACTION CONTINUITY: each scene's opening action must visibly pick up from exactly where the previous scene's action ended — same body position, same object in hand, same emotional beat continuing — not a jump to an unrelated moment; check this against the previous scene before finalizing each one. Per CROWD & SCENE POPULATION RULE: if this batch's setting inherently implies other people (a city, a competition, a school, a market, a crowd of any kind), populate the imagery with concrete background people, not just the named cast alone in an empty-looking space — and make sure each of those background people is a visually distinct, randomly-generated look, never the named character's own description reused or reworded for someone else in the crowd. Per CHARACTER FACE VISIBILITY RULE: whenever a named character appears in this batch's scenes, keep their face clearly visible and unobstructed in imagePrompt and restate their faceSignature — no back-of-head, silhouette, or face-hidden framing — so the reference-image animation workflow has a consistent face to lock onto. Per EXTENDED SINGLE-ACTION PACING RULE: if this batch depicts one continuous ongoing event (a race, chase, competition, struggle), do not let it sit unchanged for more than 3-4 scenes without a concrete development — introduce one, or compress toward the event's resolution instead of padding it. Keep imagePrompt and videoAudioPrompt concise enough that the whole response fits in the token budget — but this does NOT apply to "dialogue" or "narrationLine": those must always hit their full 20-25 word / 8-10 second length regardless, even if it means fewer scenes in this batch. Never shorten a spoken line just to save tokens. Per LANGUAGE RULE: every field must be in English except "dialogue" and "narrationLine" — even if the source material below is itself written in ${document.getElementById('language').value}, describe it in English; only the spoken lines follow ${document.getElementById('language').value}.` + jobRulesTail(currentStyle, customStyle, setting, retentionOn);
 
-    const userPrompt = `Source material (a premise to retell originally — rename every character):\n${source}\n\n${totalSeconds ? `Total video length: ${minuteVal} minutes (${totalSeconds}s)` : "Length not specified — treat as a short clip"}\n${topic ? `Retelling angle (secondary — a stylistic twist only, must never override or replace the source material's actual content above): ${topic}` : `No retelling angle given — follow the source material's own story directly, with no reframing.`}\nCharacter / render style: ${styleLabelFor(currentStyle, customStyle)}\nStory setting / cultural context: ${setting || 'Auto — infer one setting from the source and lock it'}\nOutput language for dialogue/narration: ${document.getElementById('language').value}\nScene plan: ${targetSceneCount ? (expandMode === 'strict' ? `source only — up to ~${targetSceneCount} scenes, fewer if the source is thinner` : `exactly ${targetSceneCount} outline rows — expand faithfully if the source is shorter`) : 'as many rows as the source supports'}`;
+    const userPrompt = `Source material (a premise to retell originally — rename every character):\n${source}\n\n${totalSeconds ? `Total video length: ${minuteVal} minutes (${totalSeconds}s)` : "Length not specified — treat as a short clip"}\n${topic ? `Retelling angle (secondary — a stylistic twist only, must never override or replace the source material's actual content above): ${topic}` : `No retelling angle given — follow the source material's own story directly, with no reframing.`}\nCharacter / render style: ${styleLabelFor(currentStyle, customStyle)}\nStory setting / cultural context: ${setting || 'Auto — infer one setting from the source and lock it'}\nOutput language for dialogue/narration: ${document.getElementById('language').value}\nScene plan: ${targetSceneCount ? (expandMode === 'strict' ? `source only — up to ~${targetSceneCount} scenes, fewer if the source is thinner` : `exactly ${targetSceneCount} outline rows — expand faithfully if the source is shorter`) : 'as many rows as the source supports'}${retentionOn ? '\nStory doctor: ON — restructure for retention per STORY DOCTOR and return treatment.retentionMap' : ''}`;
 
     const parsedRaw = sanitizeParsedScenes(await callGeneration(systemPrompt, userPrompt));
     const nameChanges = (parsedRaw.treatment && Array.isArray(parsedRaw.treatment.nameChanges)) ? parsedRaw.treatment.nameChanges : [];
@@ -1481,6 +1608,7 @@ async function generateScript(){
       scenes: parsed.scenes,
       totalSeconds: totalSeconds,
       expandMode,
+      retentionMode: retentionOn,
       source, currentTopic: topic
     };
     if(job.treatment){
@@ -1539,7 +1667,7 @@ async function continueScript(){
       ? `\nPLAN FOR THIS BATCH — HARD CONSTRAINT: This video was fully planned in treatment.outline during the opening batch. Write EXACTLY ${rows.length} scene(s) — one per outline row listed in the user message ("THIS BATCH'S ROWS"), in order, each with "outlineRow" set to its row number, depicting that row's location, time-of-day, and event. Rows of kind "expansion" are planned, faithful additions to the source — write them with the same craft and specificity as source rows, consistent with the characters, setting, and everything already shown. Use the full outline in the user message to foreshadow what is coming and to pay off what was set up earlier. ANTI-REPETITION: the user message lists every scene ALREADY WRITTEN — never depict, re-stage, or rephrase any of those moments, actions, or lines; if a row looks close to something already written, show the NEXT new development of that moment instead (keeping the row's location and purpose). Narration and dialogue must not reuse ideas, images, or phrasings from earlier lines.${isFinalBatch ? ' This batch contains the final rows of the plan — land the Payoff with real weight and close the video.' : ' End this batch on a small hook that pulls into the next row.'}`
       : `\nLEGACY JOB (no saved outline): Generate the next 3-5 consecutive scenes. The user message lists every scene ALREADY WRITTEN — never depict, re-stage, or rephrase any of those moments, actions, or lines. Each new scene must show a new development, and the story may move to new specific locations within the established setting. If the source has nothing left to show, land the Payoff in this batch; if the previous scene is already the Payoff or an Outro, output {"scenes": []}.${isFinalBatch ? ' This is likely the final batch — land the Payoff.' : ''}`;
 
-    const systemPrompt = baseSystemPrompt() + outputOverride + planNote + `\nRules: This CONTINUES an existing shot list. Vary shot size and camera movement, and don't repeat the immediately preceding scene's combination. Per VISUAL VARIETY: this batch's first new imagePrompt must look clearly different (pose/action/framing, AND background) from the last scene of the previous batch quoted below, and every scene after that must keep differing from the one before it. Per ACTION CONTINUITY: if this batch's first scene stays in the same location as the previous scene, it must pick up exactly where that scene left off (quoted below); if its outline row moves to a new location or time, open with a clear establishing beat that makes the transition read as intentional. Per CROWD & SCENE POPULATION RULE: if the setting inherently implies other people, populate the imagery with concrete, visually distinct background people — never the named character's own description reused. Per CHARACTER FACE VISIBILITY RULE: keep every named character's face clearly visible in imagePrompt and restate their faceSignature. Per EXTENDED SINGLE-ACTION PACING RULE: never let one ongoing event sit unchanged for more than 3-4 scenes. Do not invent new named characters beyond the roster given below. Keep imagePrompt and videoAudioPrompt concise enough that the whole response fits in the token budget — but "dialogue" and "narrationLine" must always hit their full 8-10 second length. Per LANGUAGE RULE: every field must be in English except "dialogue" and "narrationLine", which follow ${lang}.` + jobRulesTail(job.characterStyle, job.customStyle || '', job.setting || '');
+    const systemPrompt = baseSystemPrompt() + outputOverride + planNote + `\nRules: This CONTINUES an existing shot list. Vary shot size and camera movement, and don't repeat the immediately preceding scene's combination. Per VISUAL VARIETY: this batch's first new imagePrompt must look clearly different (pose/action/framing, AND background) from the last scene of the previous batch quoted below, and every scene after that must keep differing from the one before it. Per ACTION CONTINUITY: if this batch's first scene stays in the same location as the previous scene, it must pick up exactly where that scene left off (quoted below); if its outline row moves to a new location or time, open with a clear establishing beat that makes the transition read as intentional. Per CROWD & SCENE POPULATION RULE: if the setting inherently implies other people, populate the imagery with concrete, visually distinct background people — never the named character's own description reused. Per CHARACTER FACE VISIBILITY RULE: keep every named character's face clearly visible in imagePrompt and restate their faceSignature. Per EXTENDED SINGLE-ACTION PACING RULE: never let one ongoing event sit unchanged for more than 3-4 scenes. Do not invent new named characters beyond the roster given below. Keep imagePrompt and videoAudioPrompt concise enough that the whole response fits in the token budget — but "dialogue" and "narrationLine" must always hit their full 8-10 second length. Per LANGUAGE RULE: every field must be in English except "dialogue" and "narrationLine", which follow ${lang}.` + jobRulesTail(job.characterStyle, job.customStyle || '', job.setting || '', !!job.retentionMode);
 
     const nameChanges = (job.treatment && Array.isArray(job.treatment.nameChanges)) ? job.treatment.nameChanges : [];
     const nameChangesText = nameChanges.length
@@ -1552,7 +1680,7 @@ async function continueScript(){
     const fmtRow = r => `${r.row}. [${r.kind}${r.sourceBeat ? ` · source beat ${r.sourceBeat}` : ''} · ${r.beat}] @ ${r.location} (${r.timeOfDay}) — ${r.summary}`;
     const t = job.treatment || {};
 
-    const userPrompt = `Source material (a premise being retold originally):\n${sourceTextForPrompt}\n\n${job.currentTopic ? `Retelling angle (secondary — a stylistic twist only): ${job.currentTopic}` : `No retelling angle given — follow the source material's own story directly.`}\nCharacter / render style: ${styleLabelFor(job.characterStyle, job.customStyle)}\nStory setting / cultural context: ${job.setting || t.setting || 'as established in the opening batch'}\nOutput language for dialogue/narration: ${lang}${nameChangesText}\n\nEstablished look — reuse exactly:\nStyle: ${job.styleBlock.description}\nWorld: ${t.environment || 'infer from earlier scenes'}\nColor grade: ${t.colorGrade || '—'}\nCharacters (do not invent new named characters):\n${job.styleBlock.characters.map(c => `- ${c.name} (${c.role}): ${c.description}${c.faceSignature ? ` FACE: ${c.faceSignature}` : ''}${c.visualTag ? ` VISUAL TAG: ${c.visualTag}` : ''}`).join('\n')}${Array.isArray(job.styleBlock.products) && job.styleBlock.products.length ? `\n\nProducts — reuse these exact descriptions:\n${job.styleBlock.products.map(p => `- ${p.name}: ${p.description}`).join('\n')}` : ''}\n\nSource beats:\n${(t.sourceBeats || []).map((b,i) => `${i+1}. ${b}`).join('\n') || '(none recorded)'}\n${outline ? `\nFULL OUTLINE (the whole video, for foreshadowing and payoff):\n${outline.map(fmtRow).join('\n')}\n\nTHIS BATCH'S ROWS — write exactly these, in order:\n${rows.map(fmtRow).join('\n')}\n` : ''}\nALREADY WRITTEN — never repeat any of these moments, actions, or lines:\n${writtenScenesLog() || '(none)'}\n\nThe previous scene ended at ${formatTime(lastEndSeconds)}. Its imagePrompt (your first new imagePrompt must look clearly different):\n"${lastScene ? lastScene.imagePrompt : 'opening of the video'}"\n\nIts action (continue from it if the next row stays in the same place):\n"${lastScene ? lastScene.videoAudioPrompt : 'opening of the video'}"\n${job.totalSeconds ? `\nTotal video length target: ${job.totalSeconds}s.` : ''}`;
+    const userPrompt = `Source material (a premise being retold originally):\n${sourceTextForPrompt}\n\n${job.currentTopic ? `Retelling angle (secondary — a stylistic twist only): ${job.currentTopic}` : `No retelling angle given — follow the source material's own story directly.`}\nCharacter / render style: ${styleLabelFor(job.characterStyle, job.customStyle)}\nStory setting / cultural context: ${job.setting || t.setting || 'as established in the opening batch'}\nOutput language for dialogue/narration: ${lang}${nameChangesText}\n\nEstablished look — reuse exactly:\nStyle: ${job.styleBlock.description}\nWorld: ${t.environment || 'infer from earlier scenes'}\nColor grade: ${t.colorGrade || '—'}\nCharacters (do not invent new named characters):\n${job.styleBlock.characters.map(c => `- ${c.name} (${c.role}): ${c.description}${c.faceSignature ? ` FACE: ${c.faceSignature}` : ''}${c.visualTag ? ` VISUAL TAG: ${c.visualTag}` : ''}`).join('\n')}${Array.isArray(job.styleBlock.products) && job.styleBlock.products.length ? `\n\nProducts — reuse these exact descriptions:\n${job.styleBlock.products.map(p => `- ${p.name}: ${p.description}`).join('\n')}` : ''}\n\nSource beats:\n${(t.sourceBeats || []).map((b,i) => `${i+1}. ${b}`).join('\n') || '(none recorded)'}\n${outline ? `\nFULL OUTLINE (the whole video, for foreshadowing and payoff):\n${outline.map(fmtRow).join('\n')}\n\nTHIS BATCH'S ROWS — write exactly these, in order:\n${rows.map(fmtRow).join('\n')}\n` : ''}${retentionBatchNote(rows)}\nALREADY WRITTEN — never repeat any of these moments, actions, or lines:\n${writtenScenesLog() || '(none)'}\n\nThe previous scene ended at ${formatTime(lastEndSeconds)}. Its imagePrompt (your first new imagePrompt must look clearly different):\n"${lastScene ? lastScene.imagePrompt : 'opening of the video'}"\n\nIts action (continue from it if the next row stays in the same place):\n"${lastScene ? lastScene.videoAudioPrompt : 'opening of the video'}"\n${job.totalSeconds ? `\nTotal video length target: ${job.totalSeconds}s.` : ''}`;
 
     const parsed = applyNameChanges(sanitizeParsedScenes(await callGeneration(systemPrompt, userPrompt)), nameChanges);
     let newScenes = Array.isArray(parsed.scenes) ? parsed.scenes : [];
@@ -2075,6 +2203,8 @@ function renderResults(){
   const planExpansion = planRows.filter(r => r.kind === 'expansion').length;
   const planLocations = new Set(planRows.map(r => (r.location || '').toLowerCase().trim()).filter(Boolean)).size;
   const repeats = findRepeats(job.scenes);
+  const retention = job.retentionMode ? checkRetention() : null;
+  const rMap = getRetentionMap();
 
   side.innerHTML = `
     ${leaks.length ? `<div class="warn-box">⚠ These character names also appear in your Source: <b>${leaks.join(', ')}</b>. The model may have reused an original name — regenerate, or edit the names before producing.</div>` : ''}
@@ -2111,6 +2241,19 @@ function renderResults(){
         ${job.expandMode === 'strict' && job.totalSeconds && planRows.length * 9 < job.totalSeconds - 30 ? `<div class="warn-box">Source-only mode: the source supports ~${formatTime(planRows.length * 9)}, shorter than your ${formatTime(job.totalSeconds)} target. Choose "Expand the story" for a full-length plan.</div>` : ''}
         ${planRows.map(r => `<div class="plan-row ${r.row <= writtenRow ? 'written' : ''}"><span class="plan-n">${r.row}</span><span class="plan-kind ${r.kind}">${r.kind === 'expansion' ? 'EXP' : r.kind === 'outro' ? 'OUT' : 'SRC'}</span><span><b>${r.location}</b> · ${r.summary}</span></div>`).join('')}
         <div class="hint">SRC = from your source · EXP = planned expansion · OUT = closing outro. Written rows are dimmed.</div>
+      </div>
+    </details>` : ''}
+
+    ${retention ? `
+    <details class="acc ${retention.warn.length ? 'acc-char' : 'acc-treatment'}" data-acc="retention" ${openAttr('retention', retention.warn.length > 0)}>
+      <summary><span>🎯 Retention check <span class="acc-sub">${retention.warn.length ? `${retention.warn.length} to fix` : 'all good'}</span></span></summary>
+      <div class="acc-body treatment-item">
+        ${rMap && rMap.mysteryA ? `<div style="margin-bottom:8px;"><b>Mystery A → B</b><span>${rMap.mysteryA} → ${rMap.mysteryB || '—'}</span></div>` : ''}
+        ${rMap && rMap.secret ? `<div style="margin-bottom:8px;"><b>Secret (hidden until row ${rMap.revealRow || '?'})</b><span>${rMap.secret}</span></div>` : ''}
+        ${rMap && Array.isArray(rMap.plants) && rMap.plants.length ? `<div style="margin-bottom:8px;"><b>Clues</b><span>${rMap.plants.map(p => `row ${p.plantRow} → ${p.payoffRow}: ${p.clue}`).join('<br>')}</span></div>` : ''}
+        ${retention.warn.map(w => `<div class="ret-line warn">⚠ ${w}</div>`).join('')}
+        ${retention.ok.map(o => `<div class="ret-line">✓ ${o}</div>`).join('')}
+        <div class="hint">Checks the plan's structure — it can't guarantee watch time, but it catches the things that make viewers leave. If there are warnings, regenerating (or a stronger model) usually fixes them.</div>
       </div>
     </details>` : ''}
 
