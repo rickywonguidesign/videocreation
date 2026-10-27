@@ -2240,11 +2240,25 @@ async function setCharacterReferenceId(index, value){
 // The reference photos for a scene, in charactersInScene order (max 2 —
 // VideoExpress has Reference Photo + Reference Photo 2). Slot 1 = first
 // character, slot 2 = second.
-function sceneReferencePhotos(scene){
+// Name match is tolerant: the AI doesn't always write a scene's
+// charactersInScene name EXACTLY like the roster name (case, extra spaces,
+// "Khaem (the boy)", "Young Khaem"...). An exact-only match silently found no
+// ID, sent an empty list, and the userscript then treated the scene as
+// having no characters at all.
+function normCharName(n){ return String(n || '').toLowerCase().replace(/\(.*?\)/g, ' ').replace(/[^a-z0-9\u00C0-\u024F\u1E00-\u1EFF]+/g, ' ').trim(); }
+function findRosterCharacter(name){
   const roster = (job.styleBlock && job.styleBlock.characters) || [];
+  const n = normCharName(name);
+  if(!n) return null;
+  return roster.find(c => normCharName(c.name) === n)
+    || roster.find(c => { const r = normCharName(c.name); return r && (n.split(' ').includes(r) || r.split(' ').includes(n)); })
+    || roster.find(c => { const r = normCharName(c.name); return r && (n.includes(r) || r.includes(n)); })
+    || null;
+}
+function sceneReferencePhotos(scene){
   return (scene.charactersInScene || []).filter(Boolean).slice(0, 2).map(name => {
-    const c = roster.find(x => x.name === name);
-    return { name, ident: (c && c.referenceId) || null };
+    const c = findRosterCharacter(name);
+    return { name: (c && c.name) || name, ident: (c && c.referenceId) || null };
   });
 }
 
@@ -2264,6 +2278,10 @@ async function copyAllForAutomation(scene, opts){
     // (slot 1) and Reference Photo 2 (slot 2). Characters with no ID set
     // are left out; an empty array means "no reference photo".
     referencePhotos: sceneReferencePhotos(scene).filter(r => r.ident),
+    // How many characters are actually in the scene (with or without an ID)
+    // — the userscript only switches "Use consistent character" off when
+    // this is 0, not just because no ID was found.
+    castCount: (scene.charactersInScene || []).filter(Boolean).length,
     sceneNumber: scene.sceneNumber // echoed back by the userscript so Automation knows which scene finished
   };
   const missingIds = sceneReferencePhotos(scene).filter(r => !r.ident).map(r => r.name);

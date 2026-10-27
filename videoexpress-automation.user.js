@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         VideoExpress Scene Automation
 // @namespace    videocreation-automation
-// @version      1.6
+// @version      1.7
 // @description  Pastes a scene's Image Prompt + Video/Audio Prompt into VideoExpress's Create Video From Prompt modal, sets options, auto-picks the reference photo from the library, and drives it through Create Image -> Create Video. Auto-runs as soon as a new scene payload appears on the clipboard — no button click needed after the first one.
 // @match        https://app.videoexpress.ai/*
 // @grant        none
@@ -58,7 +58,8 @@
       element: 300000,                // v1.6: 5 minutes — max wait for any required page element
       referenceImage: 15000,          // max wait for the FIRST reference image (required — this must be manually selected in the UI before running)
       secondReferenceImageGrace: 5000, // short grace period for a SECOND reference image (2-character scenes) — proceeds either way after this
-      libraryStep: 300000,            // 5 min — max wait for each step of the Reference Photo library picker
+      libraryStep: 60000,             // v1.7: 1 min per library step — a wrong selector now fails fast (with a console report) instead of hanging 5 min
+      slotButton: 30000,              // v1.7: max wait for the "Reference Photo" / "Reference Photo 2" button
       imageGeneration: 300000,        // 5 min
       imageSlideSelected: 300000      // 5 min
     },
@@ -530,55 +531,101 @@
   // continues — the existing 5s manual reference-photo window further down
   // still gives you a chance to pick one by hand.
   // ------------------------------------------------------------------
+  // v1.7 helpers — the reference slot containers, and whether a slot shows
+  // a real photo (src isn't the blank placeholder icon).
+  const REF_SLOT_SELECTOR = '.consistent-character-image-container .grid-col .select-image-container';
+  const REF_PLACEHOLDER_SRC = '/img/icon-image-horiz.png';
+  function refSlotEl(slotIndex) {
+    return document.querySelectorAll(REF_SLOT_SELECTOR)[slotIndex] || null;
+  }
+  function refSlotSrc(slotIndex) {
+    const c = refSlotEl(slotIndex);
+    const img = c && c.querySelector('img');
+    return (img && (img.getAttribute('src') || img.src)) || '';
+  }
+  function refSlotFilled(slotIndex) {
+    const src = refSlotSrc(slotIndex);
+    return !!src && !src.includes(REF_PLACEHOLDER_SRC);
+  }
+  // Printed to the console whenever a pick fails, so the exact broken step
+  // is visible (copy it to Claude if it keeps failing).
+  function dumpLibraryDiagnostics(label, ident) {
+    const rp = CONFIG.referencePhoto;
+    const slotBtns = Array.from(document.querySelectorAll(rp.buttonSelector)).map(b => ({ text: b.textContent.replace(/\s+/g, ' ').trim(), visible: isVisible(b) }));
+    const images = Array.from(document.querySelectorAll(`[data-ident="${ident}"]`)).map(el => ({ tag: el.tagName, cls: el.className, visible: isVisible(el) }));
+    const folders = Array.from(document.querySelectorAll(`.library-item.library-folder[data-id="${rp.libraryFolderId}"]`)).map(el => ({ visible: isVisible(el) }));
+    const chooseBtns = Array.from(document.querySelectorAll(rp.chooseButtonSelector)).map(b => ({ text: b.textContent.trim(), visible: isVisible(b), disabled: b.disabled }));
+    const slots = Array.from(document.querySelectorAll(REF_SLOT_SELECTOR)).map((c, i) => ({ slot: i + 1, src: refSlotSrc(i) }));
+    console.warn(`[VE-Automation] DIAGNOSTICS for ${label}:`, { slotButtons: slotBtns, imageMatches: images, folderTiles: folders, chooseButtons: chooseBtns, slots });
+  }
+  function closestModal(el) {
+    return (el && el.closest('.bbm-modal, .modal, [role="dialog"]')) || document;
+  }
   async function selectReferencePhotoFromLibrary(slotIndex, ident, charName) {
     const rp = CONFIG.referencePhoto;
     const t = CONFIG.timeouts.libraryStep;
     const btnText = rp.slotButtonText[slotIndex];
     const label = `${btnText}${charName ? ` (${charName})` : ''}`;
+    // Prefer matches inside the open library window; fall back to the whole
+    // page in case the library isn't wrapped in a recognisable modal.
+    const visibleIn = (root, sel) => Array.from(root.querySelectorAll(sel)).find(isVisible)
+      || (root !== document ? Array.from(document.querySelectorAll(sel)).find(isVisible) : null) || null;
     try {
-      log(`${label}: opening the library...`);
+      log(`${label}: opening the library for image ${ident}...`);
       const refBtn = await waitForVisibleElement(
         rp.buttonSelector,
-        t,
+        CONFIG.timeouts.slotButton,
         el => el.textContent.replace(/\s+/g, ' ').trim().toLowerCase() === btnText.toLowerCase()
       );
       refBtn.click();
 
       const folderSelector = `.library-item.library-folder.button-folder[data-id="${rp.libraryFolderId}"]`;
       const imageSelector = `[data-ident="${ident}"]`;
-      const visibleMatch = (sel) => Array.from(document.querySelectorAll(sel)).find(isVisible) || null;
-      log(`${label}: waiting for "My Artistly Images" folder...`);
-      // The library may remember the last-open folder (e.g. on the second
-      // pick), so accept either the folder tile OR the image already showing.
-      const libraryReady = await waitForCondition(() => visibleMatch(folderSelector) || visibleMatch(imageSelector), t);
-      if (!libraryReady) throw new Error(`Timed out waiting for folder ${rp.libraryFolderId} or image ${ident}`);
-      if (!visibleMatch(imageSelector)) {
-        await sleep(300); // let the library list finish rendering before clicking
-        visibleMatch(folderSelector).click();
+
+      // Wait for the library to actually show items, then scope every
+      // following lookup to THAT library window — so a leftover thumbnail or
+      // a hidden second library elsewhere on the page can't be clicked.
+      log(`${label}: waiting for the library to open...`);
+      const firstItem = await waitForVisibleElement(`${folderSelector}, .library-item`, t);
+      const lib = closestModal(firstItem);
+      await sleep(400); // let the list finish rendering
+
+      if (visibleIn(lib, imageSelector)) {
+        log(`${label}: library already inside the folder — skipping the folder click.`);
+      } else {
+        log(`${label}: opening "My Artistly Images" folder...`);
+        const folder = await waitForCondition(() => visibleIn(lib, folderSelector), t);
+        if (!folder) throw new Error(`Folder ${rp.libraryFolderId} never appeared in the library`);
+        visibleIn(lib, folderSelector).click();
       }
 
       log(`${label}: selecting image ${ident}...`);
-      const image = await waitForVisibleElement(imageSelector, t);
+      const gotImage = await waitForCondition(() => visibleIn(lib, imageSelector), t);
+      if (!gotImage) throw new Error(`Image ${ident} never appeared in the folder — check the ID in the generator`);
       await sleep(300);
-      image.click();
+      visibleIn(lib, imageSelector).click();
 
       log(`${label}: clicking Choose...`);
-      const chooseBtn = await waitForVisibleElement(
-        rp.chooseButtonSelector,
-        t,
-        el => el.textContent.trim().toLowerCase() === 'choose' && !el.disabled
-      );
+      const isChoose = el => isVisible(el) && el.textContent.trim().toLowerCase() === 'choose' && !el.disabled;
+      const gotChoose = await waitForCondition(() => Array.from(lib.querySelectorAll(rp.chooseButtonSelector)).find(isChoose) || Array.from(document.querySelectorAll(rp.chooseButtonSelector)).find(isChoose), t);
+      if (!gotChoose) throw new Error('"Choose" button never became clickable (was the image selected?)');
+      const chooseBtn = Array.from(lib.querySelectorAll(rp.chooseButtonSelector)).find(isChoose) || Array.from(document.querySelectorAll(rp.chooseButtonSelector)).find(isChoose);
       await sleep(200);
       chooseBtn.click();
 
-      // Give the library modal a moment to close before the flow moves on.
+      // Confirm the photo actually landed in THIS slot.
       await waitForCondition(() => !isVisible(chooseBtn), 5000);
+      const landed = await waitForCondition(() => refSlotFilled(slotIndex), 10000);
       await sleep(300);
+      if (!landed && refSlotEl(slotIndex)) {
+        throw new Error(`Clicked Choose, but slot ${slotIndex + 1} still shows no photo`);
+      }
       log(`${label}: selected.`);
       return true;
     } catch (err) {
-      console.warn(`[VE-Automation] ${label} library pick failed — continuing with the normal flow (you can still pick one manually in the 5s window):`, err);
-      log(`${label}: auto-pick failed — continuing (see console).`);
+      console.warn(`[VE-Automation] ${label} library pick failed:`, err);
+      dumpLibraryDiagnostics(label, ident);
+      log(`${label}: auto-pick failed — ${err.message} (see console).`);
       return false;
     }
   }
@@ -607,6 +654,10 @@
   // (referencePhotos is an empty list). An older generator that doesn't send
   // referencePhotos at all is NOT treated as "no characters".
   function sceneHasNoCharacters(payload) {
+    // v1.7: the generator now sends castCount — trust it when present, so a
+    // scene WITH characters is never treated as empty just because no ID
+    // was found for them (they then get the 5s manual window instead).
+    if (typeof payload.castCount === 'number') return payload.castCount === 0;
     return Array.isArray(payload.referencePhotos) &&
       payload.referencePhotos.filter(r => r && r.ident).length === 0;
   }
@@ -627,8 +678,16 @@
       log('Reference Photo: this scene has no character photo IDs — skipping the library pick.');
       return;
     }
+    console.log('[VE-Automation] Reference photos for this scene:', refs);
     for (let i = 0; i < refs.length; i++) {
-      const ok = await selectReferencePhotoFromLibrary(i, refs[i].ident, refs[i].name);
+      let ok = await selectReferencePhotoFromLibrary(i, refs[i].ident, refs[i].name);
+      if (!ok) {
+        log(`Retrying ${CONFIG.referencePhoto.slotButtonText[i]} once...`);
+        // Close any library window left open by the failed attempt.
+        document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+        await sleep(1000);
+        ok = await selectReferencePhotoFromLibrary(i, refs[i].ident, refs[i].name);
+      }
       if (!ok) break; // if slot 1 failed, slot 2's button likely isn't there either
     }
   }
