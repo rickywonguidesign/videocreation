@@ -128,6 +128,11 @@
   .char-card .tag{font-family:'IBM Plex Mono',monospace;font-size:10px;letter-spacing:.08em;text-transform:uppercase;color:var(--amber);margin-bottom:8px;}
   .char-card p{font-size:13px;line-height:1.6;color:var(--text);margin:0 0 8px;}
   .char-card .cd{font-size:12px;color:var(--text-dim);line-height:1.6;}
+  .ref-id-field{margin-top:12px;}
+  .ref-id-field label{display:block;font-size:12px;color:var(--text-dim);line-height:1.5;margin-bottom:6px;}
+  .ref-id-field label span{opacity:.75;}
+  .ref-id-badge{display:inline-block;margin-left:8px;font-size:10px;padding:1px 6px;border-radius:4px;border:1px solid var(--amber-dim);color:var(--amber);vertical-align:middle;}
+  .ref-id-badge.missing{opacity:.55;color:var(--text-dim);}
 
   .treatment-card{background:var(--panel);border:1px solid var(--teal-dim);border-radius:8px;padding:16px;margin-bottom:16px;}
   .treatment-card .tag{font-family:'IBM Plex Mono',monospace;font-size:10px;letter-spacing:.08em;text-transform:uppercase;color:var(--teal);margin-bottom:8px;}
@@ -2088,6 +2093,28 @@ function openOrFocusArtistly(){
   atTabRef = window.open(ARTISTLY_URL, '_blank');
 }
 
+// VideoExpress reference photo ID (the library image's data-ident) per
+// character. Saved on the character inside the job, so it reloads with it.
+async function setCharacterReferenceId(index, value){
+  const c = job.styleBlock.characters[index];
+  if(!c) return;
+  const clean = String(value || '').trim().replace(/[^\w-]/g, '');
+  c.referenceId = clean || null;
+  await saveJobToStorage(true);
+  renderResults();
+  showToast(clean ? `${c.name}: reference photo ID set to ${clean}` : `${c.name}: reference photo ID cleared`);
+}
+// The reference photos for a scene, in charactersInScene order (max 2 —
+// VideoExpress has Reference Photo + Reference Photo 2). Slot 1 = first
+// character, slot 2 = second.
+function sceneReferencePhotos(scene){
+  const roster = (job.styleBlock && job.styleBlock.characters) || [];
+  return (scene.charactersInScene || []).filter(Boolean).slice(0, 2).map(name => {
+    const c = roster.find(x => x.name === name);
+    return { name, ident: (c && c.referenceId) || null };
+  });
+}
+
 async function copyAllForAutomation(scene){
   // Piggyback the notification permission request on this genuine click.
   if('Notification' in window && Notification.permission === 'default'){
@@ -2098,12 +2125,19 @@ async function copyAllForAutomation(scene){
     image: fullImagePrompt(scene),
     videoAudio: fullVideoAudioPrompt(scene),
     duration: scene.durationSeconds,
-    characterStyle: job.characterStyle
+    characterStyle: job.characterStyle,
+    // [{ name, ident }] — the userscript picks these in Reference Photo
+    // (slot 1) and Reference Photo 2 (slot 2). Characters with no ID set
+    // are left out; an empty array means "no reference photo".
+    referencePhotos: sceneReferencePhotos(scene).filter(r => r.ident)
   };
+  const missingIds = sceneReferencePhotos(scene).filter(r => !r.ident).map(r => r.name);
   await copyText(JSON.stringify(payload));
   openOrFocusVideoExpress();
   await markCopyProgress(scene.sceneNumber, 'video');
-  showToast(`Scene ${scene.sceneNumber} data copied — paste with the userscript's floating button on VideoExpress`);
+  showToast(missingIds.length
+    ? `Scene ${scene.sceneNumber} copied — no reference photo ID for ${missingIds.join(', ')} (set it in the Characters panel)`
+    : `Scene ${scene.sceneNumber} data copied — paste with the userscript's floating button on VideoExpress`);
 }
 async function copyAndOpenVoice(scene){
   const line = scriptLine(scene);
@@ -2293,12 +2327,16 @@ function renderResults(){
     ${characters.length ? `<div class="acc-group-label">Characters · ${characters.length}</div>` : ''}
     ${characters.map((c, i) => `
     <details class="acc acc-char" data-acc="char-${i}" ${openAttr('char-' + i, false)}>
-      <summary><span>👤 ${c.name}<span class="acc-sub">${c.role || ''}</span></span></summary>
+      <summary><span>👤 ${c.name}<span class="acc-sub">${c.role || ''}</span>${c.referenceId ? `<span class="ref-id-badge">🆔 ${c.referenceId}</span>` : `<span class="ref-id-badge missing">no photo ID</span>`}</span></summary>
       <div class="acc-body char-card">
         <div class="cd">${c.description}</div>
         <div class="cd" style="margin-top:8px;"><b>Called in video prompts:</b> ${c.visualTag || fallbackVisualTag(c)}</div>
         ${c.faceSignature ? `<div class="cd" style="margin-top:8px;"><b>Face signature:</b> ${c.faceSignature}</div>` : ''}
         ${Array.isArray(c.actionPoses) && c.actionPoses.length ? `<div class="cd" style="margin-top:8px;"><b>Sheet poses:</b> ${c.actionPoses.join(' · ')}</div>` : ''}
+        <div class="ref-id-field">
+          <label for="refId-${i}"><b>VideoExpress reference photo ID</b> <span>(the image's data-ident in the Reference Photo library)</span></label>
+          <input type="text" id="refId-${i}" inputmode="numeric" placeholder="e.g. 46129371" value="${c.referenceId || ''}" onchange="setCharacterReferenceId(${i}, this.value)">
+        </div>
         <div class="btn-row" style="margin-top:12px;">
           <button class="btn btn-video" onclick="copyCharacter(${i})">Copy Character Sheet</button>
           <button class="btn btn-voice" onclick="copyToArtistly(${i})">Copy → Artistly</button>
