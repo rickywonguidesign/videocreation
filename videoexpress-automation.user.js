@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         VideoExpress Scene Automation
 // @namespace    videocreation-automation
-// @version      1.4
+// @version      1.6
 // @description  Pastes a scene's Image Prompt + Video/Audio Prompt into VideoExpress's Create Video From Prompt modal, sets options, auto-picks the reference photo from the library, and drives it through Create Image -> Create Video. Auto-runs as soon as a new scene payload appears on the clipboard — no button click needed after the first one.
 // @match        https://app.videoexpress.ai/*
 // @grant        none
@@ -55,11 +55,12 @@
     },
     videoDurationRange: { min: 3, max: 10 },
     timeouts: {
+      element: 300000,                // v1.6: 5 minutes — max wait for any required page element
       referenceImage: 15000,          // max wait for the FIRST reference image (required — this must be manually selected in the UI before running)
       secondReferenceImageGrace: 5000, // short grace period for a SECOND reference image (2-character scenes) — proceeds either way after this
-      libraryStep: 15000,             // max wait for each step of the Reference Photo library picker
-      imageGeneration: 60000,
-      imageSlideSelected: 30000
+      libraryStep: 300000,            // 5 min — max wait for each step of the Reference Photo library picker
+      imageGeneration: 300000,        // 5 min
+      imageSlideSelected: 300000      // 5 min
     },
     autoRun: {
       enabled: true,       // set false to fall back to fully manual (click the button every time)
@@ -90,7 +91,7 @@
     }
     return all[0]; // fall back to the first match if none appear visible yet
   }
-  function waitForElement(selector, timeoutMs = 15000) {
+  function waitForElement(selector, timeoutMs = CONFIG.timeouts.element) {
     return new Promise((resolve, reject) => {
       const existing = findBestMatch(selector);
       if (existing) return resolve(existing);
@@ -113,7 +114,7 @@
   // for the library picker modal, whose markup can exist in the DOM hidden
   // before it's actually shown. Optional `filter` narrows matches further
   // (e.g. by button text).
-  function waitForVisibleElement(selector, timeoutMs = 15000, filter) {
+  function waitForVisibleElement(selector, timeoutMs = CONFIG.timeouts.element, filter) {
     return new Promise((resolve, reject) => {
       const find = () => {
         for (const el of document.querySelectorAll(selector)) {
@@ -375,7 +376,10 @@
   // clipboard content matches whatever was already auto-run.
   // ============================================================
   let isRunning = false;
-  let lastProcessedRaw = null;
+  // Every payload already run (from clipboard OR from the generator's
+  // Automation loop), so an older scene still sitting on the clipboard is
+  // never re-run when this tab regains focus.
+  const processedRaws = new Set();
   let pollTimer = null;
 
   async function tryReadPayloadFromClipboard(alertOnFailure) {
@@ -411,11 +415,11 @@
       log('Already running — ignoring this trigger.');
       return;
     }
-    if (!force && raw !== null && raw === lastProcessedRaw) {
+    if (!force && raw !== null && processedRaws.has(raw)) {
       return; // already ran this exact scene payload — nothing new to do
     }
     isRunning = true;
-    if (raw) lastProcessedRaw = raw;
+    if (raw) processedRaws.add(raw);
     try {
       await runFlow(payload);
     } finally {
@@ -488,7 +492,7 @@
   // ============================================================
   // THE FLOW
   // ============================================================
-  function returnToGeneratorTab() {
+  function returnToGeneratorTab(payload) {
     if (!window.opener || window.opener.closed) {
       log('Video generation started. (No generator tab reference found — switch back manually. This happens if VideoExpress was opened by hand rather than via the generator\'s button.)');
       return;
@@ -497,7 +501,7 @@
     // so tell the generator tab it's done via postMessage; the generator
     // itself uses a real Notification, which IS allowed to bring a tab to front.
     try {
-      window.opener.postMessage({ type: 've-automation-complete', ts: Date.now() }, '*');
+      window.opener.postMessage({ type: 've-automation-complete', ts: Date.now(), sceneNumber: payload && payload.sceneNumber != null ? payload.sceneNumber : null }, '*');
       log('Video generation started. Notified the generator tab — look for a notification, or switch back manually.');
     } catch (e) {
       console.error('[VE-Automation] postMessage to generator tab failed:', e);
@@ -599,6 +603,13 @@
       ? `Reference Photo: cleared ${cleared} existing photo(s) before choosing.`
       : 'Reference Photo: no existing photos to clear.');
   }
+  // NEW (v1.5): true when the generator says this scene has no characters
+  // (referencePhotos is an empty list). An older generator that doesn't send
+  // referencePhotos at all is NOT treated as "no characters".
+  function sceneHasNoCharacters(payload) {
+    return Array.isArray(payload.referencePhotos) &&
+      payload.referencePhotos.filter(r => r && r.ident).length === 0;
+  }
   // Picks every reference photo this scene needs, in order: 1st character
   // into "Reference Photo", 2nd into "Reference Photo 2".
   async function selectReferencePhotosForScene(payload) {
@@ -636,7 +647,9 @@
       // selecting the reference photo resets them on VideoExpress's own side.
       // They're set once, separately, after that step instead — see runFlow().
       ["image_creative_mode", cb.image_creative_mode], // NEW (v1.3): must come before use_consistent_character
-      ["use_consistent_character", cb.use_consistent_character],
+      // NEW (v1.5): a scene with no characters leaves this OFF (unticks it if
+      // a previous scene left it on), so no reference-photo steps run at all.
+      ["use_consistent_character", cb.use_consistent_character && !sceneHasNoCharacters(payload)],
       ["shared", cb.shared],
       ["advanced_mode", cb.advanced_mode],
       ["manual_video_length", cb.manual_video_length],
@@ -646,7 +659,7 @@
       for (const [name, desired] of checkboxDefs) {
         let el;
         try {
-          el = await waitForElement(`input[type='checkbox'][name='${name}']`, name === 'image_creative_mode' ? 5000 : 15000);
+          el = await waitForElement(`input[type='checkbox'][name='${name}']`, name === 'image_creative_mode' ? 5000 : CONFIG.timeouts.element);
         } catch (e) {
           if (name !== 'image_creative_mode') throw e;
           console.warn('[VE-Automation] "Use Creative mode" checkbox not found — skipping it and continuing.');
@@ -673,7 +686,7 @@
         log('Modal already open — skipping the panel click, continuing with the rest of the flow.');
       } else {
         log('Opening Create Video From Prompt modal...');
-        const openPanel = await waitForElement('.panel.panel-default.js-panel-button.button-generate-from-prompt', 10000);
+        const openPanel = await waitForElement('.panel.panel-default.js-panel-button.button-generate-from-prompt');
         openPanel.click();
       }
       log('Pasting Image Prompt...');
@@ -706,7 +719,16 @@
         const src = slotImageSrc(container);
         return !!src && !src.includes(PLACEHOLDER_IMAGE_SRC);
       }
-      for (const slot of refSlots) {
+      const noCharacters = sceneHasNoCharacters(payload);
+      if (noCharacters) {
+        log('Scene has no characters — "Use consistent character" left off, skipping reference photos.');
+      }
+      // v1.6: when the generator sent character photo IDs, the photos were
+      // auto-picked — skip every 5s manual window. Only without any IDs
+      // (older generator payload) does the 5s window still run.
+      const hasRefIds = Array.isArray(payload.referencePhotos) && payload.referencePhotos.some(r => r && r.ident);
+      if (hasRefIds) log('Reference photos set from character IDs — skipping the 5s manual windows.');
+      for (const slot of ((noCharacters || hasRefIds) ? [] : refSlots)) {
         if (!slot.el) continue; // second slot may not exist if only one character in this scene
         if (slotAlreadyHasRealImage(slot.el)) {
           log(`${slot.label}: reference photo already selected (src isn't the blank placeholder) — skipping the 5s window.`);
@@ -729,9 +751,12 @@
         }
       }
       // No reference photo in either slot => turn consistent character off.
-      const bothRefPhotosEmpty = refSlots.every(slot => !slot.el || !slotHasImage(slot.el));
+      // A no-character scene always counts as "empty", even if an old photo
+      // is still sitting (hidden) in a slot — that keeps the single-image
+      // wait below instead of waiting for pair images that never come.
+      const bothRefPhotosEmpty = noCharacters || refSlots.every(slot => !slot.el || !slotHasImage(slot.el));
       if (bothRefPhotosEmpty) {
-        log('No reference photos in either slot — unchecking "Use consistent character" before generating.');
+        if (!noCharacters) log('No reference photos in either slot — unchecking "Use consistent character" before generating.');
         await setCheckbox(await waitForElement("input[type='checkbox'][name='use_consistent_character']"), false, 'use_consistent_character (no reference photos)');
       }
       // Set AFTER the reference photo step, since selecting it resets these.
@@ -796,12 +821,29 @@
       log('Clicking Create Video...');
       createVideoBtn.click();
       log('Done — video generation started.');
-      returnToGeneratorTab();
+      returnToGeneratorTab(payload);
     } catch (err) {
       console.error('[VE-Automation] Failed:', err);
       alert('Automation stopped: ' + err.message + '\n\nCheck the console for details — the site\'s HTML may have changed, or a step timed out.');
     }
   }
+  // v1.6: AUTOMATION LOOP — the generator (with its "Automation" box ticked)
+  // sends the next scene straight to this tab via postMessage once the
+  // previous one finishes. No clipboard and no tab focus needed.
+  window.addEventListener('message', async (event) => {
+    const d = event.data;
+    if (!d || d.type !== 've-automation-run') return;
+    if (window.opener && event.source !== window.opener) return; // only our generator tab
+    const payload = d.payload;
+    if (!payload || !payload.image || !payload.videoAudio) {
+      console.warn('[VE-Automation] Automation message had no valid scene payload:', d);
+      return;
+    }
+    log(`Automation: received scene ${payload.sceneNumber != null ? payload.sceneNumber : '?'} from the generator.`);
+    // If a previous run is still finishing, wait for it rather than dropping this scene.
+    await waitForCondition(() => !isRunning, CONFIG.timeouts.element, 500);
+    await triggerRun({ payload, raw: JSON.stringify(payload), force: true });
+  });
   injectButton();
   startAutoRunPolling();
 })();

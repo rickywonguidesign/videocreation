@@ -94,6 +94,9 @@
   .scenes-col{overflow-y:auto;min-height:0;padding-right:8px;overscroll-behavior:contain;}
   .side-col{overflow-y:auto;min-height:0;padding-right:4px;}
   .col-head{font-family:'IBM Plex Mono',monospace;font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:var(--text-dim);margin:0 0 10px;display:flex;justify-content:space-between;}
+  .col-head-right{display:flex;align-items:center;gap:14px;}
+  .auto-toggle{display:inline-flex;align-items:center;gap:6px;cursor:pointer;color:var(--amber);}
+  .auto-toggle input{margin:0;accent-color:var(--amber);cursor:pointer;}
   .scenes-col::-webkit-scrollbar,.side-col::-webkit-scrollbar{width:8px;}
   .scenes-col::-webkit-scrollbar-thumb,.side-col::-webkit-scrollbar-thumb{background:var(--line);border-radius:4px;}
   @media (max-width:980px){
@@ -402,7 +405,7 @@
     </div>
     <div class="results-grid">
       <div class="scenes-col" id="scenesCol">
-        <div class="col-head"><span>Scenes</span><span id="sceneCount"></span></div>
+        <div class="col-head"><span>Scenes</span><span class="col-head-right"><label class="auto-toggle" title="When VideoExpress reports a scene is ready, automatically send the next scene — loops until the last scene"><input type="checkbox" id="autoNextScene" onchange="onAutomationToggle(this.checked)"><span>Automation</span></label><span id="sceneCount"></span></span></div>
         <div id="scenesWrap"></div>
         <button class="generate-btn" id="continueBtn" onclick="continueScript()" style="background:var(--teal);color:#08201F;margin-bottom:10px;">Generate next scenes</button>
       </div>
@@ -608,6 +611,16 @@ function withStyleHeader(body){
 function styleNegative(){
   return jobStyleSpec().negative || '';
 }
+// Appended to the very end of EVERY image prompt (scene images, character
+// sheets, thumbnail).
+const IMAGE_FACE_NEGATIVE = '[Negative] no scarring, no tattoo, no wounds on the face';
+function withFaceNegative(prompt){
+  return `${(prompt || '').trim()} ${IMAGE_FACE_NEGATIVE}`;
+}
+// "[Scene 01]" — put at the very start of every video prompt.
+function sceneTag(scene){
+  return `[Scene ${String(scene && scene.sceneNumber != null ? scene.sceneNumber : '').padStart(2, '0')}]`;
+}
 
 function getFormSetting(){
   const v = document.getElementById('storySetting').value;
@@ -681,8 +694,69 @@ window.addEventListener('message', (event) => {
   console.log('[Generator] Received postMessage:', event.data, 'from origin:', event.origin);
   if (event.data && event.data.type === 've-automation-complete') {
     onAutomationComplete();
+    autoSendNextScene(event);
   }
 });
+
+// ---------------------------------------------------------------------------
+// AUTOMATION LOOP — with the "Automation" box ticked, every time VideoExpress
+// reports a scene is ready, the NEXT scene is sent to it automatically (same
+// as clicking its "⚡ Copy All → VideoExpress"), until the last scene.
+// The payload goes straight to the VideoExpress tab via postMessage, so this
+// works while the generator tab is in the background (clipboard writes don't).
+// ---------------------------------------------------------------------------
+const AUTO_NEXT_DELAY_MS = 3000; // breathing room for VideoExpress after "Create Video"
+let lastSentSceneNumber = null;
+let autoNextTimer = null;
+function isAutomationOn(){
+  const el = document.getElementById('autoNextScene');
+  return !!(el && el.checked);
+}
+function onAutomationToggle(on){
+  try{ localStorage.setItem('autoNextScene', on ? '1' : '0'); }catch(e){}
+  if(!on && autoNextTimer){ clearTimeout(autoNextTimer); autoNextTimer = null; }
+  showToast(on ? 'Automation on — the next scene is sent automatically when VideoExpress finishes one' : 'Automation off');
+}
+try{
+  if(localStorage.getItem('autoNextScene') === '1'){
+    document.addEventListener('DOMContentLoaded', () => {
+      const el = document.getElementById('autoNextScene');
+      if(el) el.checked = true;
+    });
+    const el = document.getElementById('autoNextScene');
+    if(el) el.checked = true;
+  }
+}catch(e){}
+function autoSendNextScene(event){
+  if(!isAutomationOn()) return;
+  if(!job || !Array.isArray(job.scenes) || !job.scenes.length) return;
+  const veOrigin = new URL(VIDEOEXPRESS_URL).origin;
+  if(event.origin !== veOrigin){
+    console.warn('[Generator] Automation: ignoring completion from unexpected origin', event.origin);
+    return;
+  }
+  const doneNumber = (event.data && event.data.sceneNumber != null) ? event.data.sceneNumber : lastSentSceneNumber;
+  const idx = job.scenes.findIndex(sc => String(sc.sceneNumber) === String(doneNumber));
+  if(idx === -1){
+    console.warn('[Generator] Automation: could not tell which scene just finished — stopping the loop.');
+    showToast('Automation: could not tell which scene finished — click the next scene manually');
+    return;
+  }
+  const next = job.scenes[idx + 1];
+  if(!next){
+    showToast('Automation: last scene sent — all scenes done 🎉');
+    flashTitle('✅ All scenes sent to VideoExpress');
+    return;
+  }
+  const target = event.source || veTabRef;
+  if(autoNextTimer) clearTimeout(autoNextTimer);
+  showToast(`Automation: sending scene ${next.sceneNumber} in ${AUTO_NEXT_DELAY_MS / 1000}s…`);
+  autoNextTimer = setTimeout(() => {
+    autoNextTimer = null;
+    if(!isAutomationOn()) return; // unticked during the delay
+    copyAllForAutomation(next, { auto: true, target });
+  }, AUTO_NEXT_DELAY_MS);
+}
 
 function onAutomationComplete(){
   console.log('[Generator] onAutomationComplete fired');
@@ -2018,7 +2092,7 @@ function fullImagePrompt(scene){
   if(frame) out += ` ${frame}`;
   out += ' This is the opening frame of the shot: characters in their starting pose, just before the action begins.';
   if(neg) out += ` ${neg}.`;
-  return out;
+  return withFaceNegative(out);
 }
 
 async function copyImagePrompt(scene){
@@ -2054,7 +2128,7 @@ function fullVideoAudioPrompt(scene){
   if(frame) prompt = `${endSentence(prompt)} ${frame}`;
   prompt = `${endSentence(prompt)} Start exactly from the provided starting image — same characters, positions, poses, props, background, and framing; no new characters appear.`;
 
-  return `${withStyleHeader(prompt)} ${videoNegativeLine(scene, !!line)}.`;
+  return `${sceneTag(scene)} ${withStyleHeader(prompt)} ${videoNegativeLine(scene, !!line)}.`;
 }
 function cap(str){ return str ? str.charAt(0).toUpperCase() + str.slice(1) : str; }
 
@@ -2115,9 +2189,10 @@ function sceneReferencePhotos(scene){
   });
 }
 
-async function copyAllForAutomation(scene){
+async function copyAllForAutomation(scene, opts){
+  const auto = !!(opts && opts.auto);
   // Piggyback the notification permission request on this genuine click.
-  if('Notification' in window && Notification.permission === 'default'){
+  if(!auto && 'Notification' in window && Notification.permission === 'default'){
     Notification.requestPermission();
   }
 
@@ -2129,9 +2204,25 @@ async function copyAllForAutomation(scene){
     // [{ name, ident }] — the userscript picks these in Reference Photo
     // (slot 1) and Reference Photo 2 (slot 2). Characters with no ID set
     // are left out; an empty array means "no reference photo".
-    referencePhotos: sceneReferencePhotos(scene).filter(r => r.ident)
+    referencePhotos: sceneReferencePhotos(scene).filter(r => r.ident),
+    sceneNumber: scene.sceneNumber // echoed back by the userscript so Automation knows which scene finished
   };
   const missingIds = sceneReferencePhotos(scene).filter(r => !r.ident).map(r => r.name);
+  lastSentSceneNumber = scene.sceneNumber;
+  if(auto){
+    // Background tab: no user gesture, so no focusing and the clipboard may
+    // be blocked — send the payload straight to the VideoExpress tab instead.
+    const target = (opts && opts.target) || veTabRef;
+    try{ await copyText(JSON.stringify(payload)); }catch(e){}
+    if(!target || target.closed){
+      showToast('Automation: VideoExpress tab not found — click this scene manually');
+      return;
+    }
+    target.postMessage({ type: 've-automation-run', payload }, new URL(VIDEOEXPRESS_URL).origin);
+    await markCopyProgress(scene.sceneNumber, 'video');
+    showToast(`Automation: scene ${scene.sceneNumber} sent to VideoExpress`);
+    return;
+  }
   await copyText(JSON.stringify(payload));
   openOrFocusVideoExpress();
   await markCopyProgress(scene.sceneNumber, 'video');
@@ -2181,7 +2272,7 @@ function characterSheetPrompt(c){
   const faceSpec = c.faceSignature ? ` FACE IDENTITY — must match exactly in every panel: ${c.faceSignature}.` : '';
   const setting = jobSettingText();
   const settingClause = setting ? ` Wardrobe, hairstyle, and accessories are authentic to ${setting}.` : '';
-  return `${spec.tag}. Create a professional character reference sheet of ${identity}${endSentence(c.description)}${faceSpec}${settingClause} SHEET LAYOUT, landscape: (1) FACE PORTRAIT AREA — the entire left 40% of the sheet: two LARGE, sharply detailed head-and-shoulders portrait close-ups stacked vertically, a front-facing portrait on top and a 3/4-view portrait below, each filling most of its half so the face is big and crisp — eyes, irises, eyelids, eyebrows, nose, lips, jawline, cheekbones, ears, hairline, skin detail, and any distinguishing marks clearly readable; calm natural expression; soft, even frontal lighting with no shadows across the face; nothing covering the face (no hair over the eyes, no hands, props, hats, or masks). Beneath them, a row of three smaller head close-ups showing neutral, happy, and worried expressions with identical facial structure. (2) FULL-BODY TURNAROUND AREA — the right 60%: head-to-toe full-body views — front, left side, right side, back, and 3/4 view — plus two full-body action poses: ${poses[0]}, and ${poses[1]}. Keep the face visible and recognizable in every full-body view except the back view. Ensure the character remains perfectly consistent across all panels, maintaining the exact facial features, hair texture, skin tone, apparent age, and body proportions along with clothing folds.${identityLock} Rendered strictly in this style: ${job.styleBlock.description} — with soft lighting and smooth textures, against a plain background using a single flat or gently blended color only (one hue, no gradient mixing multiple colors, no scenery, no props, no texture), suitable for animation or 3D modeling reference. No text, labels, or watermarks.${spec.negative ? ` ${spec.negative}.` : ''}`;
+  return `${spec.tag}. Create a professional character reference sheet of ${identity}${endSentence(c.description)}${faceSpec}${settingClause} SHEET LAYOUT, landscape: (1) FACE PORTRAIT AREA — the entire left 40% of the sheet: two LARGE, sharply detailed head-and-shoulders portrait close-ups stacked vertically, a front-facing portrait on top and a 3/4-view portrait below, each filling most of its half so the face is big and crisp — eyes, irises, eyelids, eyebrows, nose, lips, jawline, cheekbones, ears, hairline, skin detail, and any distinguishing marks clearly readable; calm natural expression; soft, even frontal lighting with no shadows across the face; nothing covering the face (no hair over the eyes, no hands, props, hats, or masks). Beneath them, a row of three smaller head close-ups showing neutral, happy, and worried expressions with identical facial structure. (2) FULL-BODY TURNAROUND AREA — the right 60%: head-to-toe full-body views — front, left side, right side, back, and 3/4 view — plus two full-body action poses: ${poses[0]}, and ${poses[1]}. Keep the face visible and recognizable in every full-body view except the back view. Ensure the character remains perfectly consistent across all panels, maintaining the exact facial features, hair texture, skin tone, apparent age, and body proportions along with clothing folds.${identityLock} Rendered strictly in this style: ${job.styleBlock.description} — with soft lighting and smooth textures, against a plain background using a single flat or gently blended color only (one hue, no gradient mixing multiple colors, no scenery, no props, no texture), suitable for animation or 3D modeling reference. No text, labels, or watermarks.${spec.negative ? ` ${spec.negative}.` : ''}` + ` ${IMAGE_FACE_NEGATIVE}`;
 }
 async function copyCharacter(index){
   const c = job.styleBlock.characters[index];
@@ -2204,7 +2295,7 @@ async function copyProduct(index){
 function fullThumbnailPrompt(){
   if(!job.thumbnail || !job.thumbnail.prompt) return '';
   const neg = styleNegative();
-  return `${endSentence(withStyleHeader(job.thumbnail.prompt))}${neg ? ` ${neg}.` : ''}`;
+  return withFaceNegative(`${endSentence(withStyleHeader(job.thumbnail.prompt))}${neg ? ` ${neg}.` : ''}`);
 }
 async function copyThumbnailPrompt(){
   if(!job.thumbnail || !job.thumbnail.prompt){ showToast('No thumbnail prompt for this job'); return; }
