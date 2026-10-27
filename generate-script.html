@@ -235,7 +235,7 @@
           <option value="deepseek">DeepSeek (lowest cost)</option>
           <option value="openrouter">OpenRouter (any model — Gemini, Claude, Llama…)</option>
         </select>
-        <input type="password" id="openaiKey" placeholder="sk-..." autocomplete="off" oninput="onKeyInput()">
+        <input type="password" id="openaiKey" name="ai-api-key-no-autofill" placeholder="sk-..." autocomplete="new-password" data-lpignore="true" data-1p-ignore oninput="onKeyInput()" onchange="cleanKeyField()" onpaste="setTimeout(cleanKeyField, 0)">
         <div class="hint">Key is used only for this session and never saved. Leave blank to use the built-in generator (only works inside Claude.ai's preview — when running this file on your own machine, add a key and start the bundled backend server below).</div>
         <div class="key-status" id="keyStatus">Key set for this session</div>
         <input type="text" id="backendUrl"
@@ -692,9 +692,12 @@ let _titleFlashInterval = null;
 
 window.addEventListener('message', (event) => {
   console.log('[Generator] Received postMessage:', event.data, 'from origin:', event.origin);
-  if (event.data && event.data.type === 've-automation-complete') {
+  if (event.data && (event.data.type === 've-automation-complete' || event.data.type === 'cv-automation-complete')) {
     onAutomationComplete();
-    autoSendNextScene(event);
+    // Route by WHO sent it: VideoExpress -> next video scene, CloneVoice ->
+    // next voice line.
+    if (event.origin === new URL(CLONEVOICE_URL).origin) autoSendNextVoiceScene(event);
+    else autoSendNextScene(event);
   }
 });
 
@@ -715,6 +718,7 @@ function isAutomationOn(){
 function onAutomationToggle(on){
   try{ localStorage.setItem('autoNextScene', on ? '1' : '0'); }catch(e){}
   if(!on && autoNextTimer){ clearTimeout(autoNextTimer); autoNextTimer = null; }
+  if(!on && autoNextVoiceTimer){ clearTimeout(autoNextVoiceTimer); autoNextVoiceTimer = null; }
   showToast(on ? 'Automation on — the next scene is sent automatically when VideoExpress finishes one' : 'Automation off');
 }
 try{
@@ -727,6 +731,36 @@ try{
     if(el) el.checked = true;
   }
 }catch(e){}
+// Same loop for CloneVoice: after CloneVoice reports a line is done, send
+// the next scene that actually HAS a line (scenes with no dialogue or
+// narration are skipped), until the last one.
+let lastSentVoiceSceneNumber = null;
+let autoNextVoiceTimer = null;
+function autoSendNextVoiceScene(event){
+  if(!isAutomationOn()) return;
+  if(!job || !Array.isArray(job.scenes) || !job.scenes.length) return;
+  const doneNumber = (event.data && event.data.sceneNumber != null) ? event.data.sceneNumber : lastSentVoiceSceneNumber;
+  const idx = job.scenes.findIndex(sc => String(sc.sceneNumber) === String(doneNumber));
+  if(idx === -1){
+    console.warn('[Generator] Voice automation: could not tell which scene just finished — stopping the loop.');
+    showToast('Voice automation: could not tell which scene finished — click the next voice manually');
+    return;
+  }
+  const next = job.scenes.slice(idx + 1).find(sc => scriptLine(sc));
+  if(!next){
+    showToast('Voice automation: last voice line sent — all voices done 🎉');
+    flashTitle('✅ All voice lines sent to CloneVoice');
+    return;
+  }
+  const target = event.source || cvTabRef;
+  if(autoNextVoiceTimer) clearTimeout(autoNextVoiceTimer);
+  showToast(`Voice automation: sending scene ${next.sceneNumber} in ${AUTO_NEXT_DELAY_MS / 1000}s…`);
+  autoNextVoiceTimer = setTimeout(() => {
+    autoNextVoiceTimer = null;
+    if(!isAutomationOn()) return;
+    copyAndOpenVoice(next, { auto: true, target });
+  }, AUTO_NEXT_DELAY_MS);
+}
 function autoSendNextScene(event){
   if(!isAutomationOn()) return;
   if(!job || !Array.isArray(job.scenes) || !job.scenes.length) return;
@@ -895,6 +929,31 @@ function onKeyInput(){
   const val = document.getElementById('openaiKey').value.trim();
   document.getElementById('keyStatus').classList.toggle('show', val.length > 0);
 }
+// The key field can pick up junk around the real key — e.g. copying a key
+// row from the provider's dashboard grabs the "Edit" label too, or the
+// browser's password manager refills an old saved value — which made the
+// provider reject it ("Incorrect API key provided: Edit sk-..."). Pull out
+// just the key itself: the token starting with "sk-" if there is one,
+// otherwise the last whitespace-free token.
+function cleanApiKey(raw){
+  const str = String(raw || '').trim();
+  if(!str) return '';
+  const sk = str.match(/sk-[A-Za-z0-9_\-]+/);
+  if(sk) return sk[0];
+  const tokens = str.split(/\s+/);
+  return tokens[tokens.length - 1].replace(/^["'`]+|["'`]+$/g, '');
+}
+function readApiKey(){
+  const el = document.getElementById('openaiKey');
+  const cleaned = cleanApiKey(el.value);
+  if(cleaned !== el.value){
+    console.warn('[Generator] API key field had extra text around the key — using only the key itself.');
+    el.value = cleaned;
+    onKeyInput();
+  }
+  return cleaned;
+}
+function cleanKeyField(){ readApiKey(); }
 
 function selectStyle(el){
   document.querySelectorAll('.style-opt').forEach(o=>o.classList.remove('active'));
@@ -966,7 +1025,7 @@ async function callChatCompletions(base, apiKey, model, systemPrompt, userPrompt
 }
 
 async function callGeneration(systemPrompt, userPrompt){
-  const openaiKey = document.getElementById('openaiKey').value.trim();
+  const openaiKey = readApiKey();
   const backendUrl = document.getElementById('backendUrl').value.trim();
   // Tolerate either "http://host:port" or "http://host:port/api" in the
   // field — the endpoint below always adds "/api/generate-script" itself.
@@ -2230,11 +2289,12 @@ async function copyAllForAutomation(scene, opts){
     ? `Scene ${scene.sceneNumber} copied — no reference photo ID for ${missingIds.join(', ')} (set it in the Characters panel)`
     : `Scene ${scene.sceneNumber} data copied — paste with the userscript's floating button on VideoExpress`);
 }
-async function copyAndOpenVoice(scene){
+async function copyAndOpenVoice(scene, opts){
+  const auto = !!(opts && opts.auto);
   const line = scriptLine(scene);
   if(!line){ showToast('No dialogue or narration for this scene'); return; }
 
-  if('Notification' in window && Notification.permission === 'default'){
+  if(!auto && 'Notification' in window && Notification.permission === 'default'){
     Notification.requestPermission();
   }
 
@@ -2245,6 +2305,20 @@ async function copyAndOpenVoice(scene){
     emotionStyle: scene.emotionStyle || 'default', // AI-determined delivery tone for this scene's line, falls back to "default" if not set
     voiceId: job.selectedVoiceId || null // if set, the automation clicks this exact voice instead of waiting for manual selection
   };
+  lastSentVoiceSceneNumber = scene.sceneNumber;
+  if(auto){
+    // Background tab: send straight to the CloneVoice tab (no clipboard/focus).
+    const target = (opts && opts.target) || cvTabRef;
+    try{ await copyText(JSON.stringify(payload)); }catch(e){}
+    if(!target || target.closed){
+      showToast('Voice automation: CloneVoice tab not found — click this scene manually');
+      return;
+    }
+    target.postMessage({ type: 'cv-automation-run', payload }, new URL(CLONEVOICE_URL).origin);
+    await markCopyProgress(scene.sceneNumber, 'done');
+    showToast(`Voice automation: scene ${scene.sceneNumber} sent to CloneVoice`);
+    return;
+  }
   await copyText(JSON.stringify(payload));
   openOrFocusCloneVoice();
   await markCopyProgress(scene.sceneNumber, 'done');
