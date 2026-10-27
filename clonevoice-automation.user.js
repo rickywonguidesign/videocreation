@@ -1,14 +1,26 @@
 // ==UserScript==
 // @name         CloneVoice Audio Automation
 // @namespace    videocreation-automation
-// @version      1.1
+// @version      1.2
 // @description  Pastes a scene's narration/dialogue into CloneVoice's Create Audio flow — title, reference language, script — selects the voice, sets emotion style, and generates the audio. v1.1: also accepts scenes sent directly by the generator's "Automation" loop and reports back which scene finished.
 // @match        https://app.clonevoice.ai/*
 // @grant        none
+// @noframes
 // ==/UserScript==
 
 (function () {
   'use strict';
+  // v1.2: SINGLE-INSTANCE GUARD. If this script is installed twice in
+  // Tampermonkey (e.g. an old copy pasted as a new script), or the page has
+  // iframes, every copy ran the whole flow at the same time — clicking each
+  // button twice and opening two library popups. Only the first copy on the
+  // top-level page runs now; any other copy stops here.
+  if (window.top !== window.self) return;
+  if (window.__cvAutomationLoaded) {
+    console.warn('[CV-Automation] Another copy of this script is already running on this page (v' + window.__cvAutomationLoaded + ') — this copy will stay idle. Open Tampermonkey and disable/delete the duplicate script.');
+    return;
+  }
+  window.__cvAutomationLoaded = '1.2';
 
   // ============================================================
   // CONFIG — edit these without touching the engine logic below.

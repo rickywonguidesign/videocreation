@@ -1,13 +1,25 @@
 // ==UserScript==
 // @name         VideoExpress Scene Automation
 // @namespace    videocreation-automation
-// @version      1.7
+// @version      1.8
 // @description  Pastes a scene's Image Prompt + Video/Audio Prompt into VideoExpress's Create Video From Prompt modal, sets options, auto-picks the reference photo from the library, and drives it through Create Image -> Create Video. Auto-runs as soon as a new scene payload appears on the clipboard — no button click needed after the first one.
 // @match        https://app.videoexpress.ai/*
 // @grant        none
+// @noframes
 // ==/UserScript==
 (function () {
   'use strict';
+  // v1.8: SINGLE-INSTANCE GUARD. If this script is installed twice in
+  // Tampermonkey (e.g. an old copy pasted as a new script), or the page has
+  // iframes, every copy ran the whole flow at the same time — clicking each
+  // button twice and opening two library popups. Only the first copy on the
+  // top-level page runs now; any other copy stops here.
+  if (window.top !== window.self) return;
+  if (window.__veAutomationLoaded) {
+    console.warn('[VE-Automation] Another copy of this script is already running on this page (v' + window.__veAutomationLoaded + ') — this copy will stay idle. Open Tampermonkey and disable/delete the duplicate script.');
+    return;
+  }
+  window.__veAutomationLoaded = '1.8';
   // ============================================================
   // CONFIG — edit these to change behavior without touching the
   // engine logic below. Mirrors videoexpress-automation-flow.json.
@@ -617,8 +629,10 @@
       await waitForCondition(() => !isVisible(chooseBtn), 5000);
       const landed = await waitForCondition(() => refSlotFilled(slotIndex), 10000);
       await sleep(300);
-      if (!landed && refSlotEl(slotIndex)) {
-        throw new Error(`Clicked Choose, but slot ${slotIndex + 1} still shows no photo`);
+      if (!landed) {
+        // v1.8: warning only — never re-open the library because of this
+        // check (that is what caused the double popups in v1.7).
+        console.warn(`[VE-Automation] ${label}: Choose was clicked, but the slot preview didn't visibly change — continuing anyway.`);
       }
       log(`${label}: selected.`);
       return true;
@@ -635,19 +649,24 @@
   // since clearing one slot can re-render the others.
   async function clearReferencePhotoSlots() {
     const sel = CONFIG.referencePhoto.clearButtonSelector;
-    const visibleClear = () => Array.from(document.querySelectorAll(sel)).find(isVisible) || null;
-    let cleared = 0;
-    for (let guard = 0; guard < 4; guard++) {
-      const btn = visibleClear();
+    // v1.8: only the trash buttons of the reference-photo slots (falls back
+    // to the whole page only if none are found there), and each button is
+    // clicked AT MOST ONCE — previously a button that stayed visible after
+    // clearing got clicked up to 4 times.
+    const inRefArea = () => Array.from(document.querySelectorAll(`.consistent-character-image-container ${sel}`)).filter(isVisible);
+    const anywhere = () => Array.from(document.querySelectorAll(sel)).filter(isVisible);
+    const clicked = new Set();
+    for (let guard = 0; guard < 2; guard++) {
+      const candidates = (inRefArea().length ? inRefArea() : anywhere()).filter(b => !clicked.has(b));
+      const btn = candidates[0];
       if (!btn) break;
+      clicked.add(btn);
       btn.click();
-      cleared++;
-      // Wait for that button to hide (slot emptied) before looking again.
       await waitForCondition(() => !isVisible(btn), 3000);
-      await sleep(300);
+      await sleep(400);
     }
-    log(cleared
-      ? `Reference Photo: cleared ${cleared} existing photo(s) before choosing.`
+    log(clicked.size
+      ? `Reference Photo: cleared ${clicked.size} existing photo(s) before choosing.`
       : 'Reference Photo: no existing photos to clear.');
   }
   // NEW (v1.5): true when the generator says this scene has no characters
@@ -680,14 +699,10 @@
     }
     console.log('[VE-Automation] Reference photos for this scene:', refs);
     for (let i = 0; i < refs.length; i++) {
-      let ok = await selectReferencePhotoFromLibrary(i, refs[i].ident, refs[i].name);
-      if (!ok) {
-        log(`Retrying ${CONFIG.referencePhoto.slotButtonText[i]} once...`);
-        // Close any library window left open by the failed attempt.
-        document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
-        await sleep(1000);
-        ok = await selectReferencePhotoFromLibrary(i, refs[i].ident, refs[i].name);
-      }
+      // v1.8: exactly ONE attempt per slot — no automatic retry (a retry
+      // re-clicked "Reference Photo" while the first library popup was
+      // still open, stacking two popups).
+      const ok = await selectReferencePhotoFromLibrary(i, refs[i].ident, refs[i].name);
       if (!ok) break; // if slot 1 failed, slot 2's button likely isn't there either
     }
   }
@@ -901,7 +916,12 @@
     log(`Automation: received scene ${payload.sceneNumber != null ? payload.sceneNumber : '?'} from the generator.`);
     // If a previous run is still finishing, wait for it rather than dropping this scene.
     await waitForCondition(() => !isRunning, CONFIG.timeouts.element, 500);
-    await triggerRun({ payload, raw: JSON.stringify(payload), force: true });
+    const raw = JSON.stringify(payload);
+    if (processedRaws.has(raw)) {
+      log(`Automation: scene ${payload.sceneNumber} already ran (picked up from the clipboard) — not running it twice.`);
+      return;
+    }
+    await triggerRun({ payload, raw, force: false });
   });
   injectButton();
   startAutoRunPolling();

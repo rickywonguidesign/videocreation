@@ -2290,7 +2290,8 @@ async function copyAllForAutomation(scene, opts){
     // Background tab: no user gesture, so no focusing and the clipboard may
     // be blocked — send the payload straight to the VideoExpress tab instead.
     const target = (opts && opts.target) || veTabRef;
-    try{ await copyText(JSON.stringify(payload)); }catch(e){}
+    // No clipboard write here: the VideoExpress tab's clipboard watcher would
+    // pick the same scene up a second time.
     if(!target || target.closed){
       showToast('Automation: VideoExpress tab not found — click this scene manually');
       return;
