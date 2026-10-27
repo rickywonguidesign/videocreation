@@ -617,9 +617,9 @@ const IMAGE_FACE_NEGATIVE = '[Negative] no scarring, no tattoo, no wounds on the
 function withFaceNegative(prompt){
   return `${(prompt || '').trim()} ${IMAGE_FACE_NEGATIVE}`;
 }
-// "[Scene 01]" — put at the very start of every video prompt.
+// "[Clip 01]" — put at the very start of every video prompt.
 function sceneTag(scene){
-  return `[Scene ${String(scene && scene.sceneNumber != null ? scene.sceneNumber : '').padStart(2, '0')}]`;
+  return `[Clip ${String(scene && scene.sceneNumber != null ? scene.sceneNumber : '').padStart(2, '0')}]`;
 }
 
 function getFormSetting(){
