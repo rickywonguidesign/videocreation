@@ -812,6 +812,7 @@ function autoSendNextScene(event){
     return;
   }
   const doneNumber = (event.data && event.data.sceneNumber != null) ? event.data.sceneNumber : lastSentSceneNumber;
+  if(String(doneNumber) === 'thumbnail') return; // the thumbnail clip isn't part of the scene loop
   const idx = job.scenes.findIndex(sc => String(sc.sceneNumber) === String(doneNumber));
   if(idx === -1){
     console.warn('[Generator] Automation: could not tell which scene just finished — stopping the loop.');
@@ -1447,7 +1448,8 @@ Output ONLY raw JSON, no markdown fences, no preamble. Schema:
   },
   "thumbnail": {
     "prompt": string (a single flowing image-generation prompt for this video's YouTube thumbnail — a deliberately composed, maximally clickable STILL IMAGE, not a copy of any individual scene's imagePrompt. Center it on whichever single moment, expression, or object from across the WHOLE story (per treatment.sourceBeats, chosen after seeing the whole story, not just the Hook) would make someone stop scrolling — usually an exaggerated but genuine emotional expression on a character's face, read from a close or medium-close distance, or per SUBJECT RULE a striking object/moment if the story is genuinely non-human-centric. Pull the exact character/product description straight from styleBlock so it renders as the same character/product as the rest of the video, and keep the render style, color grade, and overall art direction consistent with styleBlock.description and treatment.colorGrade — but push contrast, saturation, and framing harder than a normal scene would, the way real high-performing thumbnails do: punchy high-contrast lighting, one clear focal point, and deliberate negative space (a relatively clean, uncluttered area, usually to one side or along the top) left open for the title banner. Do NOT write the title words yourself and do NOT say "no text" — the app appends the exact title-banner instruction using "textOverlay". If the thumbnail is about a character, that character must be the DOMINANT subject — head-and-shoulders, face large and filling a big part of the frame, full description restated — never a hand or object close-up with the character small or implied. End the prompt with ", 16:9 landscape composition, YouTube thumbnail" to lock the aspect ratio and intent.),
-    "textOverlay": string (a short, punchy 2-6 word text suggestion for the thumbnail overlay — bold and curiosity-driving, matching the video's hook/logline, phrased the way real high-performing YouTube thumbnails phrase their text, e.g. "SHE WAITED 30 YEARS", "DON'T DO THIS", "THE TRUTH ABOUT X". Always write this in English regardless of the requested dialogue/narration language — thumbnail text is a separate on-platform design element, not part of the story's spoken content, so it is not one of the LANGUAGE RULE's two exceptions below.)
+    "textOverlay": string (a short, punchy 2-6 word text suggestion for the thumbnail overlay — bold and curiosity-driving, matching the video's hook/logline, phrased the way real high-performing YouTube thumbnails phrase their text, e.g. "SHE WAITED 30 YEARS", "DON'T DO THIS", "THE TRUTH ABOUT X". Always write this in English regardless of the requested dialogue/narration language — thumbnail text is a separate on-platform design element, not part of the story's spoken content, so it is not one of the LANGUAGE RULE's two exceptions below.),
+    "videoPrompt": string (a short image-to-video prompt that ANIMATES this exact thumbnail image as a 5-6 second eye-catching intro shot: start from the thumbnail frame exactly; the main character's ONE small, expressive motion that sells the thumbnail's emotion (a slow look-up, a widening of the eyes, a held breath, a tightening grip on the key object), a subtle light or particle movement on the key object, the background softly alive (dust motes, drifting haze, flickering torchlight — whatever fits the setting), and a slow push-in camera. The character does not speak. Name the character only by visible look, never by name. Mention that the title banner text stays perfectly still and sharp. Same render style as styleBlock.description. Concrete ambient sound only, never music.)
   },
   "scenes": [
     {
@@ -2505,6 +2507,60 @@ function fullThumbnailPrompt(){
 
   return withFaceNegative(`${parts.join(' ')}${neg ? ` ${neg}.` : ''}`);
 }
+// Image-to-video prompt that animates the thumbnail (for an intro / Short).
+// Uses the AI's thumbnail.videoPrompt when the job has one; otherwise
+// builds one from the thumbnail itself, so older saved jobs work too.
+const THUMBNAIL_CLIP_DURATION = 6;
+function fullThumbnailVideoPrompt(){
+  if(!job.thumbnail || !job.thumbnail.prompt) return '';
+  const chars = thumbnailCharacters();
+  const lookOf = c => 'the ' + (c.visualTag || fallbackVisualTag(c)).replace(/^(the|a|an)\s+/i, '');
+  let body;
+  if(job.thumbnail.videoPrompt){
+    body = nameToDescriptor(job.thumbnail.videoPrompt, { charactersInScene: chars.map(c => c.name) });
+  }else{
+    const who = chars.length ? lookOf(chars[0]) : 'the main subject';
+    const other = chars[1] ? ` ${cap(lookOf(chars[1]))} stays in place with only a tiny natural movement.` : '';
+    body = `Animate this exact thumbnail image as a ${THUMBNAIL_CLIP_DURATION}-second eye-catching intro shot. ${cap(who)} makes one small, expressive motion that sells the emotion of the frame — a slow look-up and a slight widening of the eyes, a held breath, the grip on the key object tightening — with natural blinking and subtle breathing.${other} Light glints and shimmers softly across the key object in the frame; the background stays gently alive with drifting dust motes, soft haze and flickering light that fit the setting. The camera makes a slow, steady push-in toward the character's face. ${cap(who)} does not speak.`;
+  }
+  const title = (job.thumbnail.textOverlay || '').trim();
+  const banner = title ? ` The title banner "${title.toUpperCase()}" stays perfectly still, sharp and readable for the whole shot — the letters never move, morph, flicker or change.` : '';
+  const prompt = `${endSentence(body)}${banner} Start exactly from the provided thumbnail image — same characters, positions, pose, props, background, framing and lighting; no new characters appear. Audio: soft ambient sound of the setting only.`;
+  const musicOn = (job && typeof job.musicTheme === 'boolean') ? job.musicTheme : false;
+  const negParts = ['no new or changing text', 'no texture', 'no gore', 'no watermark', 'no lip-sync', 'no talking mouths'];
+  if(!musicOn) negParts.push('no background music', 'no score', 'no soundtrack');
+  const neg = styleNegative();
+  return `[Clip Thumbnail] ${withStyleHeader(prompt)} ${negParts.join(', ')}${neg ? `, ${neg}` : ''}.`;
+}
+async function copyThumbnailVideoPrompt(){
+  if(!job.thumbnail || !job.thumbnail.prompt){ showToast('No thumbnail for this job'); return; }
+  await copyText(fullThumbnailVideoPrompt());
+  showToast('Thumbnail video prompt copied');
+}
+// Same "⚡ Copy All → VideoExpress" as a scene: image = thumbnail prompt,
+// video = thumbnail animation prompt, reference photos = thumbnail's characters.
+async function copyThumbnailToVideoExpress(){
+  if(!job.thumbnail || !job.thumbnail.prompt){ showToast('No thumbnail for this job'); return; }
+  if('Notification' in window && Notification.permission === 'default'){
+    Notification.requestPermission();
+  }
+  const chars = thumbnailCharacters();
+  const payload = {
+    image: fullThumbnailPrompt(),
+    videoAudio: fullThumbnailVideoPrompt(),
+    duration: THUMBNAIL_CLIP_DURATION,
+    characterStyle: job.characterStyle,
+    referencePhotos: chars.filter(c => c.referenceId).map(c => ({ name: c.name, ident: c.referenceId })),
+    castCount: chars.length,
+    sceneNumber: 'thumbnail' // Automation ignores this one (it isn't part of the scene sequence)
+  };
+  const missing = chars.filter(c => !c.referenceId).map(c => c.name);
+  await copyText(JSON.stringify(payload));
+  openOrFocusVideoExpress();
+  showToast(missing.length
+    ? `Thumbnail copied — no reference photo ID for ${missing.join(', ')} (set it in the Characters panel)`
+    : 'Thumbnail copied — VideoExpress will pick it up');
+}
 async function copyThumbnailPrompt(){
   if(!job.thumbnail || !job.thumbnail.prompt){ showToast('No thumbnail prompt for this job'); return; }
   await copyText(fullThumbnailPrompt());
@@ -2614,11 +2670,18 @@ function renderResults(){
     <details class="acc" data-acc="thumb" ${openAttr('thumb', false)}>
       <summary><span>🖼️ YouTube thumbnail</span></summary>
       <div class="acc-body char-card">
+        <div class="cd"><b>Image prompt</b></div>
         <div class="cd">${fullThumbnailPrompt()}</div>
         ${job.thumbnail.textOverlay ? `<div class="cd" style="margin-top:8px;"><b>Suggested text overlay:</b> "${job.thumbnail.textOverlay}"</div>` : ''}
+        <div class="cd" style="margin-top:12px;"><b>Video prompt</b> (animates the thumbnail · ${THUMBNAIL_CLIP_DURATION}s)</div>
+        <div class="cd">${fullThumbnailVideoPrompt()}</div>
         <div class="btn-row" style="margin-top:12px;">
           <button class="btn btn-video" onclick="copyThumbnailPrompt()">Copy Thumbnail Prompt</button>
+          <button class="btn btn-video" onclick="copyThumbnailVideoPrompt()">Copy Video Prompt</button>
           <button class="btn btn-voice" onclick="copyThumbnailToArtistly()">Copy → Artistly</button>
+        </div>
+        <div class="btn-row" style="margin-top:8px;">
+          <button class="btn btn-video" onclick="copyThumbnailToVideoExpress()" style="background:var(--done);color:#0A1F0D;">⚡ Copy All → VideoExpress</button>
         </div>
       </div>
     </details>` : ''}
