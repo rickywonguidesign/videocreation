@@ -1446,7 +1446,7 @@ Output ONLY raw JSON, no markdown fences, no preamble. Schema:
     ]
   },
   "thumbnail": {
-    "prompt": string (a single flowing image-generation prompt for this video's YouTube thumbnail — a deliberately composed, maximally clickable STILL IMAGE, not a copy of any individual scene's imagePrompt. Center it on whichever single moment, expression, or object from across the WHOLE story (per treatment.sourceBeats, chosen after seeing the whole story, not just the Hook) would make someone stop scrolling — usually an exaggerated but genuine emotional expression on a character's face, read from a close or medium-close distance, or per SUBJECT RULE a striking object/moment if the story is genuinely non-human-centric. Pull the exact character/product description straight from styleBlock so it renders as the same character/product as the rest of the video, and keep the render style, color grade, and overall art direction consistent with styleBlock.description and treatment.colorGrade — but push contrast, saturation, and framing harder than a normal scene would, the way real high-performing thumbnails do: punchy high-contrast lighting, one clear focal point, and deliberate negative space (a relatively clean, uncluttered area, usually to one side or along the top) left open for a text overlay to be added separately. Do NOT describe or bake any text, words, letters, or numbers into the image itself — overlay text is composed separately, never rendered by the image generator. End the prompt with ", 16:9 landscape composition, YouTube thumbnail" to lock the aspect ratio and intent.),
+    "prompt": string (a single flowing image-generation prompt for this video's YouTube thumbnail — a deliberately composed, maximally clickable STILL IMAGE, not a copy of any individual scene's imagePrompt. Center it on whichever single moment, expression, or object from across the WHOLE story (per treatment.sourceBeats, chosen after seeing the whole story, not just the Hook) would make someone stop scrolling — usually an exaggerated but genuine emotional expression on a character's face, read from a close or medium-close distance, or per SUBJECT RULE a striking object/moment if the story is genuinely non-human-centric. Pull the exact character/product description straight from styleBlock so it renders as the same character/product as the rest of the video, and keep the render style, color grade, and overall art direction consistent with styleBlock.description and treatment.colorGrade — but push contrast, saturation, and framing harder than a normal scene would, the way real high-performing thumbnails do: punchy high-contrast lighting, one clear focal point, and deliberate negative space (a relatively clean, uncluttered area, usually to one side or along the top) left open for the title banner. Do NOT write the title words yourself and do NOT say "no text" — the app appends the exact title-banner instruction using "textOverlay". If the thumbnail is about a character, that character must be the DOMINANT subject — head-and-shoulders, face large and filling a big part of the frame, full description restated — never a hand or object close-up with the character small or implied. End the prompt with ", 16:9 landscape composition, YouTube thumbnail" to lock the aspect ratio and intent.),
     "textOverlay": string (a short, punchy 2-6 word text suggestion for the thumbnail overlay — bold and curiosity-driving, matching the video's hook/logline, phrased the way real high-performing YouTube thumbnails phrase their text, e.g. "SHE WAITED 30 YEARS", "DON'T DO THIS", "THE TRUTH ABOUT X". Always write this in English regardless of the requested dialogue/narration language — thumbnail text is a separate on-platform design element, not part of the story's spoken content, so it is not one of the LANGUAGE RULE's two exceptions below.)
   },
   "scenes": [
@@ -2450,10 +2450,60 @@ async function copyProduct(index){
   showToast(`${p.name} description copied`);
 }
 
+// Characters the thumbnail is about: roster characters whose name appears
+// in the thumbnail prompt, in order of appearance (max 2 — same as the
+// reference slots).
+function thumbnailCharacters(){
+  const text = (job.thumbnail && job.thumbnail.prompt) || '';
+  const roster = (job.styleBlock && job.styleBlock.characters) || [];
+  return roster
+    .map(c => ({ c, at: c.name ? text.search(new RegExp(`\\b${escapeRe(c.name)}\\b`, 'i')) : -1 }))
+    .filter(x => x.at >= 0)
+    .sort((a, b) => a.at - b.at)
+    .slice(0, 2)
+    .map(x => x.c);
+}
+// The AI was told to keep the thumbnail text-free; strip those phrases so
+// they can't fight the title banner added below (also fixes saved jobs).
+function stripNoTextPhrases(prompt){
+  return String(prompt || '')
+    .replace(/[,;]?\s*(?:with\s+)?no (?:text|words|letters|lettering|numbers|typography)(?:\s*(?:,|or|and)\s*(?:text|words|letters|lettering|numbers|typography))*(?: (?:in|on) the (?:image|frame|picture))?/gi, '')
+    .replace(/\bfor (?:a |the )?separately[- ]added (?:text|title)(?: overlay)?/gi, 'for the title banner')
+    .replace(/\bfor (?:a |the )?text overlay(?: to be added separately)?/gi, 'for the title banner')
+    .replace(/\s{2,}/g, ' ')
+    .replace(/\s+([,.])/g, '$1');
+}
 function fullThumbnailPrompt(){
   if(!job.thumbnail || !job.thumbnail.prompt) return '';
   const neg = styleNegative();
-  return withFaceNegative(`${endSentence(withStyleHeader(job.thumbnail.prompt))}${neg ? ` ${neg}.` : ''}`);
+  const chars = thumbnailCharacters();
+  const parts = [];
+
+  // 1. Which uploaded reference image is which character.
+  if(chars.length){
+    const withIds = chars.filter(c => c.referenceId);
+    const list = withIds.length ? withIds : chars;
+    const names = list.map((c, i) => `[image ${i + 1}] ${c.name}`);
+    parts.push(`[REFERENCE USE] use the supplied reference image of ${names.length > 1 ? names.slice(0, -1).join(', ') + ' and ' + names[names.length - 1] : names[0]}, exactly face, hair style, outfit.`);
+  }
+
+  parts.push(endSentence(withStyleHeader(stripNoTextPhrases(job.thumbnail.prompt))));
+
+  // 2. The character must be the main subject — image models don't know
+  //    names, so describe who it is by look, and say how big the face is.
+  if(chars.length){
+    const lead = chars[0];
+    const look = (lead.visualTag || fallbackVisualTag(lead)).replace(/^(the|a|an)\s+/i, '');
+    parts.push(`MAIN SUBJECT: the ${look} (${lead.name}) is the dominant subject of the thumbnail — head-and-shoulders, face large and sharp, filling about 40% of the frame, clearly visible and recognisable with a strong, readable emotional expression${chars[1] ? `; ${(chars[1].visualTag || fallbackVisualTag(chars[1])).replace(/^(the|a|an)\s+/i, 'the ')} is clearly visible beside them, smaller` : ''}. Objects and background stay secondary.`);
+  }
+
+  // 3. Title banner with the exact overlay text.
+  const title = (job.thumbnail.textOverlay || '').trim().replace(/^["']|["']$/g, '');
+  if(title){
+    parts.push(`TITLE BANNER: render the exact words "${title.toUpperCase()}" as a bold title banner in the clean negative space — huge thick sans-serif capital letters, bright white or yellow with a dark outline/drop shadow on a solid contrasting banner strip, spelled exactly as written, perfectly legible at small size, no other text anywhere in the image.`);
+  }
+
+  return withFaceNegative(`${parts.join(' ')}${neg ? ` ${neg}.` : ''}`);
 }
 async function copyThumbnailPrompt(){
   if(!job.thumbnail || !job.thumbnail.prompt){ showToast('No thumbnail prompt for this job'); return; }

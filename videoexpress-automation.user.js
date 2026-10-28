@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         VideoExpress Scene Automation
 // @namespace    videocreation-automation
-// @version      2.0
+// @version      2.2
 // @description  Pastes a scene's Image Prompt + Video/Audio Prompt into VideoExpress's Create Video From Prompt modal, sets options, auto-picks the reference photo from the library, and drives it through Create Image -> Create Video. Auto-runs as soon as a new scene payload appears on the clipboard — no button click needed after the first one.
 // @match        https://app.videoexpress.ai/*
 // @grant        none
@@ -19,7 +19,7 @@
     console.warn('[VE-Automation] Another copy of this script is already running on this page (v' + window.__veAutomationLoaded + ') — this copy will stay idle. Open Tampermonkey and disable/delete the duplicate script.');
     return;
   }
-  window.__veAutomationLoaded = '2.0';
+  window.__veAutomationLoaded = '2.2';
   // ============================================================
   // CONFIG — edit these to change behavior without touching the
   // engine logic below. Mirrors videoexpress-automation-flow.json.
@@ -428,6 +428,16 @@
       log('Already running — ignoring this trigger.');
       return;
     }
+    if (isPaused) {
+      // Keep the newest scene that arrived while paused; it starts on Play.
+      if (pausedQueue && pausedQueue.raw === raw) return; // already waiting (clipboard re-check)
+      if (!(raw !== null && processedRaws.has(raw) && !force)) {
+        pausedQueue = { payload, raw };
+        renderPauseBtn();
+        log(`⏸ Paused — scene ${payload && payload.sceneNumber != null ? payload.sceneNumber : ''} will start when you press Play.`);
+      }
+      return;
+    }
     if (!force && raw !== null && processedRaws.has(raw)) {
       return; // already ran this exact scene payload — nothing new to do
     }
@@ -453,6 +463,50 @@
     }, CONFIG.autoRun.pollIntervalMs);
     updateIdleStatus();
   }
+  // ============================================================
+  // v2.2: PAUSE / PLAY — a second floating button. While paused:
+  //   • a scene that's running stops at its next step and waits there,
+  //   • no new scene starts (clipboard or generator Automation) — a scene
+  //     that arrives meanwhile is kept and starts when you press Play.
+  // ============================================================
+  let isPaused = false;
+  let pausedQueue = null; // { payload, raw } that arrived while paused
+  let pauseBtnEl = null;
+  function renderPauseBtn() {
+    if (!pauseBtnEl) return;
+    pauseBtnEl.textContent = isPaused ? `▶ Play${pausedQueue ? ' (1 scene waiting)' : ''}` : '⏸ Pause';
+    pauseBtnEl.style.background = isPaused ? '#E0A100' : '#444';
+  }
+  function togglePause() {
+    isPaused = !isPaused;
+    renderPauseBtn();
+    log(isPaused ? '⏸ Paused — the current step finishes, then everything waits until you press Play.' : '▶ Resumed.');
+    if (!isPaused && pausedQueue && !isRunning) {
+      const q = pausedQueue;
+      pausedQueue = null;
+      renderPauseBtn();
+      triggerRun({ payload: q.payload, raw: q.raw, force: false });
+    }
+  }
+  // Called between the steps of a run: holds the run here while paused.
+  async function checkPause() {
+    if (!isPaused) return;
+    updateStatus('⏸ Paused — press ▶ Play to continue.');
+    while (isPaused) await sleep(300);
+  }
+  function injectPauseButton() {
+    pauseBtnEl = document.createElement('button');
+    pauseBtnEl.style.cssText = `
+      position:fixed; bottom:20px; right:200px; z-index:999998;
+      color:#fff; border:none; padding:12px 16px; border-radius:8px;
+      font-family:sans-serif; font-size:13px; font-weight:600; cursor:pointer;
+      box-shadow:0 4px 12px rgba(0,0,0,.3);
+    `;
+    pauseBtnEl.onclick = togglePause;
+    document.body.appendChild(pauseBtnEl);
+    renderPauseBtn();
+  }
+
   // ============================================================
   // FLOATING BUTTON + STATUS UI
   // ============================================================
@@ -829,15 +883,19 @@
     try {
       const alreadyOpen = findBestMatch('#formGenerateFromPrompt') || findBestMatch('.bbm-modal.bbm-modal--open textarea#opt_prompt');
       if (alreadyOpen) {
+        await checkPause();
         log('Modal already open — skipping the panel click, continuing with the rest of the flow.');
       } else {
+        await checkPause();
         log('Opening Create Video From Prompt modal...');
         const openPanel = await waitForElement('.panel.panel-default.js-panel-button.button-generate-from-prompt');
         openPanel.click();
       }
+      await checkPause();
       log('Pasting Image Prompt...');
       const imagePromptEl = await waitForElement('textarea#opt_prompt');
       setNativeValue(imagePromptEl, payload.image);
+      await checkPause();
       log('Pasting Video/Audio Prompt...');
       const videoPromptEl = await waitForElement('textarea#opt_video_prompt');
       setNativeValue(videoPromptEl, payload.videoAudio);
@@ -867,6 +925,7 @@
       }
       const noCharacters = sceneHasNoCharacters(payload);
       if (noCharacters) {
+        await checkPause();
         log('Scene has no characters — "Use consistent character" left off, skipping reference photos.');
       }
       // v1.6: when the generator sent character photo IDs, the photos were
@@ -877,9 +936,11 @@
       for (const slot of ((noCharacters || hasRefIds) ? [] : refSlots)) {
         if (!slot.el) continue; // second slot may not exist if only one character in this scene
         if (slotAlreadyHasRealImage(slot.el)) {
+          await checkPause();
           log(`${slot.label}: reference photo already selected (src isn't the blank placeholder) — skipping the 5s window.`);
           continue;
         }
+        await checkPause();
         log(`${slot.label}: 5s window — click Reference Photo / Clear within it if you want to change it, otherwise it's kept as-is...`);
         let clickedInSlot = false;
         const slotListener = (e) => { if (slot.el.contains(e.target)) clickedInSlot = true; };
@@ -887,9 +948,11 @@
         await sleep(5000);
         document.removeEventListener('click', slotListener, true);
         if (!clickedInSlot) {
+          await checkPause();
           log(`${slot.label}: no change — ${slotHasImage(slot.el) ? 'keeping the existing image' : 'no image present, continuing anyway'}.`);
           continue;
         }
+        await checkPause();
         log(`${slot.label}: change detected — waiting for the new selection to settle (take your time)...`);
         const settled = await waitForCondition(() => slotHasImage(slot.el), 180000);
         if (!settled) {
@@ -918,21 +981,26 @@
         return match ? parseInt(match[1], 10) : 0;
       }
       const totalSlidesBefore = getSwiperTotalCount();
+      await checkPause();
       log('Clicking Create Image...');
       const createImageBtn = await waitForElement('button.button-generate-image-submit');
       createImageBtn.click();
+      await checkPause();
       log('Confirming image generation actually started...');
       const loadingStarted = await waitForAttributeContaining("img[src*='loading-paint3-horiz.gif']", 'src', 'loading-paint3-horiz.gif', 8000);
       if (!loadingStarted) {
         console.warn('[VE-Automation] Loading indicator never appeared after clicking Create Image — the click may not have registered, or the site changed. Proceeding anyway, but this scene may end up using a stale image.');
       }
+      await checkPause();
       log('Waiting for image generation to finish...');
       await waitForAttributeNotContaining("img[src*='loading-paint3-horiz.gif']", 'src', 'loading-paint3-horiz.gif', CONFIG.timeouts.imageGeneration);
+      await checkPause();
       log('Waiting for a genuinely new slide to appear...');
       const gotNewSlide = await waitForCondition(() => getSwiperTotalCount() > totalSlidesBefore, CONFIG.timeouts.imageSlideSelected);
       if (!gotNewSlide) {
         console.warn(`[VE-Automation] Slide count never rose above ${totalSlidesBefore} — continuing anyway.`);
       }
+      await checkPause();
       log('Waiting for the new image to be selected...');
       if (bothRefPhotosEmpty) {
         // No reference photos => single plain slide, nothing to "select".
@@ -962,10 +1030,13 @@
       }
       // One click right before Create Video, so nothing after this can undo it.
       await setCheckbox(await waitForElement("input[type='checkbox'][name='enhance_video_prompt']"), CONFIG.checkboxDesiredState.enhance_video_prompt, 'enhance_video_prompt (before Create Video)');
+      await checkPause();
       log('Waiting for the Create Video button to become visible...');
       const createVideoBtn = await waitForElement('button.button-generate-video-submit:not(.hidden)');
+      await checkPause();
       log('Clicking Create Video...');
       createVideoBtn.click();
+      await checkPause();
       log('Done — video generation started.');
       returnToGeneratorTab(payload);
     } catch (err) {
@@ -996,6 +1067,7 @@
     await triggerRun({ payload, raw, force: false });
   });
   injectButton();
+  injectPauseButton();
   setTimeout(warnIfDuplicateCopies, 3000); // after every copy has had time to add its button
   startAutoRunPolling();
 })();
