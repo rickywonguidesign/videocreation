@@ -97,6 +97,8 @@
   .col-head-right{display:flex;align-items:center;gap:14px;}
   .auto-toggle{display:inline-flex;align-items:center;gap:6px;cursor:pointer;color:var(--amber);}
   .auto-toggle input{margin:0;accent-color:var(--amber);cursor:pointer;}
+  .auto-pause-btn{font:inherit;font-size:10px;letter-spacing:.06em;text-transform:uppercase;padding:3px 9px;border-radius:5px;border:1px solid var(--amber);background:transparent;color:var(--amber);cursor:pointer;}
+  .auto-pause-btn.paused{background:var(--amber);color:#1A1405;}
   .scenes-col::-webkit-scrollbar,.side-col::-webkit-scrollbar{width:8px;}
   .scenes-col::-webkit-scrollbar-thumb,.side-col::-webkit-scrollbar-thumb{background:var(--line);border-radius:4px;}
   @media (max-width:980px){
@@ -405,7 +407,7 @@
     </div>
     <div class="results-grid">
       <div class="scenes-col" id="scenesCol">
-        <div class="col-head"><span>Scenes</span><span class="col-head-right"><label class="auto-toggle" title="When VideoExpress reports a scene is ready, automatically send the next scene — loops until the last scene"><input type="checkbox" id="autoNextScene" onchange="onAutomationToggle(this.checked)"><span>Automation</span></label><span id="sceneCount"></span></span></div>
+        <div class="col-head"><span>Scenes</span><span class="col-head-right"><label class="auto-toggle" title="When VideoExpress reports a scene is ready, automatically send the next scene — loops until the last scene"><input type="checkbox" id="autoNextScene" onchange="onAutomationToggle(this.checked)"><span>Automation</span></label><button type="button" id="autoPauseBtn" class="auto-pause-btn" onclick="toggleAutomationPause()" style="display:none;">⏸ Pause</button><span id="sceneCount"></span></span></div>
         <div id="scenesWrap"></div>
         <button class="generate-btn" id="continueBtn" onclick="continueScript()" style="background:var(--teal);color:#08201F;margin-bottom:10px;">Generate next scenes</button>
       </div>
@@ -715,8 +717,38 @@ function isAutomationOn(){
   const el = document.getElementById('autoNextScene');
   return !!(el && el.checked);
 }
+// ---- Pause / Resume ------------------------------------------------------
+// Pausing lets the scene that's already running finish, but holds the NEXT
+// scene (video and/or voice) until Resume is clicked.
+let autoPaused = false;
+let pendingVideo = null; // { next, target } held while paused
+let pendingVoice = null;
+function updatePauseBtn(){
+  const btn = document.getElementById('autoPauseBtn');
+  if(!btn) return;
+  btn.style.display = isAutomationOn() ? '' : 'none';
+  btn.classList.toggle('paused', autoPaused);
+  const waiting = [pendingVideo && `scene ${pendingVideo.next.sceneNumber}`, pendingVoice && `voice ${pendingVoice.next.sceneNumber}`].filter(Boolean);
+  btn.textContent = autoPaused ? `▶ Resume${waiting.length ? ` (${waiting.join(', ')} waiting)` : ''}` : '⏸ Pause';
+}
+function toggleAutomationPause(){
+  autoPaused = !autoPaused;
+  if(autoPaused){
+    // A scene that was about to go out in the 3s delay is held instead.
+    showToast('Automation paused — the current scene finishes, the next one waits');
+  }else{
+    showToast('Automation resumed');
+    const v = pendingVideo, a = pendingVoice;
+    pendingVideo = null; pendingVoice = null;
+    if(v) copyAllForAutomation(v.next, { auto: true, target: v.target });
+    if(a) copyAndOpenVoice(a.next, { auto: true, target: a.target });
+  }
+  updatePauseBtn();
+}
 function onAutomationToggle(on){
   try{ localStorage.setItem('autoNextScene', on ? '1' : '0'); }catch(e){}
+  if(!on){ autoPaused = false; pendingVideo = null; pendingVoice = null; }
+  updatePauseBtn();
   if(!on && autoNextTimer){ clearTimeout(autoNextTimer); autoNextTimer = null; }
   if(!on && autoNextVoiceTimer){ clearTimeout(autoNextVoiceTimer); autoNextVoiceTimer = null; }
   showToast(on ? 'Automation on — the next scene is sent automatically when VideoExpress finishes one' : 'Automation off');
@@ -729,6 +761,7 @@ try{
     });
     const el = document.getElementById('autoNextScene');
     if(el) el.checked = true;
+    updatePauseBtn();
   }
 }catch(e){}
 // Same loop for CloneVoice: after CloneVoice reports a line is done, send
@@ -761,6 +794,12 @@ function autoSendNextVoiceScene(event){
   autoNextVoiceTimer = setTimeout(() => {
     autoNextVoiceTimer = null;
     if(!isAutomationOn()) return;
+    if(autoPaused){
+      pendingVoice = { next, target };
+      showToast(`Paused — voice for scene ${next.sceneNumber} will be sent when you click Resume`);
+      updatePauseBtn();
+      return;
+    }
     copyAndOpenVoice(next, { auto: true, target });
   }, AUTO_NEXT_DELAY_MS);
 }
@@ -791,6 +830,12 @@ function autoSendNextScene(event){
   autoNextTimer = setTimeout(() => {
     autoNextTimer = null;
     if(!isAutomationOn()) return; // unticked during the delay
+    if(autoPaused){
+      pendingVideo = { next, target };
+      showToast(`Paused — scene ${next.sceneNumber} will be sent when you click Resume`);
+      updatePauseBtn();
+      return;
+    }
     copyAllForAutomation(next, { auto: true, target });
   }, AUTO_NEXT_DELAY_MS);
 }
@@ -2144,6 +2189,19 @@ function frameLockLine(scene, withNames){
   if(meta) parts.push(meta);
   return parts.length ? `Frame: ${parts.join('; ')}.` : '';
 }
+// "[REFERENCE USE] ..." line naming which uploaded reference image is which
+// character. Image order matches the VideoExpress slots: [image 1] goes to
+// "Reference Photo", [image 2] to "Reference Photo 2" (same order the
+// userscript picks them in). Empty for scenes with no characters.
+function referenceUseLine(scene){
+  const refs = sceneReferencePhotos(scene);
+  if(!refs.length) return '';
+  const withIds = refs.filter(r => r.ident);
+  const list = withIds.length ? withIds : refs;
+  const parts = list.map((r, i) => `[image ${i + 1}] ${r.name}`);
+  const joined = parts.length > 1 ? `${parts.slice(0, -1).join(', ')} and ${parts[parts.length - 1]}` : parts[0];
+  return `[REFERENCE USE] use the supplied reference image of ${joined}, exactly face, hair style, outfit.`;
+}
 function fullImagePrompt(scene){
   const base = endSentence(nameToDescriptor(scene.imagePrompt || '', scene).replace(/(^|[.!?]\s+)the /g, (m, pre) => pre + 'The '));
   const face = faceLockLine(scene);
@@ -2154,6 +2212,8 @@ function fullImagePrompt(scene){
   if(frame) out += ` ${frame}`;
   out += ' This is the opening frame of the shot: characters in their starting pose, just before the action begins.';
   if(neg) out += ` ${neg}.`;
+  const refUse = referenceUseLine(scene);
+  if(refUse) out = `${refUse} ${out}`;
   return withFaceNegative(out);
 }
 

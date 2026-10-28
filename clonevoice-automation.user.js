@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         CloneVoice Audio Automation
 // @namespace    videocreation-automation
-// @version      1.5
+// @version      1.6
 // @description  Pastes a scene's narration/dialogue into CloneVoice's Create Audio flow — title, reference language, script — waits for manual voice selection, sets emotion style, and generates the audio. v1.3: original v1.0 flow, plus the generator's "Automation" loop (receives the next scene directly, reports which scene finished).
 // @match        https://app.clonevoice.ai/*
 // @grant        none
@@ -35,7 +35,8 @@
       languageDropdown: 10000,
       languageOption: 8000,
       voiceSelection: 120000, // generous — this is a manual step, the person needs time to browse and pick a voice
-      emotionSelectAppear: 15000
+      emotionSelectAppear: 15000,
+      generationFinish: 600000 // v1.6: wait up to 10 min for the audio to finish generating before telling the generator
     },
 
     // v1.4: AUTO-RUN — like the VideoExpress script, watch the clipboard and
@@ -226,6 +227,74 @@
   }
 
   // ============================================================
+  // v1.6: WAIT FOR THE AUDIO TO FINISH — the generator is only told a scene
+  // is done (which makes Automation send the next one) once CloneVoice has
+  // actually finished generating it, not just when Generate was clicked.
+  // Finished = a NEW audio file / download link appears, or a "Generating /
+  // Processing" state that showed up has gone again (and stays gone 3s).
+  // ============================================================
+  const BUSY_TEXT_RE = /^(generating|processing|in progress|queued|pending|creating|đang tạo|đang xử lý)\b/i;
+  function audioSnapshot() {
+    const srcs = new Set();
+    document.querySelectorAll('audio, audio source, video source, [src$=".mp3"], [src$=".wav"], [src*=".mp3?"], [src*=".wav?"]').forEach(el => {
+      const src = el.getAttribute('src') || el.currentSrc || '';
+      if (src) srcs.add(src);
+    });
+    const downloads = document.querySelectorAll('a[download], [data-agent-id*="download"]').length;
+    return { srcs, downloads };
+  }
+  function isBusyNow(generateBtn) {
+    if (generateBtn && document.body.contains(generateBtn) &&
+        (generateBtn.disabled || generateBtn.getAttribute('aria-busy') === 'true' || generateBtn.getAttribute('data-loading') === 'true')) {
+      return 'Generate button busy';
+    }
+    if (document.querySelector('[aria-busy="true"], [data-state="generating"], [data-status="processing"], [data-status="generating"]')) {
+      return 'busy marker on page';
+    }
+    // Short visible text like "Generating..." / "Processing 40%"
+    const nodes = document.querySelectorAll('span, p, div, button, small');
+    for (const n of nodes) {
+      if (n.children.length || !isVisible(n)) continue;
+      const t = (n.textContent || '').trim();
+      if (t.length && t.length < 40 && BUSY_TEXT_RE.test(t)) return `"${t}"`;
+    }
+    return '';
+  }
+  async function waitForGenerationFinished(before, generateBtn) {
+    const start = Date.now();
+    let sawBusy = false;
+    let idleSince = 0;
+    await sleep(3000); // let the request start
+    while (Date.now() - start < CONFIG.timeouts.generationFinish) {
+      const busy = isBusyNow(generateBtn);
+      const now = audioSnapshot();
+      const newAudio = Array.from(now.srcs).some(src => !before.srcs.has(src));
+      const newDownload = now.downloads > before.downloads;
+      if (busy) {
+        if (!sawBusy) log(`Generating… (${busy}) — waiting for it to finish before the next scene.`);
+        sawBusy = true;
+        idleSince = 0;
+      } else {
+        if (newAudio || newDownload) {
+          log(`Audio finished (${newAudio ? 'new audio file' : 'new download link'} appeared).`);
+          return true;
+        }
+        if (sawBusy) {
+          if (!idleSince) idleSince = Date.now();
+          if (Date.now() - idleSince >= 3000) {
+            log('Audio finished (the generating state has ended).');
+            return true;
+          }
+        }
+      }
+      await sleep(1000);
+    }
+    console.warn('[CV-Automation] Could not detect the end of audio generation within the time limit — continuing anyway. Send Claude the HTML of the finished audio item so this can be detected exactly.');
+    log('Could not detect when the audio finished — continuing anyway (see console).');
+    return false;
+  }
+
+  // ============================================================
   // FLOATING BUTTON + STATUS UI
   // ============================================================
 
@@ -370,9 +439,13 @@
 
       log('Clicking Generate Audio...');
       const generateBtn = await waitForElement('[data-agent-id="action.audio.generate"]');
+      const beforeGenerate = audioSnapshot();
       generateBtn.click();
 
-      log('Done — audio generation started.');
+      log('Audio generation started — waiting for it to finish...');
+      await waitForGenerationFinished(beforeGenerate, generateBtn);
+
+      log('Done — audio generated.');
       isRunning = false;
       returnToGeneratorTab(payload);
     } catch (err) {
