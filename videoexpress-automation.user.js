@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         VideoExpress Scene Automation
 // @namespace    videocreation-automation
-// @version      1.8
+// @version      2.0
 // @description  Pastes a scene's Image Prompt + Video/Audio Prompt into VideoExpress's Create Video From Prompt modal, sets options, auto-picks the reference photo from the library, and drives it through Create Image -> Create Video. Auto-runs as soon as a new scene payload appears on the clipboard — no button click needed after the first one.
 // @match        https://app.videoexpress.ai/*
 // @grant        none
@@ -19,7 +19,7 @@
     console.warn('[VE-Automation] Another copy of this script is already running on this page (v' + window.__veAutomationLoaded + ') — this copy will stay idle. Open Tampermonkey and disable/delete the duplicate script.');
     return;
   }
-  window.__veAutomationLoaded = '1.8';
+  window.__veAutomationLoaded = '2.0';
   // ============================================================
   // CONFIG — edit these to change behavior without touching the
   // engine logic below. Mirrors videoexpress-automation-flow.json.
@@ -457,6 +457,19 @@
   // FLOATING BUTTON + STATUS UI
   // ============================================================
   let statusEl;
+  // v2.0: an OLDER copy of this script (installed separately in Tampermonkey,
+  // before the single-copy guard existed) can't be stopped from here — but
+  // it can be detected: every copy adds its own "⚡ Paste & Generate" button.
+  function warnIfDuplicateCopies() {
+    const n = Array.from(document.querySelectorAll('button')).filter(b => (b.textContent || '').trim() === '⚡ Paste & Generate').length;
+    if (n <= 1) return;
+    const banner = document.createElement('div');
+    banner.style.cssText = 'position:fixed;top:12px;left:50%;transform:translateX(-50%);z-index:1000000;background:#C62828;color:#fff;padding:12px 18px;border-radius:8px;font:600 13px sans-serif;box-shadow:0 4px 14px rgba(0,0,0,.35);max-width:560px;text-align:center;';
+    banner.textContent = `⚠ ${n} copies of "VideoExpress Scene Automation" are running on this page — every click happens ${n} times (that's what opens several Select Image popups). Open Tampermonkey → Dashboard, keep only v2.0, delete/disable the others, then reload.`;
+    banner.onclick = () => banner.remove();
+    document.body.appendChild(banner);
+    console.error('[VE-Automation] ' + banner.textContent);
+  }
   function injectButton() {
     const btn = document.createElement('button');
     btn.textContent = '⚡ Paste & Generate';
@@ -570,6 +583,41 @@
     const slots = Array.from(document.querySelectorAll(REF_SLOT_SELECTOR)).map((c, i) => ({ slot: i + 1, src: refSlotSrc(i) }));
     console.warn(`[VE-Automation] DIAGNOSTICS for ${label}:`, { slotButtons: slotBtns, imageMatches: images, folderTiles: folders, chooseButtons: chooseBtns, slots });
   }
+  // v2.0: a "Select Image" library popup is found from its footer: every
+  // open popup has its own visible "Choose" + "Close" buttons (stacked
+  // popups each keep theirs). The popup root is the nearest ancestor of
+  // "Choose" that also holds a "Close" button and the library tiles.
+  function btnText(b) { return (b.textContent || '').replace(/\s+/g, ' ').trim().toLowerCase(); }
+  function libraryPopups() {
+    const chooses = Array.from(document.querySelectorAll('button')).filter(b => isVisible(b) && btnText(b) === 'choose');
+    const roots = [];
+    for (const b of chooses) {
+      let p = b.parentElement;
+      while (p && p !== document.body) {
+        const hasClose = Array.from(p.querySelectorAll('button')).some(x => btnText(x) === 'close');
+        const looksLikePopup = p.querySelector('.library-item') || /modal/i.test(p.className || '');
+        if (hasClose && looksLikePopup) break;
+        p = p.parentElement;
+      }
+      if (p && p !== document.body && !roots.includes(p)) roots.push(p);
+    }
+    return roots; // DOM order — the last one is the newest / top-most
+  }
+  function openLibraryModals() { return libraryPopups(); }
+  function openLibraryCount() { return libraryPopups().length; }
+  // Closes every open library popup with its own "Close" button, newest
+  // first, and waits until none is showing.
+  async function closeOpenLibraries() {
+    for (let guard = 0; guard < 6 && openLibraryCount() > 0; guard++) {
+      const popups = libraryPopups();
+      const top = popups[popups.length - 1];
+      const closeBtn = Array.from(top.querySelectorAll('button')).find(b => isVisible(b) && btnText(b) === 'close');
+      if (!closeBtn) break;
+      closeBtn.click();
+      await waitForCondition(() => !document.body.contains(top) || !isVisible(closeBtn), 2000);
+      await sleep(300);
+    }
+  }
   function closestModal(el) {
     return (el && el.closest('.bbm-modal, .modal, [role="dialog"]')) || document;
   }
@@ -583,13 +631,32 @@
     const visibleIn = (root, sel) => Array.from(root.querySelectorAll(sel)).find(isVisible)
       || (root !== document ? Array.from(document.querySelectorAll(sel)).find(isVisible) : null) || null;
     try {
-      log(`${label}: opening the library for image ${ident}...`);
-      const refBtn = await waitForVisibleElement(
-        rp.buttonSelector,
-        CONFIG.timeouts.slotButton,
-        el => el.textContent.replace(/\s+/g, ' ').trim().toLowerCase() === btnText.toLowerCase()
-      );
-      refBtn.click();
+      // v1.9: NEVER open a second library popup. Ticking the checkboxes (or
+      // the previous pick) can leave a library popup already open — clicking
+      // "Reference Photo" on top of it stacked a second popup.
+      await sleep(800); // give a spontaneously-opening popup time to appear
+      if (openLibraryCount() > 0) {
+        if (slotIndex === 0) {
+          log(`${label}: a photo library popup is already open — using it instead of opening another.`);
+        } else {
+          log(`${label}: the previous library popup is still open — closing it first...`);
+          await closeOpenLibraries();
+        }
+      }
+      if (openLibraryCount() === 0) {
+        log(`${label}: opening the library for image ${ident}...`);
+        const refBtn = await waitForVisibleElement(
+          rp.buttonSelector,
+          CONFIG.timeouts.slotButton,
+          el => el.textContent.replace(/\s+/g, ' ').trim().toLowerCase() === btnText.toLowerCase()
+        );
+        console.log(`[VE-Automation] ${label}: clicking slot button (open libraries before click: ${openLibraryCount()})`, refBtn);
+        refBtn.click();
+        await sleep(1500);
+        const n = openLibraryCount();
+        console.log(`[VE-Automation] ${label}: open library popups after click: ${n}`);
+        if (n > 1) console.warn(`[VE-Automation] ${label}: ${n} library popups are open after ONE click — the site itself opened two.`);
+      }
 
       const folderSelector = `.library-item.library-folder.button-folder[data-id="${rp.libraryFolderId}"]`;
       const imageSelector = `[data-ident="${ident}"]`;
@@ -599,7 +666,8 @@
       // a hidden second library elsewhere on the page can't be clicked.
       log(`${label}: waiting for the library to open...`);
       const firstItem = await waitForVisibleElement(`${folderSelector}, .library-item`, t);
-      const lib = closestModal(firstItem);
+      const popupsNow = libraryPopups();
+      const lib = popupsNow.length ? popupsNow[popupsNow.length - 1] : closestModal(firstItem);
       await sleep(400); // let the list finish rendering
 
       if (visibleIn(lib, imageSelector)) {
@@ -627,6 +695,10 @@
 
       // Confirm the photo actually landed in THIS slot.
       await waitForCondition(() => !isVisible(chooseBtn), 5000);
+      if (openLibraryCount() > 0) {
+        console.warn(`[VE-Automation] ${label}: a library popup is still open after Choose — closing it.`);
+        await closeOpenLibraries();
+      }
       const landed = await waitForCondition(() => refSlotFilled(slotIndex), 10000);
       await sleep(300);
       if (!landed) {
@@ -924,5 +996,6 @@
     await triggerRun({ payload, raw, force: false });
   });
   injectButton();
+  setTimeout(warnIfDuplicateCopies, 3000); // after every copy has had time to add its button
   startAutoRunPolling();
 })();

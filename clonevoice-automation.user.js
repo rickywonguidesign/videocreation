@@ -1,26 +1,14 @@
 // ==UserScript==
 // @name         CloneVoice Audio Automation
 // @namespace    videocreation-automation
-// @version      1.2
-// @description  Pastes a scene's narration/dialogue into CloneVoice's Create Audio flow — title, reference language, script — selects the voice, sets emotion style, and generates the audio. v1.1: also accepts scenes sent directly by the generator's "Automation" loop and reports back which scene finished.
+// @version      1.4
+// @description  Pastes a scene's narration/dialogue into CloneVoice's Create Audio flow — title, reference language, script — waits for manual voice selection, sets emotion style, and generates the audio. v1.3: original v1.0 flow, plus the generator's "Automation" loop (receives the next scene directly, reports which scene finished).
 // @match        https://app.clonevoice.ai/*
 // @grant        none
-// @noframes
 // ==/UserScript==
 
 (function () {
   'use strict';
-  // v1.2: SINGLE-INSTANCE GUARD. If this script is installed twice in
-  // Tampermonkey (e.g. an old copy pasted as a new script), or the page has
-  // iframes, every copy ran the whole flow at the same time — clicking each
-  // button twice and opening two library popups. Only the first copy on the
-  // top-level page runs now; any other copy stops here.
-  if (window.top !== window.self) return;
-  if (window.__cvAutomationLoaded) {
-    console.warn('[CV-Automation] Another copy of this script is already running on this page (v' + window.__cvAutomationLoaded + ') — this copy will stay idle. Open Tampermonkey and disable/delete the duplicate script.');
-    return;
-  }
-  window.__cvAutomationLoaded = '1.2';
 
   // ============================================================
   // CONFIG — edit these without touching the engine logic below.
@@ -47,10 +35,52 @@
       languageDropdown: 10000,
       languageOption: 8000,
       voiceSelection: 120000, // generous — this is a manual step, the person needs time to browse and pick a voice
-      emotionSelectAppear: 15000,
-      waitForPreviousRun: 300000 // v1.1: an Automation scene that arrives mid-run waits up to 5 min for the current one
-    }
+      emotionSelectAppear: 15000
+    },
+
+    // v1.4: AUTO-RUN — like the VideoExpress script, watch the clipboard and
+    // start on its own when a NEW scene from "Copy → CloneVoice" shows up,
+    // so the floating button doesn't need clicking. Clipboard reads only
+    // work while this tab is focused, so it starts when you switch to it.
+    autoRun: {
+      enabled: true,
+      pollIntervalMs: 1500,
+      maxCopyAgeMs: 10 * 60 * 1000 // ignore scenes copied more than 10 min ago (stops an old clipboard re-running on page reload)
+    },
+
+    // v1.4: hide the Glasp browser-extension popup on this site — it sits
+    // on top of CloneVoice's buttons. Set false to keep it.
+    hideGlaspToaster: true
   };
+
+  // ============================================================
+  // v1.4: scenes already run — remembered across page reloads (this browser
+  // only), so the same copied scene is never generated twice.
+  // ============================================================
+  const PROCESSED_KEY = 'cvAutomationProcessed';
+  function hashStr(str) {
+    let h = 5381;
+    for (let i = 0; i < str.length; i++) h = ((h << 5) + h + str.charCodeAt(i)) | 0;
+    return String(h >>> 0);
+  }
+  function loadProcessed() {
+    try { return JSON.parse(localStorage.getItem(PROCESSED_KEY) || '[]'); } catch (e) { return []; }
+  }
+  function wasProcessed(raw) { return loadProcessed().includes(hashStr(raw)); }
+  function markProcessed(raw) {
+    try {
+      const list = loadProcessed().filter(h => h !== hashStr(raw));
+      list.push(hashStr(raw));
+      localStorage.setItem(PROCESSED_KEY, JSON.stringify(list.slice(-50)));
+    } catch (e) { /* storage blocked — auto-run still works, just without reload memory */ }
+  }
+
+  function hideGlaspToaster() {
+    if (!CONFIG.hideGlaspToaster) return;
+    const style = document.createElement('style');
+    style.textContent = '.glasp-extension-toaster{display:none !important;pointer-events:none !important;}';
+    (document.head || document.documentElement).appendChild(style);
+  }
 
   // ============================================================
   // ENGINE — generic helpers, mirrors the VideoExpress script's approach.
@@ -209,8 +239,7 @@
       border-radius:8px; font-family:sans-serif; font-size:13px; font-weight:600;
       cursor:pointer; box-shadow:0 4px 12px rgba(0,0,0,.3);
     `;
-    // v1.1: wrapped so the click event isn't passed in as a "payload".
-    btn.onclick = () => runFlow();
+    btn.onclick = () => runFlow(); // (v1.3: wrapped so the click event isn't taken as a payload)
     document.body.appendChild(btn);
 
     statusEl = document.createElement('div');
@@ -230,9 +259,8 @@
 
   // ============================================================
   // RETURN-TO-GENERATOR — same postMessage approach as the VideoExpress
-  // script. v1.1: sends its own message type plus the scene number, so the
-  // generator's Automation loop knows WHICH line just finished and sends
-  // the next one.
+  // script. v1.3: also sends the scene number, so the generator's
+  // Automation loop knows which line finished and sends the next one.
   // ============================================================
 
   function returnToGeneratorTab(payload) {
@@ -242,7 +270,7 @@
     }
     try {
       window.opener.postMessage({
-        type: 'cv-automation-complete',
+        type: 've-automation-complete',
         ts: Date.now(),
         sceneNumber: payload && payload.sceneNumber != null ? payload.sceneNumber : null
       }, '*');
@@ -254,36 +282,34 @@
   }
 
   // ============================================================
-  // THE FLOW
+  // THE FLOW — unchanged from v1.0, except the payload can now also be
+  // handed in directly by the Automation loop (then the clipboard isn't read).
   // ============================================================
 
-  // v1.1: only one run at a time (manual button + Automation messages).
-  let isRunning = false;
+  let isRunning = false; // v1.3: lets an Automation scene wait for the current run
 
-  // v1.1: `providedPayload` comes from the generator's Automation loop.
-  // Without it (the floating button), the payload is read from the clipboard
-  // exactly as before.
   async function runFlow(providedPayload) {
-    if (isRunning) {
-      log('Already running — ignoring this trigger.');
-      return;
-    }
-
     let payload = providedPayload;
     if (!payload) {
       try {
         const clip = await navigator.clipboard.readText();
         payload = JSON.parse(clip);
         if (!payload.script) throw new Error('missing script field');
+        markProcessed(clip);
       } catch (e) {
         alert('Could not read a valid scene payload from the clipboard. Click "Copy → CloneVoice" on your scene generator first, then click this button.');
         return;
       }
     }
 
+    if (isRunning) {
+      log('Already running — wait for the current scene to finish.');
+      return;
+    }
+    markProcessed(JSON.stringify(payload)); // never auto-run this same scene again
     isRunning = true;
     try {
-      log(`Scene ${payload.sceneNumber != null ? payload.sceneNumber : '?'}: clicking Create Audio...`);
+      log('Clicking Create Audio...');
       const createAudioBtn = await waitForElement('a[href*="/audio/create"] button');
       createAudioBtn.click();
 
@@ -347,7 +373,7 @@
       generateBtn.click();
 
       log('Done — audio generation started.');
-      isRunning = false; // free up BEFORE notifying, so the next Automation scene isn't blocked
+      isRunning = false;
       returnToGeneratorTab(payload);
     } catch (err) {
       console.error('[CV-Automation] Failed:', err);
@@ -358,29 +384,49 @@
   }
 
   // ============================================================
-  // v1.1: AUTOMATION LOOP — the generator (with its "Automation" box
-  // ticked) sends the next scene straight to this tab via postMessage once
-  // the previous line has finished. No clipboard and no tab focus needed.
+  // v1.3: AUTOMATION — the generator (with its "Automation" box ticked)
+  // sends the next scene straight to this tab once the previous line has
+  // finished. It then runs the exact same flow as the button above.
   // ============================================================
   window.addEventListener('message', async (event) => {
     const d = event.data;
     if (!d || d.type !== 'cv-automation-run') return;
-    if (window.opener && event.source !== window.opener) return; // only our generator tab
     const payload = d.payload;
-    if (!payload || !payload.script) {
-      console.warn('[CV-Automation] Automation message had no valid scene payload:', d);
-      return;
-    }
-    log(`Automation: received scene ${payload.sceneNumber != null ? payload.sceneNumber : '?'} from the generator.`);
-    // If a previous run is still finishing, wait for it rather than dropping this scene.
-    try {
-      await waitForCondition(() => !isRunning, CONFIG.timeouts.waitForPreviousRun, 500);
-    } catch (e) {
-      log('Automation: previous run never finished — skipping this scene.');
-      return;
-    }
+    if (!payload || !payload.script) return;
+    log(`Automation: received scene ${payload.sceneNumber} from the generator.`);
+    // If the previous run is still finishing, wait for it (up to 5 min).
+    const start = Date.now();
+    while (isRunning && Date.now() - start < 300000) await sleep(500);
     await runFlow(payload);
   });
 
+  // ============================================================
+  // v1.4: AUTO-RUN POLLING — checks the clipboard every 1.5s while this tab
+  // is focused; runs a scene payload it hasn't run before. The floating
+  // button stays as a manual fallback (it always runs, even a repeat).
+  // ============================================================
+  function startAutoRunPolling() {
+    if (!CONFIG.autoRun.enabled) return;
+    setInterval(async () => {
+      if (isRunning || !document.hasFocus()) return;
+      let raw;
+      try { raw = await navigator.clipboard.readText(); } catch (e) { return; } // permission not granted yet / no focus
+      if (!raw || raw[0] !== '{' || wasProcessed(raw)) return;
+      let payload;
+      try { payload = JSON.parse(raw); } catch (e) { return; }
+      if (!payload || !payload.script) return; // not a CloneVoice scene payload
+      if (payload.copiedAt && Date.now() - payload.copiedAt > CONFIG.autoRun.maxCopyAgeMs) {
+        markProcessed(raw); // stale copy — ignore for good
+        return;
+      }
+      markProcessed(raw);
+      log(`Auto-run: new scene ${payload.sceneNumber} found on the clipboard.`);
+      await runFlow(payload);
+    }, CONFIG.autoRun.pollIntervalMs);
+    log('👀 Watching clipboard — click "Copy → CloneVoice" in the generator and this tab runs it automatically.');
+  }
+
+  hideGlaspToaster();
   injectButton();
+  startAutoRunPolling();
 })();

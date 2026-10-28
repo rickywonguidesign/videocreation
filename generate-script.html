@@ -2322,7 +2322,8 @@ async function copyAndOpenVoice(scene, opts){
     script: line,
     language: document.getElementById('language').value,
     emotionStyle: scene.emotionStyle || 'default', // AI-determined delivery tone for this scene's line, falls back to "default" if not set
-    voiceId: job.selectedVoiceId || null // if set, the automation clicks this exact voice instead of waiting for manual selection
+    voiceId: job.selectedVoiceId || null, // if set, the automation clicks this exact voice instead of waiting for manual selection
+    copiedAt: Date.now() // lets the CloneVoice userscript auto-run only FRESH copies, never an old scene left on the clipboard
   };
   lastSentVoiceSceneNumber = scene.sceneNumber;
   if(auto){
