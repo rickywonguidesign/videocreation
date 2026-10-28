@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         CloneVoice Audio Automation
 // @namespace    videocreation-automation
-// @version      1.4
+// @version      1.5
 // @description  Pastes a scene's narration/dialogue into CloneVoice's Create Audio flow — title, reference language, script — waits for manual voice selection, sets emotion style, and generates the audio. v1.3: original v1.0 flow, plus the generator's "Automation" loop (receives the next scene directly, reports which scene finished).
 // @match        https://app.clonevoice.ai/*
 // @grant        none
@@ -393,6 +393,10 @@
     if (!d || d.type !== 'cv-automation-run') return;
     const payload = d.payload;
     if (!payload || !payload.script) return;
+    if (payload.speechType === 'dialogue') { // v1.5: safety net — generator already skips these
+      log(`Automation: scene ${payload.sceneNumber} is a Dialogue scene — skipped.`);
+      return;
+    }
     log(`Automation: received scene ${payload.sceneNumber} from the generator.`);
     // If the previous run is still finishing, wait for it (up to 5 min).
     const start = Date.now();
@@ -415,6 +419,13 @@
       let payload;
       try { payload = JSON.parse(raw); } catch (e) { return; }
       if (!payload || !payload.script) return; // not a CloneVoice scene payload
+      // v1.5: Dialogue scenes are spoken on screen by VideoExpress — never
+      // auto-run them here (the floating button can still force one).
+      if (payload.speechType === 'dialogue') {
+        markProcessed(raw);
+        log(`Auto-run: scene ${payload.sceneNumber} is a Dialogue scene — skipped.`);
+        return;
+      }
       if (payload.copiedAt && Date.now() - payload.copiedAt > CONFIG.autoRun.maxCopyAgeMs) {
         markProcessed(raw); // stale copy — ignore for good
         return;

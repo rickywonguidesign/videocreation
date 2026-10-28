@@ -746,9 +746,12 @@ function autoSendNextVoiceScene(event){
     showToast('Voice automation: could not tell which scene finished — click the next voice manually');
     return;
   }
-  const next = job.scenes.slice(idx + 1).find(sc => scriptLine(sc));
+  // Only NARRATION scenes go to CloneVoice automatically — "Dialogue"
+  // scenes are skipped (their line is spoken on screen by VideoExpress).
+  const isNarrationScene = sc => !cleanSpokenLine(sc.dialogue || '') && !!scriptLine(sc);
+  const next = job.scenes.slice(idx + 1).find(isNarrationScene);
   if(!next){
-    showToast('Voice automation: last voice line sent — all voices done 🎉');
+    showToast('Voice automation: last narration line sent — all voices done 🎉 (dialogue scenes skipped)');
     flashTitle('✅ All voice lines sent to CloneVoice');
     return;
   }
@@ -2323,6 +2326,7 @@ async function copyAndOpenVoice(scene, opts){
     language: document.getElementById('language').value,
     emotionStyle: scene.emotionStyle || 'default', // AI-determined delivery tone for this scene's line, falls back to "default" if not set
     voiceId: job.selectedVoiceId || null, // if set, the automation clicks this exact voice instead of waiting for manual selection
+    speechType: cleanSpokenLine(scene.dialogue || '') ? 'dialogue' : 'narration', // CloneVoice auto-run skips 'dialogue'
     copiedAt: Date.now() // lets the CloneVoice userscript auto-run only FRESH copies, never an old scene left on the clipboard
   };
   lastSentVoiceSceneNumber = scene.sceneNumber;
