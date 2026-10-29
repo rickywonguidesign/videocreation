@@ -178,6 +178,9 @@
   .btn-video{background:var(--amber);color:#1A1200;}
   .btn-voice{background:var(--teal);color:#08201F;}
   .btn-check{background:none;border:1px solid var(--line);color:var(--text-dim);width:34px;flex:0 0 34px;}
+  .btn-regen{background:none;border:1px solid var(--amber-dim);color:var(--amber);flex:0 0 auto;min-width:0;}
+  .btn-regen:disabled{opacity:.55;cursor:wait;}
+  .btn-undo{background:none;border:1px solid var(--line);color:var(--text-dim);flex:0 0 auto;min-width:0;}
   .btn-check.on{border-color:var(--done);color:var(--done);}
   .btn-check.on.partial{border-color:var(--amber);color:var(--amber);}
 
@@ -2219,6 +2222,128 @@ function fullImagePrompt(scene){
   return withFaceNegative(out);
 }
 
+// ---------------------------------------------------------------------------
+// GENERATE AGAIN — rewrites ONLY one scene's image + video prompts (or only
+// the thumbnail), with a small focused request: just that scene, its cast
+// and its current prompts — not the whole story — to keep token use low.
+// The image and video prompts are always rewritten together, because the
+// video starts from the image. The previous version is kept for ↩ Undo.
+// ---------------------------------------------------------------------------
+const regenBusy = new Set(); // 'scene-3', 'thumb'
+function castForPrompt(names){
+  return (names || []).map(n => findRosterCharacter(n)).filter(Boolean).slice(0, 2);
+}
+function castLines(cast){
+  return cast.map(c => `- ${c.name} (${c.role || 'character'}): ${c.description}${c.faceSignature ? ` FACE: ${c.faceSignature}` : ''} | VISIBLE LOOK (use instead of the name in the video prompt): ${c.visualTag || fallbackVisualTag(c)}`).join('\n');
+}
+async function regenerateScene(idx){
+  const scene = job.scenes[idx];
+  if(!scene) return;
+  const key = `scene-${scene.sceneNumber}`;
+  if(regenBusy.has(key)) return;
+  regenBusy.add(key);
+  renderResults();
+  try{
+    const spec = jobStyleSpec();
+    const setting = jobSettingText();
+    const cast = castForPrompt(scene.charactersInScene);
+    const { line, speakerHint } = splitSpokenLine(scene.dialogue || '');
+    const speaker = scene.speaker || speakerHint || null;
+    const speechRule = line
+      ? `On-screen dialogue: ${speaker || 'the speaking character'} says exactly "${line}" — quote it verbatim inside videoAudioPrompt, attributed by position + look; the other character keeps a closed mouth.`
+      : `Nobody speaks on screen: never quote or paraphrase any line in either prompt; physical action only.`;
+    const system = `You rewrite ONE scene's two prompts for an AI image-to-video pipeline. Reply with ONLY a JSON object: {"imagePrompt": string, "videoAudioPrompt": string, "blocking": [{"name": string, "position": "left"|"right"|"center"}]}.
+Rules: English only (a quoted dialogue line stays as given). Render style: ${spec.tag} — name this medium in BOTH prompts.${setting ? ` Setting: ${setting}.` : ''}
+Keep the same story moment, characters, location, time of day and meaning as the current version, but give a clearly DIFFERENT, fresher visual take: new shot size or camera angle, new composition and pose, a new lighting accent. Never copy the current wording.
+imagePrompt = the frozen FIRST frame of videoAudioPrompt: same characters on the same sides, already holding any prop the action uses. Every listed character's face is clearly visible; describe each character once, from the cast list.
+videoAudioPrompt, as one flowing paragraph: subject, action (one main action per character, in time order), environment, style, camera movement (steady: static, slow push-in/pull-back or gentle pan — never orbit), audio (concrete ambient sound only, no music). Never write a character's name outside quoted speech — use their position + visible look.
+${speechRule}
+Each prompt under ~140 words.`;
+    const user = `Scene ${scene.sceneNumber}${scene.beat ? ` (${scene.beat})` : ''}, ${scene.durationSeconds || 8}s.${scene.shotType ? ` Previous shot: ${scene.shotType}, ${scene.cameraMovement || ''}.` : ''}
+Cast in this scene:
+${castLines(cast) || '- none (non-human subject — do not add any person)'}
+
+CURRENT imagePrompt (the user did not like the image — make a different one):
+${scene.imagePrompt}
+
+CURRENT videoAudioPrompt:
+${scene.videoAudioPrompt}`;
+    const res = await callGeneration(system, user);
+    const out = res && (res.imagePrompt ? res : (res.scene || res));
+    if(!out || !out.imagePrompt || !out.videoAudioPrompt) throw new Error('The AI returned no prompts');
+    scene._history = (scene._history || []).concat([{ imagePrompt: scene.imagePrompt, videoAudioPrompt: scene.videoAudioPrompt, blocking: scene.blocking }]).slice(-5);
+    scene.imagePrompt = String(out.imagePrompt).trim();
+    scene.videoAudioPrompt = String(out.videoAudioPrompt).trim();
+    if(Array.isArray(out.blocking) && out.blocking.length) scene.blocking = out.blocking;
+    await saveJobToStorage(true);
+    showToast(`Scene ${scene.sceneNumber}: new image + video prompt ready`);
+  }catch(e){
+    console.error('[Generator] Generate again failed:', e);
+    showToast(`Could not regenerate scene ${scene.sceneNumber}: ${e.message}`);
+  }finally{
+    regenBusy.delete(key);
+    renderResults();
+  }
+}
+async function undoSceneRegen(idx){
+  const scene = job.scenes[idx];
+  if(!scene || !scene._history || !scene._history.length) return;
+  const prev = scene._history.pop();
+  scene.imagePrompt = prev.imagePrompt;
+  scene.videoAudioPrompt = prev.videoAudioPrompt;
+  if(prev.blocking) scene.blocking = prev.blocking;
+  await saveJobToStorage(true);
+  renderResults();
+  showToast(`Scene ${scene.sceneNumber}: previous prompts restored`);
+}
+async function regenerateThumbnail(){
+  if(!job.thumbnail || !job.thumbnail.prompt) return;
+  if(regenBusy.has('thumb')) return;
+  regenBusy.add('thumb');
+  renderResults();
+  try{
+    const spec = jobStyleSpec();
+    const setting = jobSettingText();
+    const cast = thumbnailCharacters();
+    const t = job.treatment || {};
+    const system = `You rewrite a YouTube thumbnail's image prompt and its animation prompt. Reply with ONLY a JSON object: {"prompt": string, "videoPrompt": string}.
+Rules: English only. Render style: ${spec.tag} — name this medium in both.${setting ? ` Setting: ${setting}.` : ''}
+prompt: a clearly DIFFERENT, more clickable composition than the current one (never copy its wording). The main character is the DOMINANT subject on the RIGHT side — head-and-shoulders, face large, a STRONG exaggerated expression that teases the story's secret without explaining it (e.g. a sly knowing half-smile, or a confident look straight at the viewer while others assume the opposite). At most 3 visual elements: the face, ONE key object shown big and clear, one contrasting background cue. Punchy high-contrast light, clean empty space at the TOP-LEFT for a title. Do NOT write any title words and do not say "no text" — the app adds the title. Describe the character once, from the cast list. Under ~110 words. End with ", 16:9 landscape composition, YouTube thumbnail".
+videoPrompt: a 6-second animation of that exact image — one small expressive motion of the character, a subtle shimmer on the key object, gently moving background, slow push-in; the character does not speak; the title banner stays perfectly still; ambient sound only, no music. Never use a character's name — describe by look. Under ~90 words.`;
+    const user = `Story: ${t.logline || job.topic || ''}
+Cast:
+${castLines(cast) || castLines(((job.styleBlock && job.styleBlock.characters) || []).slice(0, 1)) || '- none'}
+Title that will be added: "${thumbnailTitle()}"
+
+CURRENT thumbnail prompt (the user did not like the result — make a different one):
+${job.thumbnail.prompt}`;
+    const res = await callGeneration(system, user);
+    const out = res && (res.prompt ? res : (res.thumbnail || res));
+    if(!out || !out.prompt) throw new Error('The AI returned no thumbnail prompt');
+    job.thumbnail._history = (job.thumbnail._history || []).concat([{ prompt: job.thumbnail.prompt, videoPrompt: job.thumbnail.videoPrompt || null }]).slice(-5);
+    job.thumbnail.prompt = String(out.prompt).trim();
+    job.thumbnail.videoPrompt = out.videoPrompt ? String(out.videoPrompt).trim() : null;
+    await saveJobToStorage(true);
+    showToast('New thumbnail prompt ready (your title text is kept)');
+  }catch(e){
+    console.error('[Generator] Thumbnail generate again failed:', e);
+    showToast(`Could not regenerate the thumbnail: ${e.message}`);
+  }finally{
+    regenBusy.delete('thumb');
+    renderResults();
+  }
+}
+async function undoThumbnailRegen(){
+  const th = job.thumbnail;
+  if(!th || !th._history || !th._history.length) return;
+  const prev = th._history.pop();
+  th.prompt = prev.prompt;
+  th.videoPrompt = prev.videoPrompt;
+  await saveJobToStorage(true);
+  renderResults();
+  showToast('Previous thumbnail prompt restored');
+}
+
 async function copyImagePrompt(scene){
   await copyText(fullImagePrompt(scene));
   showToast(`Scene ${scene.sceneNumber} image prompt copied`);
@@ -2707,6 +2832,10 @@ function renderResults(){
         <div class="btn-row" style="margin-top:12px;">
           <button class="btn btn-video" onclick="copyThumbnailPrompt()">Copy Thumbnail Prompt</button>
           <button class="btn btn-video" onclick="copyThumbnailVideoPrompt()">Copy Video Prompt</button>
+        </div>
+        <div class="btn-row" style="margin-top:8px;">
+          <button class="btn btn-regen" title="Write a different thumbnail image + video prompt (title text is kept)" onclick="regenerateThumbnail()" ${regenBusy.has('thumb') ? 'disabled' : ''}>${regenBusy.has('thumb') ? '⏳ Generating…' : '↻ Generate again'}</button>
+          ${job.thumbnail._history && job.thumbnail._history.length ? `<button class="btn btn-undo" onclick="undoThumbnailRegen()">↩ Undo</button>` : ''}
           <button class="btn btn-voice" onclick="copyThumbnailToArtistly()">Copy → Artistly</button>
         </div>
         <div class="btn-row" style="margin-top:8px;">
@@ -2784,6 +2913,8 @@ function renderResults(){
           <div class="prompt-box">${fullImagePrompt(scene)}</div>
           <div class="btn-row" style="margin-bottom:14px;">
             <button class="btn btn-video" onclick='copyImagePrompt(job.scenes[${idx}])'>Copy Image Prompt</button>
+            <button class="btn btn-regen" title="Write a different image + video prompt for this scene only" onclick="regenerateScene(${idx})" ${regenBusy.has('scene-' + scene.sceneNumber) ? 'disabled' : ''}>${regenBusy.has('scene-' + scene.sceneNumber) ? '⏳ Generating…' : '↻ Generate again'}</button>
+            ${scene._history && scene._history.length ? `<button class="btn btn-undo" title="Go back to the previous prompts" onclick="undoSceneRegen(${idx})">↩ Undo</button>` : ''}
           </div>
 
           <div class="line-label">Video and Audio Prompt (motion + sound)</div>
