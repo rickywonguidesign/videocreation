@@ -1670,9 +1670,94 @@ function retentionBatchNote(rows){
     if(inBatch(p.plantRow)) lines.push(`Row ${p.plantRow} plants a clue (show it, nobody comments): ${p.clue}`);
     if(inBatch(p.payoffRow)) lines.push(`Row ${p.payoffRow} pays off the clue planted in row ${p.plantRow}: ${p.clue}`);
   });
-  (Array.isArray(m.openLoopRows) ? m.openLoopRows : []).filter(inBatch).forEach(n => lines.push(`Row ${n} ends on an open loop.`));
+  (Array.isArray(m.openLoopRows) ? m.openLoopRows : []).filter(inBatch).forEach(n => {
+    const q = m.openLoopNotes && m.openLoopNotes[n];
+    lines.push(`Row ${n} ends on an open loop${q ? ` — leave the viewer asking: "${q}" (do not answer it in this row)` : '.'}`);
+  });
   if(m.mirrorEnding && rows.some(r => /payoff/i.test(r.beat))) lines.push(`Mirror ending: ${m.mirrorEnding}`);
   return lines.length ? `\nSTORY DOCTOR DUTIES IN THIS BATCH:\n${lines.map(l => '- ' + l).join('\n')}\n` : '';
+}
+
+// ---------------------------------------------------------------------------
+// FIX OPEN-LOOP GAPS — one small AI call that adds a new curiosity hook in
+// the middle of every stretch of >5 rows with no open question. Only the
+// rows inside those gaps are sent (not the whole story), and only rows that
+// haven't been written as scenes yet are changed, so the next "Generate next
+// scenes" batches pick the hooks up. ↩ Undo restores the previous plan.
+// ---------------------------------------------------------------------------
+const MAX_LOOP_GAP = 5;
+function findLoopGaps(){
+  const outline = getOutline(), m = getRetentionMap();
+  if(!outline || !m) return [];
+  const N = outline.length;
+  const loops = (Array.isArray(m.openLoopRows) ? m.openLoopRows : []).map(Number).filter(n => n >= 1 && n <= N).sort((a,b) => a - b);
+  const end = (+m.revealRow >= 1 && +m.revealRow <= N) ? +m.revealRow : N;
+  const gaps = [];
+  let prev = 0;
+  loops.filter(n => n < end).concat([end]).forEach(n => { if(n - prev > MAX_LOOP_GAP) gaps.push({ from: prev, to: n }); prev = n; });
+  return gaps;
+}
+let retentionFixBusy = false;
+async function fixOpenLoopGaps(){
+  if(retentionFixBusy) return;
+  const outline = getOutline(), m = getRetentionMap();
+  const gaps = findLoopGaps();
+  if(!outline || !m || !gaps.length){ showToast('No open-loop gaps to fix'); return; }
+  const written = lastWrittenRow();
+  // Rows we may change: inside a gap, not at its edges, and not written yet.
+  const usable = gaps.map(g => ({ ...g, rows: outline.filter(r => +r.row > g.from + 1 && +r.row < g.to - 1 && +r.row > written) }))
+                     .filter(g => g.rows.length);
+  const skipped = gaps.length - usable.length;
+  if(!usable.length){
+    showToast('Those rows are already written as scenes — regenerate the plan, or edit those scenes by hand');
+    return;
+  }
+  retentionFixBusy = true;
+  renderResults();
+  try{
+    const fmt = r => `${r.row}. [${r.beat}] @ ${r.location} (${r.timeOfDay}) — ${r.summary}`;
+    const system = `You add curiosity hooks ("open loops") to a video's scene plan. Reply with ONLY JSON: {"fixes": [{"row": number, "summary": string, "openQuestion": string}]}.
+For EACH gap given, pick ONE row near its middle (only from the rows listed for that gap) and rewrite that row's summary so the scene ends by raising a NEW, specific question the viewer wants answered — e.g. a clue they notice but can't explain yet, a new threat or suspicion, an unexpected reaction, a ticking clock. Keep the row's location, time of day, characters and story event; only add the hook. The hook must fit the story and be answered later — it must NOT reveal or strongly hint the secret. "openQuestion" = the question the viewer is left with, max 12 words. English only. One summary sentence or two, under 45 words.`;
+    const user = `Story: ${(job.treatment && job.treatment.logline) || job.topic || ''}
+Hook question of the video: ${m.hookQuestion || '—'}
+Mysteries: ${m.mysteryA || '—'} → ${m.mysteryB || '—'}
+SECRET (never reveal or hint before row ${m.revealRow || '?'}): ${m.secret || '—'}
+
+${usable.map((g, i) => `GAP ${i + 1} — no open question between row ${g.from || 'start'} and row ${g.to}. Rows you may change:
+${g.rows.map(fmt).join('\n')}`).join('\n\n')}`;
+    const res = await callGeneration(system, user);
+    const fixes = (res && Array.isArray(res.fixes)) ? res.fixes : [];
+    const allowed = new Set(usable.flatMap(g => g.rows.map(r => +r.row)));
+    const good = fixes.filter(f => f && allowed.has(+f.row) && f.summary);
+    if(!good.length) throw new Error('The AI returned no usable fixes');
+
+    // Keep the previous plan for ↩ Undo.
+    job.treatment._retentionUndo = JSON.stringify({ outline, retentionMap: m });
+    good.forEach(f => {
+      const row = outline.find(r => +r.row === +f.row);
+      row.summary = String(f.summary).trim();
+      m.openLoopRows = Array.from(new Set((m.openLoopRows || []).map(Number).concat([+f.row]))).sort((a,b) => a - b);
+      m.openLoopNotes = Object.assign({}, m.openLoopNotes || {}, f.openQuestion ? { [+f.row]: String(f.openQuestion).trim() } : {});
+    });
+    await saveJobToStorage(true);
+    showToast(`Added ${good.length} open loop(s) at row ${good.map(f => f.row).join(', ')}${skipped ? ` — ${skipped} gap(s) were already written as scenes` : ''}`);
+  }catch(e){
+    console.error('[Generator] Fix open loops failed:', e);
+    showToast(`Could not fix the gaps: ${e.message}`);
+  }finally{
+    retentionFixBusy = false;
+    renderResults();
+  }
+}
+async function undoRetentionFix(){
+  if(!job.treatment || !job.treatment._retentionUndo) return;
+  const prev = JSON.parse(job.treatment._retentionUndo);
+  job.treatment.outline = prev.outline;
+  job.treatment.retentionMap = prev.retentionMap;
+  delete job.treatment._retentionUndo;
+  await saveJobToStorage(true);
+  renderResults();
+  showToast('Previous plan restored');
 }
 
 // Checks the plan's structure against the method. It can't promise viewers
@@ -2792,6 +2877,11 @@ function renderResults(){
         ${rMap && rMap.secret ? `<div style="margin-bottom:8px;"><b>Secret (hidden until row ${rMap.revealRow || '?'})</b><span>${rMap.secret}</span></div>` : ''}
         ${rMap && Array.isArray(rMap.plants) && rMap.plants.length ? `<div style="margin-bottom:8px;"><b>Clues</b><span>${rMap.plants.map(p => `row ${p.plantRow} → ${p.payoffRow}: ${p.clue}`).join('<br>')}</span></div>` : ''}
         ${retention.warn.map(w => `<div class="ret-line warn">⚠ ${w}</div>`).join('')}
+        ${findLoopGaps().length || (job.treatment && job.treatment._retentionUndo) ? `<div class="btn-row" style="margin:8px 0 10px;">
+          ${findLoopGaps().length ? `<button class="btn btn-regen" title="Adds a new curiosity hook in the middle of each long gap — only for rows not written yet" onclick="fixOpenLoopGaps()" ${retentionFixBusy ? 'disabled' : ''}>${retentionFixBusy ? '⏳ Fixing…' : '✨ Fix open-loop gaps'}</button>` : ''}
+          ${job.treatment && job.treatment._retentionUndo ? `<button class="btn btn-undo" onclick="undoRetentionFix()">↩ Undo</button>` : ''}
+        </div>` : ''}
+        ${rMap && rMap.openLoopNotes && Object.keys(rMap.openLoopNotes).length ? `<div style="margin-bottom:8px;"><b>Added hooks</b><span>${Object.entries(rMap.openLoopNotes).map(([r, q]) => `row ${r}: ${q}`).join('<br>')}</span></div>` : ''}
         ${retention.ok.map(o => `<div class="ret-line">✓ ${o}</div>`).join('')}
         <div class="hint">Checks the plan's structure — it can't guarantee watch time, but it catches the things that make viewers leave. If there are warnings, regenerating (or a stronger model) usually fixes them.</div>
       </div>
