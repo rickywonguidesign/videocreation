@@ -95,10 +95,7 @@
   .side-col{overflow-y:auto;min-height:0;padding-right:4px;}
   .col-head{font-family:'IBM Plex Mono',monospace;font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:var(--text-dim);margin:0 0 10px;display:flex;justify-content:space-between;}
   .col-head-right{display:flex;align-items:center;gap:14px;}
-  .auto-toggle{display:inline-flex;align-items:center;gap:6px;cursor:pointer;color:var(--amber);}
-  .auto-toggle input{margin:0;accent-color:var(--amber);cursor:pointer;}
-  .auto-pause-btn{font:inherit;font-size:10px;letter-spacing:.06em;text-transform:uppercase;padding:3px 9px;border-radius:5px;border:1px solid var(--amber);background:transparent;color:var(--amber);cursor:pointer;}
-  .auto-pause-btn.paused{background:var(--amber);color:#1A1405;}
+  #resultsView .results-grid{padding-bottom:230px;} /* room to scroll the last scene above the floating panel */
   .scenes-col::-webkit-scrollbar,.side-col::-webkit-scrollbar{width:8px;}
   .scenes-col::-webkit-scrollbar-thumb,.side-col::-webkit-scrollbar-thumb{background:var(--line);border-radius:4px;}
   @media (max-width:980px){
@@ -184,6 +181,39 @@
   .btn-check.on{border-color:var(--done);color:var(--done);}
   .btn-check.on.partial{border-color:var(--amber);color:var(--amber);}
 
+  /* ---- Floating action panel (bottom-left) ---- */
+  .fab-panel{position:fixed;left:20px;bottom:20px;z-index:60;width:236px;padding:14px 14px 12px;
+    background:rgba(28,31,41,.92);-webkit-backdrop-filter:blur(10px);backdrop-filter:blur(10px);
+    border:1px solid var(--line);border-radius:12px;box-shadow:0 10px 30px rgba(0,0,0,.45),0 1px 0 rgba(255,255,255,.04) inset;
+    font-family:'Inter',-apple-system,sans-serif;color:var(--text);}
+  .fab-section{display:flex;flex-direction:column;gap:9px;}
+  .fab-divider{height:1px;background:var(--line);margin:12px -14px;}
+  .fab-head{display:flex;align-items:center;justify-content:space-between;}
+  .fab-title{font-family:'IBM Plex Mono',monospace;font-size:10.5px;letter-spacing:.09em;text-transform:uppercase;color:var(--text-dim);}
+  .fab-hint{font-family:'IBM Plex Mono',monospace;font-size:10.5px;color:var(--text-dim);opacity:.8;}
+  .fab-status{font-family:'IBM Plex Mono',monospace;font-size:10px;letter-spacing:.06em;text-transform:uppercase;padding:2px 8px;border-radius:999px;border:1px solid var(--line);color:var(--text-dim);}
+  .fab-panel[data-state="running"] .fab-status{color:#0A1F0D;background:var(--done);border-color:var(--done);}
+  .fab-panel[data-state="paused"] .fab-status{color:#1A1405;background:var(--amber);border-color:var(--amber);}
+  .fab-row{display:flex;align-items:center;gap:8px;margin:0;}
+  .fab-switch{display:flex;align-items:center;gap:10px;cursor:pointer;user-select:none;font-size:13px;}
+  .fab-switch input{position:absolute;opacity:0;width:0;height:0;}
+  .fab-switch-track{position:relative;width:36px;height:20px;border-radius:999px;background:var(--line);transition:background .2s;flex:0 0 auto;}
+  .fab-switch-thumb{position:absolute;top:2px;left:2px;width:16px;height:16px;border-radius:50%;background:#fff;box-shadow:0 1px 3px rgba(0,0,0,.4);transition:transform .2s;}
+  .fab-switch input:checked + .fab-switch-track{background:var(--done);}
+  .fab-switch input:checked + .fab-switch-track .fab-switch-thumb{transform:translateX(16px);}
+  .fab-switch input:focus-visible + .fab-switch-track{outline:2px solid var(--amber);outline-offset:2px;}
+  .fab-btn{font:600 12.5px 'Inter',-apple-system,sans-serif;border-radius:8px;padding:8px 12px;cursor:pointer;border:1px solid transparent;transition:filter .15s,background .15s;white-space:nowrap;}
+  .fab-btn:hover{filter:brightness(1.1);}
+  .fab-btn-primary{background:var(--amber);color:#1A1405;}
+  .fab-btn-ghost{background:transparent;border-color:var(--line);color:var(--text);width:100%;}
+  .fab-pause.paused{background:var(--amber);border-color:var(--amber);color:#1A1405;}
+  .fab-input{flex:1;min-width:0;height:34px;box-sizing:border-box;padding:0 10px;border-radius:8px;border:1px solid var(--line);
+    background:var(--bg);color:var(--text);font:500 13px 'IBM Plex Mono',monospace;}
+  .fab-input:focus{outline:none;border-color:var(--amber);}
+  .fab-input::-webkit-outer-spin-button,.fab-input::-webkit-inner-spin-button{-webkit-appearance:none;margin:0;}
+  .fab-input{-moz-appearance:textfield;}
+  .scene.scene-flash{box-shadow:0 0 0 2px var(--amber);transition:box-shadow .3s;}
+  @media (max-width:720px){ .fab-panel{left:12px;bottom:12px;width:208px;padding:12px;} }
   .toast{position:fixed;bottom:20px;left:50%;transform:translateX(-50%);background:var(--panel-raised);border:1px solid var(--done);color:var(--text);font-family:'IBM Plex Mono',monospace;font-size:12px;padding:9px 16px;border-radius:5px;opacity:0;pointer-events:none;transition:opacity .25s;z-index:50;}
   .toast.show{opacity:1;}
 
@@ -404,13 +434,38 @@
   </div>
 
   <div id="resultsView">
+    <!-- Floating action panel (bottom-left): Automation + Go to scene -->
+    <div class="fab-panel" id="fabPanel" data-state="off" role="region" aria-label="Quick actions">
+      <div class="fab-section">
+        <div class="fab-head">
+          <span class="fab-title">Automation</span>
+          <span class="fab-status" id="fabStatus">Off</span>
+        </div>
+        <div class="fab-row">
+          <label class="fab-switch" title="When VideoExpress / CloneVoice finishes a scene, send the next one automatically — loops until the last scene">
+            <input type="checkbox" id="autoNextScene" onchange="onAutomationToggle(this.checked)">
+            <span class="fab-switch-track"><span class="fab-switch-thumb"></span></span>
+            <span class="fab-switch-label">Auto-send next scene</span>
+          </label>
+        </div>
+        <button type="button" id="autoPauseBtn" class="fab-btn fab-btn-ghost fab-pause" onclick="toggleAutomationPause()" style="display:none;">⏸ Pause</button>
+      </div>
+      <div class="fab-divider"></div>
+      <div class="fab-section">
+        <div class="fab-head"><span class="fab-title">Go to scene</span><span class="fab-hint" id="fabSceneRange"></span></div>
+        <form class="fab-row" onsubmit="goToScene(); return false;">
+          <input type="number" id="gotoSceneInput" class="fab-input" min="1" inputmode="numeric" placeholder="#" aria-label="Scene number">
+          <button type="submit" class="fab-btn fab-btn-primary">Go →</button>
+        </form>
+      </div>
+    </div>
     <div class="results-topbar">
       <button class="back-btn" onclick="backToForm()" style="margin-bottom:0;">← New job</button>
       <button class="back-btn" onclick="saveJobToStorage()" style="margin-bottom:0;border-color:var(--done);color:var(--done);">💾 Save job</button>
     </div>
     <div class="results-grid">
       <div class="scenes-col" id="scenesCol">
-        <div class="col-head"><span>Scenes</span><span class="col-head-right"><label class="auto-toggle" title="When VideoExpress reports a scene is ready, automatically send the next scene — loops until the last scene"><input type="checkbox" id="autoNextScene" onchange="onAutomationToggle(this.checked)"><span>Automation</span></label><button type="button" id="autoPauseBtn" class="auto-pause-btn" onclick="toggleAutomationPause()" style="display:none;">⏸ Pause</button><span id="sceneCount"></span></span></div>
+        <div class="col-head"><span>Scenes</span><span class="col-head-right"><span id="sceneCount"></span></span></div>
         <div id="scenesWrap"></div>
         <button class="generate-btn" id="continueBtn" onclick="continueScript()" style="background:var(--teal);color:#08201F;margin-bottom:10px;">Generate next scenes</button>
       </div>
@@ -727,12 +782,42 @@ let autoPaused = false;
 let pendingVideo = null; // { next, target } held while paused
 let pendingVoice = null;
 function updatePauseBtn(){
+  const panel = document.getElementById('fabPanel');
+  const status = document.getElementById('fabStatus');
+  const state = !isAutomationOn() ? 'off' : (autoPaused ? 'paused' : 'running');
+  if(panel) panel.dataset.state = state;
+  if(status) status.textContent = state === 'off' ? 'Off' : state === 'paused' ? 'Paused' : 'Running';
   const btn = document.getElementById('autoPauseBtn');
   if(!btn) return;
   btn.style.display = isAutomationOn() ? '' : 'none';
   btn.classList.toggle('paused', autoPaused);
   const waiting = [pendingVideo && `scene ${pendingVideo.next.sceneNumber}`, pendingVoice && `voice ${pendingVoice.next.sceneNumber}`].filter(Boolean);
   btn.textContent = autoPaused ? `▶ Resume${waiting.length ? ` (${waiting.join(', ')} waiting)` : ''}` : '⏸ Pause';
+}
+// ---- Go to scene (floating panel) ----
+function updateGotoRange(){
+  const el = document.getElementById('fabSceneRange');
+  const input = document.getElementById('gotoSceneInput');
+  const nums = (job && Array.isArray(job.scenes)) ? job.scenes.map(sc => +sc.sceneNumber).filter(Number.isFinite) : [];
+  if(!nums.length){ if(el) el.textContent = ''; return; }
+  const lo = Math.min(...nums), hi = Math.max(...nums);
+  if(el) el.textContent = `${lo}–${hi}`;
+  if(input){ input.min = lo; input.max = hi; }
+}
+function goToScene(){
+  const input = document.getElementById('gotoSceneInput');
+  const n = parseInt(input && input.value, 10);
+  if(!Number.isFinite(n)){ showToast('Type a scene number first'); return; }
+  const card = document.getElementById(`scene-anchor-${n}`);
+  if(!card){
+    const nums = (job && job.scenes || []).map(sc => +sc.sceneNumber);
+    showToast(nums.length ? `Scene ${n} doesn't exist — scenes go from ${Math.min(...nums)} to ${Math.max(...nums)}` : 'No scenes yet');
+    return;
+  }
+  card.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  card.classList.add('scene-flash');
+  setTimeout(() => card.classList.remove('scene-flash'), 1600);
+  input.blur();
 }
 function toggleAutomationPause(){
   autoPaused = !autoPaused;
@@ -2967,6 +3052,8 @@ function renderResults(){
     </details>`).join('')}
   `;
 
+  updateGotoRange();
+  updatePauseBtn();
   const doneCount = job.scenes.filter(sc => doneMap[sc.sceneNumber] === 'done').length;
   const countEl = document.getElementById('sceneCount');
   if(countEl) countEl.textContent = `${job.scenes.length} scenes · ${doneCount} done`;
@@ -2976,7 +3063,7 @@ function renderResults(){
     const isDone = progress === 'done';
     const line = scriptLine(scene);
     return `
-      <div class="scene ${isDone?'done':''}">
+      <div class="scene ${isDone?'done':''}" id="scene-anchor-${scene.sceneNumber}">
         <div class="scene-head">
           <div>
             <span class="scene-num">SCENE <span>${String(scene.sceneNumber).padStart(2,'0')}</span></span>
