@@ -95,7 +95,8 @@
   .side-col{overflow-y:auto;min-height:0;padding-right:4px;}
   .col-head{font-family:'IBM Plex Mono',monospace;font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:var(--text-dim);margin:0 0 10px;display:flex;justify-content:space-between;}
   .col-head-right{display:flex;align-items:center;gap:14px;}
-  #resultsView .results-grid{padding-bottom:230px;} /* room to scroll the last scene above the floating panel */
+  #resultsView .results-grid{padding-bottom:230px;}
+  #resultsView .side-col{padding-bottom:230px;} /* room to scroll the last scene above the floating panel */
   .scenes-col::-webkit-scrollbar,.side-col::-webkit-scrollbar{width:8px;}
   .scenes-col::-webkit-scrollbar-thumb,.side-col::-webkit-scrollbar-thumb{background:var(--line);border-radius:4px;}
   @media (max-width:980px){
@@ -181,8 +182,20 @@
   .btn-check.on{border-color:var(--done);color:var(--done);}
   .btn-check.on.partial{border-color:var(--amber);color:var(--amber);}
 
-  /* ---- Floating action panel (bottom-left) ---- */
-  .fab-panel{position:fixed;left:20px;bottom:20px;z-index:60;width:236px;padding:14px 14px 12px;
+  /* ---- YouTube upload details ---- */
+  .yt-block{margin-bottom:14px;}
+  .yt-label{display:flex;align-items:center;gap:8px;font-family:'IBM Plex Mono',monospace;font-size:10.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--text-dim);margin-bottom:6px;}
+  .yt-label span{text-transform:none;letter-spacing:0;opacity:.75;flex:1;}
+  .yt-copy-row{display:flex;align-items:flex-start;gap:8px;padding:7px 9px;border:1px solid var(--line);border-radius:7px;margin-bottom:6px;background:var(--bg);}
+  .yt-text{flex:1;font-size:13px;line-height:1.5;color:var(--text);}
+  .yt-copy{flex:0 0 auto;font:600 11px 'Inter',sans-serif;padding:4px 9px;border-radius:6px;border:1px solid var(--line);background:var(--panel-raised);color:var(--text);cursor:pointer;}
+  .yt-copy:hover{border-color:var(--amber);color:var(--amber);}
+  .yt-pre{white-space:pre-wrap;word-break:break-word;margin:0;padding:10px;border:1px solid var(--line);border-radius:7px;background:var(--bg);font:12.5px/1.55 'Inter',sans-serif;color:var(--text);max-height:320px;overflow:auto;}
+  .yt-chips{display:flex;flex-wrap:wrap;gap:6px;}
+  .yt-chip{font-size:12px;padding:3px 9px;border-radius:999px;background:var(--panel-raised);border:1px solid var(--line);color:var(--text);}
+  .yt-chip-hash{color:var(--amber);border-color:var(--amber-dim);}
+  /* ---- Floating action panel (bottom-right) ---- */
+  .fab-panel{position:fixed;right:20px;bottom:20px;z-index:60;width:236px;padding:14px 14px 12px;
     background:rgba(28,31,41,.92);-webkit-backdrop-filter:blur(10px);backdrop-filter:blur(10px);
     border:1px solid var(--line);border-radius:12px;box-shadow:0 10px 30px rgba(0,0,0,.45),0 1px 0 rgba(255,255,255,.04) inset;
     font-family:'Inter',-apple-system,sans-serif;color:var(--text);}
@@ -213,7 +226,7 @@
   .fab-input::-webkit-outer-spin-button,.fab-input::-webkit-inner-spin-button{-webkit-appearance:none;margin:0;}
   .fab-input{-moz-appearance:textfield;}
   .scene.scene-flash{box-shadow:0 0 0 2px var(--amber);transition:box-shadow .3s;}
-  @media (max-width:720px){ .fab-panel{left:12px;bottom:12px;width:208px;padding:12px;} }
+  @media (max-width:720px){ .fab-panel{right:12px;bottom:12px;width:208px;padding:12px;} }
   .toast{position:fixed;bottom:20px;left:50%;transform:translateX(-50%);background:var(--panel-raised);border:1px solid var(--done);color:var(--text);font-family:'IBM Plex Mono',monospace;font-size:12px;padding:9px 16px;border-radius:5px;opacity:0;pointer-events:none;transition:opacity .25s;z-index:50;}
   .toast.show{opacity:1;}
 
@@ -434,7 +447,7 @@
   </div>
 
   <div id="resultsView">
-    <!-- Floating action panel (bottom-left): Automation + Go to scene -->
+    <!-- Floating action panel (bottom-right): Automation + Go to scene -->
     <div class="fab-panel" id="fabPanel" data-state="off" role="region" aria-label="Quick actions">
       <div class="fab-section">
         <div class="fab-head">
@@ -2882,6 +2895,150 @@ async function copyThumbnailToVideoExpress(){
     ? `Thumbnail copied — no reference photo ID for ${missing.join(', ')} (set it in the Characters panel)`
     : 'Thumbnail copied — VideoExpress will pick it up');
 }
+// ---------------------------------------------------------------------------
+// YOUTUBE UPLOAD DETAILS — title options, SEO description, chapters, tags,
+// hashtags and a pinned-comment question. Generated on demand with ONE small
+// request (story summary + a compact plan), never during script generation,
+// so it only costs tokens when you ask for it. Saved with the job.
+// ---------------------------------------------------------------------------
+let ytBusy = false;
+function escHtml(str){ return String(str == null ? '' : str).replace(/[&<>"']/g, ch => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[ch])); }
+function fmtChapterTime(sec){
+  sec = Math.max(0, Math.round(sec));
+  const h = Math.floor(sec / 3600), m = Math.floor((sec % 3600) / 60), s2 = sec % 60;
+  return h ? `${h}:${String(m).padStart(2,'0')}:${String(s2).padStart(2,'0')}` : `${m}:${String(s2).padStart(2,'0')}`;
+}
+// Start time of every plan row: the real time of a written scene, otherwise
+// an estimate from the average scene length.
+function planRowsWithTimes(){
+  const outline = getOutline();
+  const scenes = (job.scenes || []);
+  const startOf = sc => { const m = String(sc.timeRange || '').match(/^(\d+):(\d+)/); return m ? (+m[1]) * 60 + (+m[2]) : null; };
+  if(!outline){
+    return scenes.map(sc => ({ row: sc.sceneNumber, start: startOf(sc) || 0, beat: sc.beat || '', summary: sc.summary || (sc.narrationLine || sc.dialogue || '').slice(0, 90) }));
+  }
+  const avg = job.totalSeconds ? job.totalSeconds / outline.length : 9;
+  return outline.map(r => {
+    const sc = scenes.find(x => +x.outlineRow === +r.row);
+    const real = sc ? startOf(sc) : null;
+    return { row: r.row, start: real != null ? real : Math.round((r.row - 1) * avg), beat: r.beat || '', summary: String(r.summary || '').slice(0, 110) };
+  });
+}
+async function generateYouTubeMeta(){
+  if(ytBusy) return;
+  ytBusy = true;
+  renderResults();
+  try{
+    const t = job.treatment || {};
+    const m = getRetentionMap() || {};
+    const lang = job.language || document.getElementById('language').value || 'English';
+    const rows = planRowsWithTimes();
+    const system = `You are a YouTube SEO specialist for story / animated-fable channels. Reply with ONLY JSON:
+{"titles": [string, string, string], "description": string, "chapters": [{"time": string, "label": string}], "tags": [string], "hashtags": [string], "pinnedComment": string}
+Write titles, description, chapter labels and pinned comment in ${lang}. Tags: mostly ${lang}, plus a few English ones if ${lang} isn't English.
+- titles: 3 different options, each 45-70 characters, main search keyword in the first 40 characters, a curiosity gap that makes people click — NEVER reveal the twist/secret, no clickbait lies, no ALL-CAPS sentences (1-2 caps words max), no emoji spam (max 1).
+- description: 3 short parts separated by blank lines. (1) The first 2 lines (under 150 characters total — this shows in search) restate the hook question with the main keyword. (2) 2-3 sentences of story setup that tease the mystery without spoiling the secret, naturally using 3-5 relevant keywords (setting, genre e.g. "animated story", "moral story", theme). (3) A one-line call to watch to the end + like/subscribe. Do NOT include chapters or hashtags in it (added separately).
+- chapters: 5-8 chapters; the first MUST be "0:00"; use ONLY start times from the plan given; each at least 15 seconds apart; short intriguing labels (2-5 words) that never reveal the secret.
+- tags: 12-18 search phrases people actually type (topic, setting, genre, moral, character type, "animated story"…), total under 450 characters, no '#'.
+- hashtags: exactly 3, most relevant first, each starting with '#', no spaces.
+- pinnedComment: one question that invites viewers to comment (their guess, their opinion), without spoiling.`;
+    const user = `Video: ${job.topic || t.logline || ''}
+Logline: ${t.logline || '—'}
+Tone: ${t.tone || '—'} · Setting: ${job.setting || t.setting || '—'} · Style: ${styleLabelFor(job.characterStyle, job.customStyle)}
+Length: ${job.totalSeconds ? fmtChapterTime(job.totalSeconds) : fmtChapterTime(rows.length ? rows[rows.length - 1].start + 9 : 60)}
+Hook question: ${m.hookQuestion || '—'}
+SECRET — never reveal or hint it anywhere: ${m.secret || '—'}
+Thumbnail title: ${thumbnailTitle() || '—'}
+Main characters: ${((job.styleBlock && job.styleBlock.characters) || []).slice(0, 4).map(c => `${c.name} (${c.role || ''})`).join(', ')}
+
+Plan (start time — beat — what happens):
+${rows.map(r => `${fmtChapterTime(r.start)} — ${r.beat} — ${r.summary}`).join('\n')}`;
+    const res = await callGeneration(system, user);
+    if(!res || !Array.isArray(res.titles) || !res.description) throw new Error('The AI returned incomplete details');
+    const chapters = (Array.isArray(res.chapters) ? res.chapters : []).filter(c => c && c.time && c.label);
+    if(chapters.length && chapters[0].time !== '0:00') chapters.unshift({ time: '0:00', label: chapters[0].label });
+    job.youtubeMeta = {
+      titles: res.titles.map(x => String(x).trim()).filter(Boolean).slice(0, 3),
+      description: String(res.description).trim(),
+      chapters,
+      tags: (Array.isArray(res.tags) ? res.tags : []).map(x => String(x).replace(/^#/, '').trim()).filter(Boolean),
+      hashtags: (Array.isArray(res.hashtags) ? res.hashtags : []).map(x => '#' + String(x).replace(/^#+/, '').replace(/\s+/g, '')).filter(x => x.length > 1).slice(0, 3),
+      pinnedComment: res.pinnedComment ? String(res.pinnedComment).trim() : '',
+      language: lang,
+      chaptersEstimated: rows.some(r => !(job.scenes || []).find(x => +x.outlineRow === +r.row)),
+      generatedAt: Date.now()
+    };
+    await saveJobToStorage(true);
+    showToast('YouTube upload details ready');
+  }catch(e){
+    console.error('[Generator] YouTube details failed:', e);
+    showToast(`Could not create the YouTube details: ${e.message}`);
+  }finally{
+    ytBusy = false;
+    renderResults();
+  }
+}
+function ytChaptersText(){
+  const y = job.youtubeMeta;
+  return y && y.chapters && y.chapters.length ? y.chapters.map(c => `${c.time} ${c.label}`).join('\n') : '';
+}
+function ytFullDescription(){
+  const y = job.youtubeMeta;
+  if(!y) return '';
+  const parts = [y.description];
+  const ch = ytChaptersText();
+  if(ch) parts.push(ch);
+  if(y.hashtags && y.hashtags.length) parts.push(y.hashtags.join(' '));
+  return parts.join('\n\n');
+}
+async function copyYt(what, idx){
+  const y = job.youtubeMeta;
+  if(!y) return;
+  const map = {
+    title: () => y.titles[idx] || '',
+    description: () => ytFullDescription(),
+    chapters: () => ytChaptersText(),
+    tags: () => y.tags.join(', '),
+    hashtags: () => y.hashtags.join(' '),
+    pinned: () => y.pinnedComment || ''
+  };
+  const text = map[what] ? map[what]() : '';
+  if(!text){ showToast('Nothing to copy'); return; }
+  await copyText(text);
+  showToast(what === 'title' ? `Title ${idx + 1} copied` : `${what.charAt(0).toUpperCase() + what.slice(1)} copied`);
+}
+function renderYouTubeMeta(){
+  const y = job.youtubeMeta;
+  const btn = `<button class="btn btn-regen" onclick="generateYouTubeMeta()" ${ytBusy ? 'disabled' : ''}>${ytBusy ? '⏳ Writing…' : (y ? '↻ Generate again' : '✨ Generate YouTube details')}</button>`;
+  if(!y){
+    return `<div class="cd">Title options, an SEO description with chapters, tags, hashtags and a pinned comment — written for this story, without spoiling the secret. One small request; generate it when the scene plan is final.</div>
+      <div class="btn-row" style="margin-top:12px;">${btn}</div>`;
+  }
+  const tagChars = y.tags.join(', ').length;
+  return `
+    <div class="yt-block">
+      <div class="yt-label">Title — pick one <span>${y.titles.map(x => x.length).join(' / ')} chars · keep under 70</span></div>
+      ${y.titles.map((x, i) => `<div class="yt-copy-row"><div class="yt-text">${escHtml(x)}</div><button class="yt-copy" onclick="copyYt('title', ${i})">Copy</button></div>`).join('')}
+    </div>
+    <div class="yt-block">
+      <div class="yt-label">Description <span>with chapters + hashtags</span><button class="yt-copy" onclick="copyYt('description')">Copy all</button></div>
+      <pre class="yt-pre">${escHtml(ytFullDescription())}</pre>
+      ${y.chaptersEstimated ? `<div class="hint" style="margin-top:6px;">Chapter times are estimated from the plan — check them against the final edited video before publishing.</div>` : ''}
+    </div>
+    <div class="yt-block">
+      <div class="yt-label">Tags <span>${y.tags.length} tags · ${tagChars}/500 chars</span><button class="yt-copy" onclick="copyYt('tags')">Copy</button></div>
+      <div class="yt-chips">${y.tags.map(x => `<span class="yt-chip">${escHtml(x)}</span>`).join('')}</div>
+    </div>
+    <div class="yt-block">
+      <div class="yt-label">Hashtags <span>shown above the title</span><button class="yt-copy" onclick="copyYt('hashtags')">Copy</button></div>
+      <div class="yt-chips">${y.hashtags.map(x => `<span class="yt-chip yt-chip-hash">${escHtml(x)}</span>`).join('')}</div>
+    </div>
+    ${y.pinnedComment ? `<div class="yt-block">
+      <div class="yt-label">Pinned comment <span>post it, then pin it</span><button class="yt-copy" onclick="copyYt('pinned')">Copy</button></div>
+      <div class="yt-text">${escHtml(y.pinnedComment)}</div>
+    </div>` : ''}
+    <div class="btn-row" style="margin-top:4px;">${btn}</div>`;
+}
 async function copyThumbnailPrompt(){
   if(!job.thumbnail || !job.thumbnail.prompt){ showToast('No thumbnail prompt for this job'); return; }
   await copyText(fullThumbnailPrompt());
@@ -3018,6 +3175,11 @@ function renderResults(){
         </div>
       </div>
     </details>` : ''}
+
+    <details class="acc" data-acc="ytmeta" ${openAttr('ytmeta', false)}>
+      <summary><span>📺 YouTube upload details <span class="acc-sub">${job.youtubeMeta ? 'ready' : 'title · description · tags'}</span></span></summary>
+      <div class="acc-body char-card">${renderYouTubeMeta()}</div>
+    </details>
 
     ${characters.length ? `<div class="acc-group-label">Characters · ${characters.length}</div>` : ''}
     ${characters.map((c, i) => `
