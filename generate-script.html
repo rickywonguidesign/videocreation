@@ -95,8 +95,6 @@
   .side-col{overflow-y:auto;min-height:0;padding-right:4px;}
   .col-head{font-family:'IBM Plex Mono',monospace;font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:var(--text-dim);margin:0 0 10px;display:flex;justify-content:space-between;}
   .col-head-right{display:flex;align-items:center;gap:14px;}
-  #resultsView .results-grid{padding-bottom:230px;}
-  #resultsView .side-col{padding-bottom:230px;} /* room to scroll the last scene above the floating panel */
   .scenes-col::-webkit-scrollbar,.side-col::-webkit-scrollbar{width:8px;}
   .scenes-col::-webkit-scrollbar-thumb,.side-col::-webkit-scrollbar-thumb{background:var(--line);border-radius:4px;}
   @media (max-width:980px){
@@ -194,39 +192,38 @@
   .yt-chips{display:flex;flex-wrap:wrap;gap:6px;}
   .yt-chip{font-size:12px;padding:3px 9px;border-radius:999px;background:var(--panel-raised);border:1px solid var(--line);color:var(--text);}
   .yt-chip-hash{color:var(--amber);border-color:var(--amber-dim);}
-  /* ---- Floating action panel (bottom-right) ---- */
-  .fab-panel{position:fixed;right:20px;bottom:20px;z-index:60;width:236px;padding:14px 14px 12px;
-    background:rgba(28,31,41,.92);-webkit-backdrop-filter:blur(10px);backdrop-filter:blur(10px);
-    border:1px solid var(--line);border-radius:12px;box-shadow:0 10px 30px rgba(0,0,0,.45),0 1px 0 rgba(255,255,255,.04) inset;
+  /* ---- Floating action panel (bottom-right, compact 100px) ---- */
+  .fab-panel{position:fixed;right:16px;bottom:16px;z-index:60;width:100px;box-sizing:border-box;padding:8px;
+    display:flex;flex-direction:column;gap:7px;
+    background:rgba(28,31,41,.94);-webkit-backdrop-filter:blur(8px);backdrop-filter:blur(8px);
+    border:1px solid var(--line);border-radius:10px;box-shadow:0 8px 24px rgba(0,0,0,.45);
     font-family:'Inter',-apple-system,sans-serif;color:var(--text);}
-  .fab-section{display:flex;flex-direction:column;gap:9px;}
-  .fab-divider{height:1px;background:var(--line);margin:12px -14px;}
-  .fab-head{display:flex;align-items:center;justify-content:space-between;}
-  .fab-title{font-family:'IBM Plex Mono',monospace;font-size:10.5px;letter-spacing:.09em;text-transform:uppercase;color:var(--text-dim);}
-  .fab-hint{font-family:'IBM Plex Mono',monospace;font-size:10.5px;color:var(--text-dim);opacity:.8;}
-  .fab-status{font-family:'IBM Plex Mono',monospace;font-size:10px;letter-spacing:.06em;text-transform:uppercase;padding:2px 8px;border-radius:999px;border:1px solid var(--line);color:var(--text-dim);}
-  .fab-panel[data-state="running"] .fab-status{color:#0A1F0D;background:var(--done);border-color:var(--done);}
-  .fab-panel[data-state="paused"] .fab-status{color:#1A1405;background:var(--amber);border-color:var(--amber);}
-  .fab-row{display:flex;align-items:center;gap:8px;margin:0;}
-  .fab-switch{display:flex;align-items:center;gap:10px;cursor:pointer;user-select:none;font-size:13px;}
+  .fab-head{display:flex;align-items:center;gap:5px;}
+  .fab-dot{width:7px;height:7px;border-radius:50%;background:var(--text-dim);opacity:.6;flex:0 0 auto;}
+  .fab-panel[data-state="running"] .fab-dot{background:var(--done);opacity:1;box-shadow:0 0 0 3px rgba(126,190,130,.18);}
+  .fab-panel[data-state="paused"] .fab-dot{background:var(--amber);opacity:1;}
+  .fab-title{flex:1;font-family:'IBM Plex Mono',monospace;font-size:10px;letter-spacing:.08em;text-transform:uppercase;color:var(--text-dim);}
+  .fab-sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);}
+  .fab-switch{display:inline-flex;cursor:pointer;}
   .fab-switch input{position:absolute;opacity:0;width:0;height:0;}
-  .fab-switch-track{position:relative;width:36px;height:20px;border-radius:999px;background:var(--line);transition:background .2s;flex:0 0 auto;}
-  .fab-switch-thumb{position:absolute;top:2px;left:2px;width:16px;height:16px;border-radius:50%;background:#fff;box-shadow:0 1px 3px rgba(0,0,0,.4);transition:transform .2s;}
+  .fab-switch-track{position:relative;width:28px;height:16px;border-radius:999px;background:var(--line);transition:background .2s;}
+  .fab-switch-thumb{position:absolute;top:2px;left:2px;width:12px;height:12px;border-radius:50%;background:#fff;box-shadow:0 1px 2px rgba(0,0,0,.4);transition:transform .2s;}
   .fab-switch input:checked + .fab-switch-track{background:var(--done);}
-  .fab-switch input:checked + .fab-switch-track .fab-switch-thumb{transform:translateX(16px);}
+  .fab-switch input:checked + .fab-switch-track .fab-switch-thumb{transform:translateX(12px);}
   .fab-switch input:focus-visible + .fab-switch-track{outline:2px solid var(--amber);outline-offset:2px;}
-  .fab-btn{font:600 12.5px 'Inter',-apple-system,sans-serif;border-radius:8px;padding:8px 12px;cursor:pointer;border:1px solid transparent;transition:filter .15s,background .15s;white-space:nowrap;}
-  .fab-btn:hover{filter:brightness(1.1);}
-  .fab-btn-primary{background:var(--amber);color:#1A1405;}
-  .fab-btn-ghost{background:transparent;border-color:var(--line);color:var(--text);width:100%;}
+  .fab-pause{height:26px;border-radius:6px;border:1px solid var(--line);background:transparent;color:var(--text);font-size:12px;cursor:pointer;line-height:1;display:flex;align-items:center;justify-content:center;}
+  .fab-pause:hover{border-color:var(--amber);color:var(--amber);}
   .fab-pause.paused{background:var(--amber);border-color:var(--amber);color:#1A1405;}
-  .fab-input{flex:1;min-width:0;height:34px;box-sizing:border-box;padding:0 10px;border-radius:8px;border:1px solid var(--line);
-    background:var(--bg);color:var(--text);font:500 13px 'IBM Plex Mono',monospace;}
+  .fab-goto{display:flex;gap:4px;margin:0;}
+  .fab-input{width:0;flex:1;height:28px;box-sizing:border-box;padding:0 6px;border-radius:6px;border:1px solid var(--line);
+    background:var(--bg);color:var(--text);font:500 12px 'IBM Plex Mono',monospace;text-align:center;-moz-appearance:textfield;}
   .fab-input:focus{outline:none;border-color:var(--amber);}
   .fab-input::-webkit-outer-spin-button,.fab-input::-webkit-inner-spin-button{-webkit-appearance:none;margin:0;}
-  .fab-input{-moz-appearance:textfield;}
+  .fab-go{width:28px;height:28px;flex:0 0 auto;border:none;border-radius:6px;background:var(--amber);color:#1A1405;font-weight:700;font-size:14px;cursor:pointer;}
+  .fab-go:hover{filter:brightness(1.1);}
+  .fab-hint{font-family:'IBM Plex Mono',monospace;font-size:9.5px;color:var(--text-dim);text-align:center;margin-top:-3px;}
+  .fab-hint:empty{display:none;}
   .scene.scene-flash{box-shadow:0 0 0 2px var(--amber);transition:box-shadow .3s;}
-  @media (max-width:720px){ .fab-panel{right:12px;bottom:12px;width:208px;padding:12px;} }
   .toast{position:fixed;bottom:20px;left:50%;transform:translateX(-50%);background:var(--panel-raised);border:1px solid var(--done);color:var(--text);font-family:'IBM Plex Mono',monospace;font-size:12px;padding:9px 16px;border-radius:5px;opacity:0;pointer-events:none;transition:opacity .25s;z-index:50;}
   .toast.show{opacity:1;}
 
@@ -449,28 +446,20 @@
   <div id="resultsView">
     <!-- Floating action panel (bottom-right): Automation + Go to scene -->
     <div class="fab-panel" id="fabPanel" data-state="off" role="region" aria-label="Quick actions">
-      <div class="fab-section">
-        <div class="fab-head">
-          <span class="fab-title">Automation</span>
-          <span class="fab-status" id="fabStatus">Off</span>
-        </div>
-        <div class="fab-row">
-          <label class="fab-switch" title="When VideoExpress / CloneVoice finishes a scene, send the next one automatically — loops until the last scene">
-            <input type="checkbox" id="autoNextScene" onchange="onAutomationToggle(this.checked)">
-            <span class="fab-switch-track"><span class="fab-switch-thumb"></span></span>
-            <span class="fab-switch-label">Auto-send next scene</span>
-          </label>
-        </div>
-        <button type="button" id="autoPauseBtn" class="fab-btn fab-btn-ghost fab-pause" onclick="toggleAutomationPause()" style="display:none;">⏸ Pause</button>
+      <div class="fab-head" title="Automation: when VideoExpress / CloneVoice finishes a scene, the next one is sent automatically">
+        <span class="fab-dot"></span><span class="fab-title">Auto</span>
+        <label class="fab-switch" title="Automation on / off">
+          <input type="checkbox" id="autoNextScene" onchange="onAutomationToggle(this.checked)" aria-label="Automation">
+          <span class="fab-switch-track"><span class="fab-switch-thumb"></span></span>
+        </label>
       </div>
-      <div class="fab-divider"></div>
-      <div class="fab-section">
-        <div class="fab-head"><span class="fab-title">Go to scene</span><span class="fab-hint" id="fabSceneRange"></span></div>
-        <form class="fab-row" onsubmit="goToScene(); return false;">
-          <input type="number" id="gotoSceneInput" class="fab-input" min="1" inputmode="numeric" placeholder="#" aria-label="Scene number">
-          <button type="submit" class="fab-btn fab-btn-primary">Go →</button>
-        </form>
-      </div>
+      <span id="fabStatus" class="fab-sr">Off</span>
+      <button type="button" id="autoPauseBtn" class="fab-pause" onclick="toggleAutomationPause()" style="display:none;" title="Pause" aria-label="Pause">⏸</button>
+      <form class="fab-goto" onsubmit="goToScene(); return false;" title="Go to scene">
+        <input type="number" id="gotoSceneInput" class="fab-input" min="1" inputmode="numeric" placeholder="#" aria-label="Go to scene number">
+        <button type="submit" class="fab-go" aria-label="Go to scene">→</button>
+      </form>
+      <span class="fab-hint" id="fabSceneRange"></span>
     </div>
     <div class="results-topbar">
       <button class="back-btn" onclick="backToForm()" style="margin-bottom:0;">← New job</button>
@@ -805,7 +794,12 @@ function updatePauseBtn(){
   btn.style.display = isAutomationOn() ? '' : 'none';
   btn.classList.toggle('paused', autoPaused);
   const waiting = [pendingVideo && `scene ${pendingVideo.next.sceneNumber}`, pendingVoice && `voice ${pendingVoice.next.sceneNumber}`].filter(Boolean);
-  btn.textContent = autoPaused ? `▶ Resume${waiting.length ? ` (${waiting.join(', ')} waiting)` : ''}` : '⏸ Pause';
+  // Inline SVG icons — the ⏸ emoji renders as a tiny bar in some fonts.
+  btn.innerHTML = autoPaused
+    ? '<svg width="12" height="12" viewBox="0 0 12 12" aria-hidden="true"><path d="M3 1.5v9l7.5-4.5z" fill="currentColor"/></svg>'
+    : '<svg width="12" height="12" viewBox="0 0 12 12" aria-hidden="true"><rect x="2" y="1.5" width="3" height="9" rx="1" fill="currentColor"/><rect x="7" y="1.5" width="3" height="9" rx="1" fill="currentColor"/></svg>';
+  btn.title = autoPaused ? `Resume${waiting.length ? ` — ${waiting.join(', ')} waiting` : ''}` : 'Pause';
+  btn.setAttribute('aria-label', btn.title);
 }
 // ---- Go to scene (floating panel) ----
 function updateGotoRange(){
