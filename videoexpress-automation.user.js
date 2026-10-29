@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         VideoExpress Scene Automation
 // @namespace    videocreation-automation
-// @version      2.2
+// @version      2.3
 // @description  Pastes a scene's Image Prompt + Video/Audio Prompt into VideoExpress's Create Video From Prompt modal, sets options, auto-picks the reference photo from the library, and drives it through Create Image -> Create Video. Auto-runs as soon as a new scene payload appears on the clipboard — no button click needed after the first one.
 // @match        https://app.videoexpress.ai/*
 // @grant        none
@@ -19,7 +19,7 @@
     console.warn('[VE-Automation] Another copy of this script is already running on this page (v' + window.__veAutomationLoaded + ') — this copy will stay idle. Open Tampermonkey and disable/delete the duplicate script.');
     return;
   }
-  window.__veAutomationLoaded = '2.2';
+  window.__veAutomationLoaded = '2.3';
   // ============================================================
   // CONFIG — edit these to change behavior without touching the
   // engine logic below. Mirrors videoexpress-automation-flow.json.
@@ -39,7 +39,7 @@
       // Per request, each checkbox now gets exactly ONE click attempt, no
       // repeated fighting — if the site reverts it afterward, it stays
       // reverted, and the console warning will show that mismatch.
-      auto_enhance_prompt: true,
+      // auto_enhance_prompt: v2.3 — NOT set by the script any more; your own tick on the page is kept (see runFlow).
       image_creative_mode: true, // NEW (v1.3): ticked right BEFORE use_consistent_character
       use_consistent_character: true,
       shared: false,
@@ -899,6 +899,12 @@
       log('Pasting Video/Audio Prompt...');
       const videoPromptEl = await waitForElement('textarea#opt_video_prompt');
       setNativeValue(videoPromptEl, payload.videoAudio);
+      // v2.3: "Auto enhance prompt" is YOUR choice — remember how you left it
+      // on the page before anything else is touched, and only put it back to
+      // that if VideoExpress resets it (it does when a reference photo is picked).
+      const autoEnhanceEl = document.querySelector("input[type='checkbox'][name='auto_enhance_prompt']");
+      const userAutoEnhance = autoEnhanceEl ? autoEnhanceEl.checked : null;
+      console.log('[VE-Automation] Auto enhance prompt — keeping your setting:', userAutoEnhance);
       await applyAllFormOptions(payload, 'single pass');
       // Check each reference slot (Photo 1, Photo 2) separately. If the
       // library auto-pick above worked, the slot already has a real image and
@@ -970,7 +976,12 @@
       }
       // Set AFTER the reference photo step, since selecting it resets these.
       const cbFinal = CONFIG.checkboxDesiredState;
-      await setCheckbox(await waitForElement("input[type='checkbox'][name='auto_enhance_prompt']"), cbFinal.auto_enhance_prompt, 'auto_enhance_prompt (after reference photo)');
+      if (userAutoEnhance !== null) {
+        const ae = document.querySelector("input[type='checkbox'][name='auto_enhance_prompt']");
+        if (ae && ae.checked !== userAutoEnhance) {
+          await setCheckbox(ae, userAutoEnhance, 'auto_enhance_prompt (restoring your setting)');
+        }
+      }
       await setCheckbox(await waitForElement("input[type='checkbox'][name='enhance_video_prompt']"), cbFinal.enhance_video_prompt, 'enhance_video_prompt (after reference photo)');
       // The site's own slide counter (aria-label="N / N") tells us when a
       // genuinely NEW slide was added.

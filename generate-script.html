@@ -1447,8 +1447,8 @@ Output ONLY raw JSON, no markdown fences, no preamble. Schema:
     ]
   },
   "thumbnail": {
-    "prompt": string (a single flowing image-generation prompt for this video's YouTube thumbnail — a deliberately composed, maximally clickable STILL IMAGE, not a copy of any individual scene's imagePrompt. Center it on whichever single moment, expression, or object from across the WHOLE story (per treatment.sourceBeats, chosen after seeing the whole story, not just the Hook) would make someone stop scrolling — usually an exaggerated but genuine emotional expression on a character's face, read from a close or medium-close distance, or per SUBJECT RULE a striking object/moment if the story is genuinely non-human-centric. Pull the exact character/product description straight from styleBlock so it renders as the same character/product as the rest of the video, and keep the render style, color grade, and overall art direction consistent with styleBlock.description and treatment.colorGrade — but push contrast, saturation, and framing harder than a normal scene would, the way real high-performing thumbnails do: punchy high-contrast lighting, one clear focal point, and deliberate negative space (a relatively clean, uncluttered area, usually to one side or along the top) left open for the title banner. Do NOT write the title words yourself and do NOT say "no text" — the app appends the exact title-banner instruction using "textOverlay". If the thumbnail is about a character, that character must be the DOMINANT subject — head-and-shoulders, face large and filling a big part of the frame, full description restated — never a hand or object close-up with the character small or implied. End the prompt with ", 16:9 landscape composition, YouTube thumbnail" to lock the aspect ratio and intent.),
-    "textOverlay": string (a short, punchy 2-6 word text suggestion for the thumbnail overlay — bold and curiosity-driving, matching the video's hook/logline, phrased the way real high-performing YouTube thumbnails phrase their text, e.g. "SHE WAITED 30 YEARS", "DON'T DO THIS", "THE TRUTH ABOUT X". Always write this in English regardless of the requested dialogue/narration language — thumbnail text is a separate on-platform design element, not part of the story's spoken content, so it is not one of the LANGUAGE RULE's two exceptions below.),
+    "prompt": string (a single flowing image-generation prompt for this video's YouTube thumbnail — a deliberately composed, maximally clickable STILL IMAGE, not a copy of any individual scene's imagePrompt. Center it on whichever single moment, expression, or object from across the WHOLE story (per treatment.sourceBeats, chosen after seeing the whole story, not just the Hook) would make someone stop scrolling — usually an exaggerated but genuine emotional expression on a character's face, read from a close or medium-close distance, or per SUBJECT RULE a striking object/moment if the story is genuinely non-human-centric. Pull the exact character/product description straight from styleBlock so it renders as the same character/product as the rest of the video, and keep the render style, color grade, and overall art direction consistent with styleBlock.description and treatment.colorGrade — but push contrast, saturation, and framing harder than a normal scene would, the way real high-performing thumbnails do: punchy high-contrast lighting, one clear focal point, and deliberate negative space (a relatively clean, uncluttered area, usually to one side or along the top) left open for the title banner. Do NOT write the title words yourself and do NOT say "no text" — the app appends the exact title-banner instruction using "textOverlay". If the thumbnail is about a character, that character must be the DOMINANT subject — head-and-shoulders, face large and filling a big part of the frame, on the right side (the title goes top-left) — never a hand or object close-up with the character small or implied. Give the face a STRONG, exaggerated expression that teases the secret without explaining it — e.g. a sly, knowing half-smile or a confident look straight at the viewer while everyone around assumes the opposite — never a neutral or merely thoughtful face. Keep it to at most 3 visual elements (the face, the ONE key object shown big and clear, one contrasting background cue such as laughing figures), and make the key contrast obvious at a glance (e.g. the big glowing gold coin ignored, the small silver one chosen). Keep the whole prompt under about 110 words and describe the character's face ONCE (no separate face-signature restatement — the app supplies the reference image). End the prompt with ", 16:9 landscape composition, YouTube thumbnail" to lock the aspect ratio and intent.),
+    "textOverlay": string (2-5 word thumbnail title, ALL CAPS, in English regardless of the dialogue/narration language (it's a design element, not one of the LANGUAGE RULE's two exceptions). It must open a CURIOSITY GAP around the story's secret WITHOUT giving the answer — the viewer should feel "wait, why?" and only the video answers it. Use one of these proven shapes, made specific to THIS story's key object or act: a contradiction ("HE CHOSE SILVER. AGAIN."), a hidden plan ("HIS PLAN WAS GENIUS"), an unexplained number ("1 COIN. 1,000 DAYS."), a reversal of who's fooled ("WHO'S THE FOOL NOW?"), or a forbidden/secret hint ("THE KING NEVER KNEW"). Never state the twist itself, never a generic label like "AMAZING STORY", never a full sentence, no hashtags or emojis. Must add something the image alone doesn't say.),
     "videoPrompt": string (a short image-to-video prompt that ANIMATES this exact thumbnail image as a 5-6 second eye-catching intro shot: start from the thumbnail frame exactly; the main character's ONE small, expressive motion that sells the thumbnail's emotion (a slow look-up, a widening of the eyes, a held breath, a tightening grip on the key object), a subtle light or particle movement on the key object, the background softly alive (dust motes, drifting haze, flickering torchlight — whatever fits the setting), and a slow push-in camera. The character does not speak. Name the character only by visible look, never by name. Mention that the title banner text stays perfectly still and sharp. Same render style as styleBlock.description. Concrete ambient sound only, never music.)
   },
   "scenes": [
@@ -2475,13 +2475,40 @@ function stripNoTextPhrases(prompt){
     .replace(/\s{2,}/g, ' ')
     .replace(/\s+([,.])/g, '$1');
 }
+// The thumbnail title: the user's own edit wins over the AI suggestion.
+function thumbnailTitle(){
+  const t = (job.thumbnail && (job.thumbnail.customTitle || job.thumbnail.textOverlay)) || '';
+  return t.trim().replace(/^["'“”]+|["'“”]+$/g, '').toUpperCase();
+}
+async function setThumbnailTitle(value){
+  if(!job.thumbnail) return;
+  const clean = String(value || '').trim();
+  job.thumbnail.customTitle = clean || null;
+  await saveJobToStorage(true);
+  renderResults();
+  showToast(clean ? `Thumbnail title set to "${clean.toUpperCase()}"` : 'Thumbnail title reset to the AI suggestion');
+}
+// The face is already locked by the reference image + the description; a
+// second full "face signature" copy only made the prompt longer, which
+// pushed the title instruction past what image models actually read.
+function stripFaceSignatureRepeat(prompt){
+  return String(prompt || '').replace(/\s*(?:His|Her|Their|The character's)\s+(?:fixed\s+)?face signature(?:\s+is)?\s*:[^.]*\./gi, '');
+}
 function fullThumbnailPrompt(){
   if(!job.thumbnail || !job.thumbnail.prompt) return '';
   const neg = styleNegative();
   const chars = thumbnailCharacters();
+  const title = thumbnailTitle();
   const parts = [];
 
-  // 1. Which uploaded reference image is which character.
+  // 1. TITLE FIRST — image models give the most weight to the start of the
+  //    prompt and many cut long prompts off; at the very end (where it was)
+  //    the title was being dropped, which is why no text appeared.
+  if(title){
+    parts.push(`YouTube thumbnail with the HUGE, ULTRA-BOLD title text "${title}" across the top-left — the title is the first thing the eye sees.`);
+  }
+
+  // 2. Which uploaded reference image is which character.
   if(chars.length){
     const withIds = chars.filter(c => c.referenceId);
     const list = withIds.length ? withIds : chars;
@@ -2489,20 +2516,19 @@ function fullThumbnailPrompt(){
     parts.push(`[REFERENCE USE] use the supplied reference image of ${names.length > 1 ? names.slice(0, -1).join(', ') + ' and ' + names[names.length - 1] : names[0]}, exactly face, hair style, outfit.`);
   }
 
-  parts.push(endSentence(withStyleHeader(stripNoTextPhrases(job.thumbnail.prompt))));
-
-  // 2. The character must be the main subject — image models don't know
+  // 3. The character must be the main subject — image models don't know
   //    names, so describe who it is by look, and say how big the face is.
   if(chars.length){
     const lead = chars[0];
     const look = (lead.visualTag || fallbackVisualTag(lead)).replace(/^(the|a|an)\s+/i, '');
-    parts.push(`MAIN SUBJECT: the ${look} (${lead.name}) is the dominant subject of the thumbnail — head-and-shoulders, face large and sharp, filling about 40% of the frame, clearly visible and recognisable with a strong, readable emotional expression${chars[1] ? `; ${(chars[1].visualTag || fallbackVisualTag(chars[1])).replace(/^(the|a|an)\s+/i, 'the ')} is clearly visible beside them, smaller` : ''}. Objects and background stay secondary.`);
+    parts.push(`MAIN SUBJECT: the ${look} (${lead.name}), head-and-shoulders, face large and sharp, filling about 40% of the frame on the right side, with a strong, exaggerated, readable expression${chars[1] ? `; ${(chars[1].visualTag || fallbackVisualTag(chars[1])).replace(/^(the|a|an)\s+/i, 'the ')} is clearly visible beside them, smaller` : ''}. Background stays simple and secondary.`);
   }
 
-  // 3. Title banner with the exact overlay text.
-  const title = (job.thumbnail.textOverlay || '').trim().replace(/^["']|["']$/g, '');
+  parts.push(endSentence(withStyleHeader(stripFaceSignatureRepeat(stripNoTextPhrases(job.thumbnail.prompt)))));
+
+  // 4. Title details, repeated briefly at the end as reinforcement.
   if(title){
-    parts.push(`TITLE BANNER: render the exact words "${title.toUpperCase()}" as a bold title banner in the clean negative space — huge thick sans-serif capital letters, bright white or yellow with a dark outline/drop shadow on a solid contrasting banner strip, spelled exactly as written, perfectly legible at small size, no other text anywhere in the image.`);
+    parts.push(`TITLE TEXT: the words "${title}" exactly, in the heaviest possible black-weight condensed sans-serif capitals (Impact / Anton / Bebas Neue Black style), extra-thick fat strokes, very large — the title block spans about 45% of the image width and reads instantly even at phone size. Bright yellow letters (or pure white) with a very thick black outline and a strong hard drop shadow, slightly tilted for energy, on a solid dark banner strip or a soft dark glow behind it so it pops off the background. It is the highest-contrast, sharpest element in the frame, nothing overlaps or covers it, and it is never blurred by depth of field. Spelled exactly; this is the only text in the image.`);
   }
 
   return withFaceNegative(`${parts.join(' ')}${neg ? ` ${neg}.` : ''}`);
@@ -2523,8 +2549,8 @@ function fullThumbnailVideoPrompt(){
     const other = chars[1] ? ` ${cap(lookOf(chars[1]))} stays in place with only a tiny natural movement.` : '';
     body = `Animate this exact thumbnail image as a ${THUMBNAIL_CLIP_DURATION}-second eye-catching intro shot. ${cap(who)} makes one small, expressive motion that sells the emotion of the frame — a slow look-up and a slight widening of the eyes, a held breath, the grip on the key object tightening — with natural blinking and subtle breathing.${other} Light glints and shimmers softly across the key object in the frame; the background stays gently alive with drifting dust motes, soft haze and flickering light that fit the setting. The camera makes a slow, steady push-in toward the character's face. ${cap(who)} does not speak.`;
   }
-  const title = (job.thumbnail.textOverlay || '').trim();
-  const banner = title ? ` The title banner "${title.toUpperCase()}" stays perfectly still, sharp and readable for the whole shot — the letters never move, morph, flicker or change.` : '';
+  const title = thumbnailTitle();
+  const banner = title ? ` The title banner "${title}" stays perfectly still, sharp and readable for the whole shot — the letters never move, morph, flicker or change.` : '';
   const prompt = `${endSentence(body)}${banner} Start exactly from the provided thumbnail image — same characters, positions, pose, props, background, framing and lighting; no new characters appear. Audio: soft ambient sound of the setting only.`;
   const musicOn = (job && typeof job.musicTheme === 'boolean') ? job.musicTheme : false;
   const negParts = ['no new or changing text', 'no texture', 'no gore', 'no watermark', 'no lip-sync', 'no talking mouths'];
@@ -2672,7 +2698,10 @@ function renderResults(){
       <div class="acc-body char-card">
         <div class="cd"><b>Image prompt</b></div>
         <div class="cd">${fullThumbnailPrompt()}</div>
-        ${job.thumbnail.textOverlay ? `<div class="cd" style="margin-top:8px;"><b>Suggested text overlay:</b> "${job.thumbnail.textOverlay}"</div>` : ''}
+        <div class="ref-id-field">
+          <label for="thumbTitle"><b>Title text on the thumbnail</b> <span>(edit to change it — 2-5 words work best${job.thumbnail.textOverlay ? `; AI suggestion: "${job.thumbnail.textOverlay}"` : ''})</span></label>
+          <input type="text" id="thumbTitle" maxlength="40" value="${(job.thumbnail.customTitle || job.thumbnail.textOverlay || '').replace(/"/g, '&quot;')}" onchange="setThumbnailTitle(this.value)">
+        </div>
         <div class="cd" style="margin-top:12px;"><b>Video prompt</b> (animates the thumbnail · ${THUMBNAIL_CLIP_DURATION}s)</div>
         <div class="cd">${fullThumbnailVideoPrompt()}</div>
         <div class="btn-row" style="margin-top:12px;">
