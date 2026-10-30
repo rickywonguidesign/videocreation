@@ -1741,8 +1741,11 @@ function retentionPlanRule(){
    d) FLASHBACKS ARE SIGNPOSTED: a flashback must be clearly marked as the past ("Three days earlier…", a character remembering, a visible change of light or season) and stay short (max 2-3 rows). Prefer a character admitting the past in the present over an unannounced jump back.
    e) EVERY CLUE IS CASHED IN: each planted clue and each unexplained object from the opening (e.g. the glove found in row 1) is explained or used before the end — ideally at the climax, by the protagonist or the judge — never left hanging or explained only in passing.
    f) The ending connects back to the opening incident and states the meaning once.
+   g) NAME THE HERO PROPERLY: in a row no later than row 3 ("heroIntroRow"), the narration names the protagonist AND gives their role AND the one trait the story turns on, in one line — e.g. "Tavian, the king's youngest adviser — a man who never used one word when fifty would do." Showing the trait in action is not enough; it must also be said once. Write that line in retentionMap.heroIntro.
+   h) EVERY FACT IS A CLUE THAT GETS USED: anything the hero or the viewer learns along the way — an overheard order, a guard's slip, a confession, a found object, a document — counts as a plant and MUST be listed in retentionMap.plants, and at its payoff row it must be USED to change the outcome (said aloud or shown at the climax, ideally by the hero or the judge), not just remembered. If a fact is never used, cut it.
+   i) DON'T SETTLE THE MAIN QUESTION EARLY: the viewer may learn the hero's own small secret (e.g. why his glove was there) only from about 35% of the rows on — in a present-day scene where he admits it — so the "is he guilty?" tension survives the first third.
 Use these outline "beat" labels where they apply: "Hook", "Stakes", "Midpoint", "Reveal", "Payoff", "Outro" (others may use "Build").
-Also add to the treatment object: "retentionMap": { "hookQuestion": string, "mysteryA": string, "mysteryAAnsweredRow": number, "mysteryB": string, "secret": string (the answer that must stay hidden), "revealRow": number, "stakes": string, "stakesRow": number, "plants": array of { "clue": string, "plantRow": number, "payoffRow": number }, "mirrorEnding": string, "openLoopRows": array of numbers, "incidentRow": number (row where WHAT happened is shown/named), "heroIntroRow": number (row where the protagonist's name, role and key trait are shown), "flashbackRows": array of numbers (rows set in the past — empty if none) } — all in English, row numbers referring to treatment.outline.`;
+Also add to the treatment object: "retentionMap": { "hookQuestion": string, "mysteryA": string, "mysteryAAnsweredRow": number, "mysteryB": string, "secret": string (the answer that must stay hidden), "revealRow": number, "stakes": string, "stakesRow": number, "plants": array of { "clue": string, "plantRow": number, "payoffRow": number, "payoff": string (HOW the clue is used at the payoff row to change the outcome) }, "mirrorEnding": string, "openLoopRows": array of numbers, "incidentRow": number (row where WHAT happened is shown/named), "heroIntroRow": number (row where the protagonist's name, role and key trait are shown), "heroIntro": string (the one-line introduction — name, role, trait), "flashbackRows": array of numbers (rows set in the past — empty if none) } — all in English, row numbers referring to treatment.outline.`;
 }
 
 // Applied to every batch (opening and continuation) when the job has it on.
@@ -1764,10 +1767,12 @@ function retentionBatchNote(rows){
   if(m.secret && +m.revealRow) lines.push(`SECRET — must stay hidden until row ${m.revealRow}: ${m.secret}`);
   if(inBatch(m.mysteryAAnsweredRow)) lines.push(`Row ${m.mysteryAAnsweredRow} answers Mystery A ("${m.mysteryA}") — and that answer must open Mystery B ("${m.mysteryB}").`);
   if(inBatch(m.stakesRow)) lines.push(`Row ${m.stakesRow} raises the stakes: ${m.stakes}`);
+  if(inBatch(m.incidentRow)) lines.push(`Row ${m.incidentRow} must show WHAT happened clearly — name the incident and the thing involved in the narration or dialogue.`);
+  if(inBatch(m.heroIntroRow)) lines.push(`Row ${m.heroIntroRow} INTRODUCES THE HERO — its narration must say their name, role and key trait in one line${m.heroIntro ? `: "${m.heroIntro}"` : ''}.`);
   if(inBatch(m.revealRow)) lines.push(`Row ${m.revealRow} is THE REVEAL — show before tell, reacting face first. The row before it must be the most suspenseful.`);
   (Array.isArray(m.plants) ? m.plants : []).forEach(p => {
     if(inBatch(p.plantRow)) lines.push(`Row ${p.plantRow} plants a clue (show it, nobody comments): ${p.clue}`);
-    if(inBatch(p.payoffRow)) lines.push(`Row ${p.payoffRow} pays off the clue planted in row ${p.plantRow}: ${p.clue}`);
+    if(inBatch(p.payoffRow)) lines.push(`Row ${p.payoffRow} pays off the clue planted in row ${p.plantRow}: ${p.clue} — USE it on screen to change the outcome${p.payoff ? `: ${p.payoff}` : ' (said aloud or shown, not just remembered)'}.`);
   });
   (Array.isArray(m.openLoopRows) ? m.openLoopRows : []).filter(inBatch).forEach(n => {
     const q = m.openLoopNotes && m.openLoopNotes[n];
@@ -1905,6 +1910,14 @@ function checkRetention(){
   if(valid(m.heroIntroRow)){
     (+m.heroIntroRow <= 3 ? ok : warn).push(`Hero introduced at row ${m.heroIntroRow}${+m.heroIntroRow > 3 ? ' — too late; say who the main character is (name, role, key trait) within the first 3 rows' : ''}.`);
   }else if('incidentRow' in m || 'heroIntroRow' in m) warn.push('The main character is never clearly introduced.');
+  if('heroIntroRow' in m){
+    if(m.heroIntro) ok.push(`Hero intro line: ${m.heroIntro}`);
+    else warn.push('No hero introduction line (name, role, trait) — viewers may not know who the main character is.');
+  }
+  if(plants.some(p => 'payoff' in p) || 'heroIntro' in m){
+    const unused = plants.filter(p => !p.payoff || !String(p.payoff).trim());
+    if(unused.length) warn.push(`${unused.length} clue(s) have no planned use at the payoff (${unused.map(p => `row ${p.plantRow}`).join(', ')}) — every clue must change the outcome, or be cut.`);
+  }
   const fb = (Array.isArray(m.flashbackRows) ? m.flashbackRows : []).filter(valid).map(Number).sort((a,b) => a - b);
   if(fb.length){
     let run = 1, longest = 1;
