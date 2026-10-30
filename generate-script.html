@@ -1734,14 +1734,21 @@ function retentionPlanRule(){
 10. OPEN LOOPS: every 3-4 rows, end a row on an unanswered micro-question (a glance, a closing door, an interrupted line, a sound off-screen); end each act on a stronger one. The row right before the reveal is the most suspenseful row of the video.
 11. VISUAL TURNING POINTS: every turning point is something you SEE happen (an object, an action, a reaction), not a conversation. At most 1 in 3 rows may be mainly people talking.
 12. EXPANSION, if any, must serve this structure — add pressure on the secret, raise the stakes, add clues, or build the rivals — never a side trip that pauses the mystery.
+13. CLARITY FIRST — the mystery is WHY or WHO, never "what is going on?". A viewer who knows nothing must follow the story at every row:
+   a) ORIENTATION WITHIN THE FIRST 3 ROWS: right after (or inside) the hook, show WHAT happened (the incident itself — e.g. the theft actually shown or announced, with the stolen thing named), WHO the protagonist is (name, role, and the one trait the story turns on), and WHY it matters (the stakes). A cold open in the middle of the action is fine only if these three come immediately after it — never hold them back for a flashback later.
+   b) CAUSE BEFORE EFFECT: every arrest, punishment, accusation, or big decision states its reason on screen in that same row or the one before — the charge and the evidence ("for stealing the king's vault key — his glove was found by the vault"). Nobody is seized, jailed, or judged without the viewer knowing why.
+   c) INTRODUCE BEFORE USE: every important character, object, or place is introduced (who/what it is, one line) the first time it appears; a character's backstory that matters later (e.g. who jailed him) is hinted at their first appearance.
+   d) FLASHBACKS ARE SIGNPOSTED: a flashback must be clearly marked as the past ("Three days earlier…", a character remembering, a visible change of light or season) and stay short (max 2-3 rows). Prefer a character admitting the past in the present over an unannounced jump back.
+   e) EVERY CLUE IS CASHED IN: each planted clue and each unexplained object from the opening (e.g. the glove found in row 1) is explained or used before the end — ideally at the climax, by the protagonist or the judge — never left hanging or explained only in passing.
+   f) The ending connects back to the opening incident and states the meaning once.
 Use these outline "beat" labels where they apply: "Hook", "Stakes", "Midpoint", "Reveal", "Payoff", "Outro" (others may use "Build").
-Also add to the treatment object: "retentionMap": { "hookQuestion": string, "mysteryA": string, "mysteryAAnsweredRow": number, "mysteryB": string, "secret": string (the answer that must stay hidden), "revealRow": number, "stakes": string, "stakesRow": number, "plants": array of { "clue": string, "plantRow": number, "payoffRow": number }, "mirrorEnding": string, "openLoopRows": array of numbers } — all in English, row numbers referring to treatment.outline.`;
+Also add to the treatment object: "retentionMap": { "hookQuestion": string, "mysteryA": string, "mysteryAAnsweredRow": number, "mysteryB": string, "secret": string (the answer that must stay hidden), "revealRow": number, "stakes": string, "stakesRow": number, "plants": array of { "clue": string, "plantRow": number, "payoffRow": number }, "mirrorEnding": string, "openLoopRows": array of numbers, "incidentRow": number (row where WHAT happened is shown/named), "heroIntroRow": number (row where the protagonist's name, role and key trait are shown), "flashbackRows": array of numbers (rows set in the past — empty if none) } — all in English, row numbers referring to treatment.outline.`;
 }
 
 // Applied to every batch (opening and continuation) when the job has it on.
 function retentionWriteRule(on){
   if(!on) return '';
-  return `\nSTORY DOCTOR — WRITING RULES (follow treatment.retentionMap): never reveal or clearly hint the secret before its reveal row — not in narration, dialogue, imagePrompt, or videoAudioPrompt. In a clue-planting row, show the clue in frame without anyone commenting on it. In a payoff row, show the clue clearly so the viewer connects it back. No character retells events the viewer already saw. In the reveal row, frame the reacting face first, then the revealed thing; the explanation comes after. After the reveal, give the reason in one line and show the virtue through an action. End every scene with a forward pull — a glance, an unfinished action, an unanswered question.`;
+  return `\nSTORY DOCTOR — WRITING RULES (follow treatment.retentionMap): never reveal or clearly hint the secret before its reveal row — not in narration, dialogue, imagePrompt, or videoAudioPrompt. In a clue-planting row, show the clue in frame without anyone commenting on it. In a payoff row, show the clue clearly so the viewer connects it back. No character retells events the viewer already saw. In the reveal row, frame the reacting face first, then the revealed thing; the explanation comes after. After the reveal, give the reason in one line and show the virtue through an action. CLARITY: whenever a row has an arrest, accusation, punishment, or verdict, say the charge and the evidence in that row; introduce a character or object in one line the first time it appears; a row that is set in the past must say so ("Three days earlier…", a memory) in its narration or image. End every scene with a forward pull — a glance, an unfinished action, an unanswered question.`;
 }
 
 function getRetentionMap(){
@@ -1890,6 +1897,20 @@ function checkRetention(){
   if(plants.length > goodPlants.length) warn.push(`${plants.length - goodPlants.length} clue(s) have no valid later payoff row.`);
 
   if(m.mirrorEnding) ok.push(`Mirror ending: ${m.mirrorEnding}`); else warn.push('No mirror ending planned.');
+
+  // Clarity: viewers must know what happened and who the hero is right away.
+  if(valid(m.incidentRow)){
+    (+m.incidentRow <= 3 ? ok : warn).push(`What happened is shown at row ${m.incidentRow}${+m.incidentRow > 3 ? ' — too late; viewers won\'t know what the story is about. Show the incident within the first 3 rows' : ''}.`);
+  }else if('incidentRow' in m || 'heroIntroRow' in m) warn.push('No row shows the incident (what happened) — viewers may not understand the story.');
+  if(valid(m.heroIntroRow)){
+    (+m.heroIntroRow <= 3 ? ok : warn).push(`Hero introduced at row ${m.heroIntroRow}${+m.heroIntroRow > 3 ? ' — too late; say who the main character is (name, role, key trait) within the first 3 rows' : ''}.`);
+  }else if('incidentRow' in m || 'heroIntroRow' in m) warn.push('The main character is never clearly introduced.');
+  const fb = (Array.isArray(m.flashbackRows) ? m.flashbackRows : []).filter(valid).map(Number).sort((a,b) => a - b);
+  if(fb.length){
+    let run = 1, longest = 1;
+    for(let i = 1; i < fb.length; i++){ run = fb[i] === fb[i-1] + 1 ? run + 1 : 1; longest = Math.max(longest, run); }
+    (longest <= 3 ? ok : warn).push(`Flashback rows ${fb.join(', ')}${longest > 3 ? ` — ${longest} past rows in a row; keep flashbacks to 2-3 rows and signpost them ("Three days earlier…")` : ' — keep them clearly signposted'}.`);
+  }
 
   const loops = (Array.isArray(m.openLoopRows) ? m.openLoopRows : []).filter(valid).map(Number).sort((a,b) => a - b);
   let maxGap = 0, prev = 0;
