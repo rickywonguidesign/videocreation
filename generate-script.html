@@ -3001,6 +3001,99 @@ async function copyYt(what, idx){
   await copyText(text);
   showToast(what === 'title' ? `Title ${idx + 1} copied` : `${what.charAt(0).toUpperCase() + what.slice(1)} copied`);
 }
+// ---------------------------------------------------------------------------
+// MUSIC & SFX PROMPTS — instrumental background-music prompts (one main theme
+// + timed cues per story section) and a clean list of sound-effect prompts,
+// for music / SFX generators (Suno, Udio, ElevenLabs Music / Sound Effects…).
+// One small request on demand: the plan's sections + each scene's sound cue,
+// never the full scripts. Saved with the job.
+// ---------------------------------------------------------------------------
+let audioBusy = false;
+async function generateAudioMeta(){
+  if(audioBusy) return;
+  audioBusy = true;
+  renderResults();
+  try{
+    const t = job.treatment || {};
+    const m = getRetentionMap() || {};
+    const rows = planRowsWithTimes();
+    const total = job.totalSeconds || (rows.length ? rows[rows.length - 1].start + 9 : 60);
+    const startOf = sc => { const x = String(sc.timeRange || '').match(/^(\d+):(\d+)/); return x ? (+x[1]) * 60 + (+x[2]) : 0; };
+    const cues = (job.scenes || []).filter(sc => sc.soundCue).map(sc => `S${sc.sceneNumber} ${fmtChapterTime(startOf(sc))} — ${sc.soundCue}`);
+    const system = `You are a film composer and sound designer. Reply with ONLY JSON:
+{"theme": {"title": string, "prompt": string, "bpm": number, "key": string, "instruments": [string]},
+ "cues": [{"from": string, "to": string, "section": string, "prompt": string}],
+ "sfx": [{"name": string, "scenes": string, "prompt": string, "seconds": number}]}
+All in English.
+- theme: the main INSTRUMENTAL theme for the whole video. "prompt" is ready to paste into a music generator (under 300 characters): genre, mood, tempo, 3-5 instruments that fit the story's setting and era (authentic regional/period instruments where it helps), dynamics, and end with "instrumental, no vocals, no lyrics". Background music must sit UNDER a narrator — soft, not busy.
+- cues: 4-7 timed music cues that follow the story's emotional arc (hook/mystery, rising tension, turning point, reveal, ending). "from"/"to" use only times from the plan given and cover 0:00 to the end with no gaps. Each "prompt" under 220 characters, same instrument palette as the theme so it sounds like one score, says how it differs (tempo, intensity, instruments in/out), and ends with "instrumental, no vocals".
+- sfx: 8-20 distinct sound effects merged from the scene sound cues (combine duplicates; "scenes" lists the scene numbers like "3, 12, 40"). "prompt" = a precise one-line sound-effect description for an SFX generator (source, material, action, space/reverb, distance), no music. "seconds" 1-10.
+Never reveal the story's secret in any title or prompt.`;
+    const user = `Story: ${t.logline || job.topic || ''}
+Tone: ${t.tone || '—'} · Setting: ${job.setting || t.setting || '—'} · Time of story: ${t.timeOfDay || '—'}
+Length: ${fmtChapterTime(total)}
+Story structure: hook at 0:00${m.mysteryAAnsweredRow ? `, midpoint turn at row ${m.mysteryAAnsweredRow}` : ''}${m.revealRow ? `, reveal at row ${m.revealRow}` : ''}
+
+Plan (start time — beat — what happens):
+${rows.map(r => `${fmtChapterTime(r.start)} — ${r.beat} — ${String(r.summary).slice(0, 70)}`).join('\n')}
+
+Scene sound cues:
+${cues.join('\n') || '(none written yet — infer from the plan)'}`;
+    const res = await callGeneration(system, user);
+    if(!res || !res.theme || !res.theme.prompt) throw new Error('The AI returned no music theme');
+    job.audioMeta = {
+      theme: res.theme,
+      cues: (Array.isArray(res.cues) ? res.cues : []).filter(c => c && c.prompt),
+      sfx: (Array.isArray(res.sfx) ? res.sfx : []).filter(x => x && x.prompt),
+      generatedAt: Date.now()
+    };
+    await saveJobToStorage(true);
+    showToast('Music & SFX prompts ready');
+  }catch(e){
+    console.error('[Generator] Music & SFX failed:', e);
+    showToast(`Could not create the music & SFX prompts: ${e.message}`);
+  }finally{
+    audioBusy = false;
+    renderResults();
+  }
+}
+async function copyAudio(what, idx){
+  const a = job.audioMeta;
+  if(!a) return;
+  let text = '';
+  if(what === 'theme') text = a.theme.prompt;
+  else if(what === 'cue') text = (a.cues[idx] || {}).prompt || '';
+  else if(what === 'sfx') text = (a.sfx[idx] || {}).prompt || '';
+  else if(what === 'cues') text = a.cues.map(c => `${c.from}–${c.to} ${c.section}: ${c.prompt}`).join('\n\n');
+  else if(what === 'allsfx') text = a.sfx.map(x => `${x.name} (scenes ${x.scenes}, ${x.seconds}s): ${x.prompt}`).join('\n');
+  if(!text){ showToast('Nothing to copy'); return; }
+  await copyText(text);
+  showToast('Copied');
+}
+function renderAudioMeta(){
+  const a = job.audioMeta;
+  const btn = `<button class="btn btn-regen" onclick="generateAudioMeta()" ${audioBusy ? 'disabled' : ''}>${audioBusy ? '⏳ Composing…' : (a ? '↻ Generate again' : '✨ Generate music & SFX prompts')}</button>`;
+  if(!a){
+    return `<div class="cd">An instrumental main theme, timed music cues that follow the story's arc, and a sound-effect list built from every scene's sound cue — ready to paste into a music or SFX generator (Suno, Udio, ElevenLabs…). One small request; best after most scenes are written.</div>
+      <div class="btn-row" style="margin-top:12px;">${btn}</div>`;
+  }
+  const th = a.theme || {};
+  return `
+    <div class="yt-block">
+      <div class="yt-label">Main theme <span>${escHtml(th.title || '')}${th.bpm ? ` · ${escHtml(th.bpm)} BPM` : ''}${th.key ? ` · ${escHtml(th.key)}` : ''}</span><button class="yt-copy" onclick="copyAudio('theme')">Copy</button></div>
+      <div class="yt-copy-row"><div class="yt-text">${escHtml(th.prompt)}</div></div>
+      ${Array.isArray(th.instruments) && th.instruments.length ? `<div class="yt-chips">${th.instruments.map(x => `<span class="yt-chip">${escHtml(x)}</span>`).join('')}</div>` : ''}
+    </div>
+    ${a.cues.length ? `<div class="yt-block">
+      <div class="yt-label">Music cues <span>${a.cues.length} · follow the story</span><button class="yt-copy" onclick="copyAudio('cues')">Copy all</button></div>
+      ${a.cues.map((c, i) => `<div class="yt-copy-row"><div class="yt-text"><b class="mono" style="color:var(--amber);font-size:11.5px;">${escHtml(c.from)}–${escHtml(c.to)}</b> · ${escHtml(c.section)}<br>${escHtml(c.prompt)}</div><button class="yt-copy" onclick="copyAudio('cue', ${i})">Copy</button></div>`).join('')}
+    </div>` : ''}
+    ${a.sfx.length ? `<div class="yt-block">
+      <div class="yt-label">Sound effects <span>${a.sfx.length} sounds</span><button class="yt-copy" onclick="copyAudio('allsfx')">Copy all</button></div>
+      ${a.sfx.map((x, i) => `<div class="yt-copy-row"><div class="yt-text"><b>${escHtml(x.name)}</b> <span style="color:var(--text-dim);font-size:11.5px;">· scenes ${escHtml(x.scenes)} · ${escHtml(x.seconds)}s</span><br>${escHtml(x.prompt)}</div><button class="yt-copy" onclick="copyAudio('sfx', ${i})">Copy</button></div>`).join('')}
+    </div>` : ''}
+    <div class="btn-row" style="margin-top:4px;">${btn}</div>`;
+}
 function renderYouTubeMeta(){
   const y = job.youtubeMeta;
   const btn = `<button class="btn btn-regen" onclick="generateYouTubeMeta()" ${ytBusy ? 'disabled' : ''}>${ytBusy ? '⏳ Writing…' : (y ? '↻ Generate again' : '✨ Generate YouTube details')}</button>`;
@@ -3173,6 +3266,11 @@ function renderResults(){
     <details class="acc" data-acc="ytmeta" ${openAttr('ytmeta', false)}>
       <summary><span>📺 YouTube upload details <span class="acc-sub">${job.youtubeMeta ? 'ready' : 'title · description · tags'}</span></span></summary>
       <div class="acc-body char-card">${renderYouTubeMeta()}</div>
+    </details>
+
+    <details class="acc" data-acc="audiometa" ${openAttr('audiometa', false)}>
+      <summary><span>🎵 Music &amp; SFX prompts <span class="acc-sub">${job.audioMeta ? 'ready' : 'theme · cues · sound effects'}</span></span></summary>
+      <div class="acc-body char-card">${renderAudioMeta()}</div>
     </details>
 
     ${characters.length ? `<div class="acc-group-label">Characters · ${characters.length}</div>` : ''}
