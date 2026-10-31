@@ -180,6 +180,17 @@
   .btn-check.on{border-color:var(--done);color:var(--done);}
   .btn-check.on.partial{border-color:var(--amber);color:var(--amber);}
 
+  /* ---- Plan quality gate ---- */
+  .pg-score{display:flex;align-items:baseline;gap:4px;margin-bottom:10px;}
+  .pg-num{font:700 30px 'Space Grotesk','Inter',sans-serif;line-height:1;}
+  .pg-of{font:500 13px 'IBM Plex Mono',monospace;color:var(--text-dim);}
+  .pg-cap{margin-left:10px;font-size:12px;color:var(--text-dim);}
+  .pg-score.good .pg-num{color:var(--done);} .pg-score.mid .pg-num{color:var(--amber);} .pg-score.bad .pg-num{color:#E07A6A;}
+  .pg-versions{display:flex;flex-direction:column;gap:4px;margin-bottom:10px;}
+  .pg-v{display:flex;align-items:center;gap:8px;font-size:12px;padding:5px 8px;border:1px solid var(--line);border-radius:6px;color:var(--text-dim);}
+  .pg-v span{flex:1;} .pg-v b{font-family:'IBM Plex Mono',monospace;color:var(--text);}
+  .pg-v em{font-style:normal;font-size:11px;color:var(--done);}
+  .pg-v.picked{border-color:var(--done);color:var(--text);}
   /* ---- YouTube upload details ---- */
   .yt-block{margin-bottom:14px;}
   .yt-label{display:flex;align-items:center;gap:8px;font-family:'IBM Plex Mono',monospace;font-size:10.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--text-dim);margin-bottom:6px;}
@@ -435,6 +446,8 @@
     <div class="field">
       <label class="check-label"><input type="checkbox" id="retentionMode" checked onchange="try{localStorage.setItem('retentionMode', this.checked ? '1' : '0')}catch(e){}"><span>Story doctor — restructure for retention (keep viewers to the end)</span></label>
       <div class="hint">Rebuilds the plan around what keeps people watching: a hook that's a visible puzzle, a two-stage mystery (the first answer opens a deeper question), stakes raised early, one secret held until ~70-85% of the video, clues planted early that pay off later, no recaps, "show before tell" at the reveal, the lesson stated once, and a mirror ending. Core events, ending, and moral never change. A "Retention check" panel then grades the plan before you spend credits on video.</div>
+      <label class="check-label" style="margin-top:10px;"><input type="checkbox" id="planGate" checked onchange="try{localStorage.setItem('planGate', this.checked ? '1' : '0')}catch(e){}"><span>Check &amp; auto-repair the plan before writing scenes</span></label>
+      <div class="hint">The plan is made first, checked (clarity, filler, clues, names, secret timing…), and any problems are sent back to the AI to fix — up to 2 rounds, keeping the best-scoring version. Costs 1-2 extra small requests; scenes are only written from the winning plan.</div>
     </div>
 
     <button class="generate-btn" id="genBtn" onclick="generateScript()">
@@ -608,6 +621,8 @@ function getSelectedModel(){
     preferred = localStorage.getItem(`model:${provider}`) || (provider === 'openai' ? localStorage.getItem('openaiModel') : null);
     const savedRetention = localStorage.getItem('retentionMode');
     if(savedRetention !== null) document.getElementById('retentionMode').checked = savedRetention === '1';
+    const savedGate = localStorage.getItem('planGate');
+    if(savedGate !== null && document.getElementById('planGate')) document.getElementById('planGate').checked = savedGate === '1';
     const savedExpand = localStorage.getItem('expandMode');
     if(savedExpand) document.getElementById('expandMode').value = savedExpand;
     const savedCustom = localStorage.getItem('customModel');
@@ -1624,7 +1639,7 @@ function planningRule(targetSceneCount, expandMode, outroOn){
     ? `No length was given: plan only as many rows as the source genuinely supports (about 1 row per distinct source beat, 2 for the climax), typically 5-12 rows.`
     : expandMode === 'strict'
       ? `SOURCE-ONLY MODE: the requested length is ~${n} scenes, but the user chose NOT to add material beyond the source. Plan only as many rows as the source genuinely supports — about 1 row per source beat, at most 2 for important beats and 3 for the climax — even if that is far fewer than ${n}. Never pad. Every row is kind "source" (or "outro").`
-      : `TARGET: plan EXACTLY ${n} rows (the requested length at ~9 seconds per scene). First count honestly how many rows the source alone supports (about 1 per source beat, 2 for important beats, 3 max for the climax) and write that as sourceCapacitySeconds (rows x 9). If that is fewer than ${n}, FILL THE GAP WITH EXPANSION ROWS (kind "expansion"), never by repeating or stretching source moments. Good expansion material, in order of preference: (1) the protagonist's ordinary life, want, and stakes BEFORE the inciting event; (2) backstory or a flashback that explains why this matters to them; (3) new obstacles, setbacks, and complications that fit the premise and make the main turning points harder to reach; (4) a supporting character's own small thread (a rival, a mentor, a family member) that feeds into the climax; (5) travel between places, preparation, and the ticking clock; (6) consequences and aftermath after the climax, before the ending. Organize expansion as 2-4 coherent THREADS of 3-8 rows each, with a setup and a payoff that ties into the source's own turning points, woven BETWEEN the source rows across the whole video — not dumped at the start or the end, and not many unrelated one-off scenes. Expansion may add at most 2-3 new supporting characters (each gets a full styleBlock.characters entry). It must never change the source's core turning points, ending, or meaning, and never contradict the source.
+      : `TARGET: plan EXACTLY ${n} rows (the requested length at ~9 seconds per scene). First count honestly how many rows the source alone supports (about 1 per source beat, 2 for important beats, 3 max for the climax) and write that as sourceCapacitySeconds (rows x 9). If that is fewer than ${n}, FILL THE GAP WITH EXPANSION ROWS (kind "expansion"), never by repeating or stretching source moments. Good expansion material, in order of preference: (1) the protagonist's ordinary life, want, and stakes — shown right AFTER the opening incident (or as a short, labelled memory), never by pushing the incident itself past row 3; (2) backstory or a flashback that explains why this matters to them; (3) new obstacles, setbacks, and complications that fit the premise and make the main turning points harder to reach; (4) a supporting character's own small thread (a rival, a mentor, a family member) that feeds into the climax; (5) travel between places, preparation, and the ticking clock; (6) consequences and aftermath after the climax, before the ending. Organize expansion as 2-4 coherent THREADS of 3-8 rows each, with a setup and a payoff that ties into the source's own turning points, woven BETWEEN the source rows across the whole video — not dumped at the start or the end, and not many unrelated one-off scenes. Expansion may add at most 2-3 new supporting characters (each gets a full styleBlock.characters entry). It must never change the source's core turning points, ending, or meaning, and never contradict the source.
 EXPANSION QUALITY — HARD CONSTRAINTS (long videos are where filler creeps in; every expansion row must EARN its place): (1) every "expansion" row has a real "purpose" — introducing someone or something, raising stakes, planting a clue that pays off later, paying one off, adding an obstacle, a turn, a confession, building a relationship, or aftermath. A row whose only content is mood, walking, carrying something, glancing, waiting, or a reaction that repeats an earlier one is FILLER and is forbidden. (2) Fill length with NEW INFORMATION, not slower time: more evidence, more obstacles, a supporting character's own small arc, a second clue — never several rows of the same silence, stare, or whisper. A held silence or wait gets at most 2 rows, and each must change something (who cracks, what is noticed). (3) Every new object, fact, record, or document introduced in an expansion row is a clue: list it in retentionMap.plants (when the story doctor is on) and pay it off on screen before the end — if it never pays off, don't introduce it. (4) One discovery per fact: the same fact may be found once and confirmed at most once — never shown being found by three different people. (5) Expansion rows may never contain a stand-in for a source event that already happens in another row.`;
   return `\nPLANNING & EXPANSION RULE — SCENE OUTLINE (this rule wins wherever SOURCE BEAT EXTRACTION, TOPIC VS SOURCE PRIORITY, CONTINUITY, LONG-TIMESPAN, or EXTENDED SINGLE-ACTION PACING seem to conflict with it): Before writing any scene, plan the WHOLE video in treatment.outline — one row per scene, numbered from 1. ${sizeNote}${outroNote}
 STRUCTURE: rows 1-2 are the Hook; around the middle of the outline put a clear midpoint turn (a reveal, reversal, or raised stake); the source's climax and Payoff land in roughly the last 10-15% of rows (before any outro rows); tension escalates in between.
@@ -1867,6 +1882,211 @@ async function undoRetentionFix(){
   showToast('Previous plan restored');
 }
 
+// ---------------------------------------------------------------------------
+// PLAN QUALITY GATE — check → repair → keep the best.
+// The plan is generated on its own first (no scenes), checked in code, and if
+// it fails any check the AI is sent ONLY the list of problems to fix (a small,
+// focused request — much easier to follow than 50 rules at once). Up to
+// PLAN_GATE_ROUNDS repair rounds; every version is scored and the BEST one is
+// kept (a repair that makes things worse is thrown away). Scenes are written
+// only after that, from the winning plan.
+// ---------------------------------------------------------------------------
+const PLAN_GATE_ROUNDS = 2;
+const PLAN_GATE_GOOD_ENOUGH = 95;
+function isPlanGateOn(){
+  const el = document.getElementById('planGate');
+  return !el || !!el.checked;
+}
+// Generic plan checks that don't need a retention map: filler rows, near
+// duplicates, and character names that look alike.
+function planHygieneWarnings(outline, roster){
+  const warn = [], ok = [];
+  if(!outline) return { warn, ok };
+  if(outline.some(r => 'purpose' in r && r.purpose)){
+    const noPurpose = outline.filter(r => r.kind === 'expansion' && !String(r.purpose || '').trim());
+    if(noPurpose.length) warn.push(`${noPurpose.length} added row(s) have no story purpose (rows ${noPurpose.map(r => r.row).join(', ')}) — likely filler.`);
+    else ok.push('Every added row has a story purpose.');
+  }
+  const filler = outline.filter(r => r.kind === 'expansion' && /^\s*(mood|atmosphere|transition|filler|reaction|waiting|establishing)\b/i.test(String(r.purpose || '')));
+  if(filler.length) warn.push(`Rows ${filler.map(r => r.row).join(', ')} are only mood / reaction / waiting — replace them with new information.`);
+  const sig = t => new Set(String(t || '').toLowerCase().replace(/[^a-z0-9\s]/g, ' ').split(/\s+/).filter(w => w.length > 3));
+  const dupes = [];
+  for(let i = 0; i < outline.length; i++){
+    const a = sig(outline[i].summary);
+    for(let j = i + 1; j <= Math.min(i + 3, outline.length - 1); j++){
+      const b = sig(outline[j].summary);
+      const inter = [...a].filter(w => b.has(w)).length;
+      const uni = new Set([...a, ...b]).size;
+      if(uni && inter / uni >= 0.5) dupes.push(`${outline[i].row}/${outline[j].row}`);
+    }
+  }
+  if(dupes.length) warn.push(`Rows that look almost the same: ${dupes.slice(0, 6).join(', ')}${dupes.length > 6 ? '…' : ''} — they may feel repetitive.`);
+  const names = (roster || []).map(c => String(c.name || '').trim()).filter(Boolean);
+  const lev = (a, b) => {
+    a = a.toLowerCase(); b = b.toLowerCase();
+    const d = Array.from({ length: a.length + 1 }, (_, i) => [i]);
+    for(let j = 1; j <= b.length; j++) d[0][j] = j;
+    for(let i = 1; i <= a.length; i++) for(let j = 1; j <= b.length; j++)
+      d[i][j] = Math.min(d[i-1][j] + 1, d[i][j-1] + 1, d[i-1][j-1] + (a[i-1] === b[j-1] ? 0 : 1));
+    return d[a.length][b.length];
+  };
+  // Compare the actual names, not titles ("King Edric" vs "Edrin" → Edric / Edrin).
+  const TITLES = /^(king|queen|lord|lady|sir|dame|judge|chancellor|prince|princess|captain|master|mistress|old|young|the|dr|mr|mrs|ms|father|mother|brother|sister|uncle|aunt|grandma|grandpa|elder|guard|general|minister|priest|abbot|duke|duchess|count|baron|emperor|empress|sheikh|chief)\.?$/i;
+  const coreName = full => String(full).split(/\s+/).find(w => !TITLES.test(w)) || '';
+  const alike = [];
+  for(let i = 0; i < names.length; i++) for(let j = i + 1; j < names.length; j++){
+    const a = coreName(names[i]), b = coreName(names[j]);
+    if(!a || !b) continue;
+    if(a.toLowerCase() === b.toLowerCase() || (a.length >= 3 && b.length >= 3 && (a.slice(0, 3).toLowerCase() === b.slice(0, 3).toLowerCase() || lev(a, b) <= 2))) alike.push(`${a} / ${b}`);
+  }
+  if(alike.length) warn.push(`Character names look alike: ${alike.join(', ')} — viewers will mix them up; rename one.`);
+  return { warn, ok };
+}
+// High-impact problems cost more points.
+const PLAN_HIGH_RE = /too late|too early|never clearly introduced|No row shows the incident|no hero introduction|no planned use|look alike|filler|no story purpose|only mood|hint the secret|No reveal row|didn't return a retention map/i;
+function scorePlanWarnings(warns){
+  let score = 100;
+  (warns || []).forEach(w => { score -= PLAN_HIGH_RE.test(w) ? 9 : 4; });
+  return Math.max(0, score);
+}
+// Runs every check against a candidate plan without touching the live job.
+function auditPlanCandidate(cand){
+  const saved = { t: job.treatment, chars: job.styleBlock && job.styleBlock.characters };
+  try{
+    job.treatment = Object.assign({}, job.treatment || {}, { outline: cand.outline, retentionMap: cand.retentionMap });
+    if(job.styleBlock) job.styleBlock.characters = cand.characters;
+    let warns = [];
+    if(job.retentionMode && cand.retentionMap){
+      warns = checkRetention().warn; // includes the hygiene checks
+    }else{
+      warns = planHygieneWarnings(cand.outline, cand.characters).warn;
+      if(job.retentionMode && !cand.retentionMap) warns.push("The model didn't return a retention map.");
+    }
+    return { warns, score: scorePlanWarnings(warns) };
+  }finally{
+    job.treatment = saved.t;
+    if(job.styleBlock) job.styleBlock.characters = saved.chars;
+  }
+}
+function clonePlan(o){ return JSON.parse(JSON.stringify(o)); }
+// One focused repair request: the problems + the plan, nothing else.
+async function repairPlanCandidate(cand, warns, lockedUpTo){
+  const N = cand.outline.length;
+  const t = job.treatment || {};
+  const fmt = r => `${r.row}. [${r.kind} · ${r.beat}] @ ${r.location} (${r.timeOfDay}) — ${r.summary} {purpose: ${r.purpose || '—'}}`;
+  const system = `You are a senior story editor repairing a video's scene plan so a first-time viewer can follow it and stays to the end. Reply with ONLY JSON:
+{"outline": [{"row": number, "beat": string, "kind": "source"|"expansion"|"outro", "sourceBeat": number|null, "location": string, "timeOfDay": string, "summary": string, "purpose": string}], "retentionMap": object, "renames": [{"from": string, "to": string}], "changes": [string]}
+HARD RULES:
+- Fix EVERY problem in the list. Change as little else as possible.
+- Keep EXACTLY ${N} rows, numbered 1-${N}.${lockedUpTo ? ` Rows 1-${lockedUpTo} are already filmed — return them UNCHANGED.` : ''}
+- Keep the source's core events, ending, moral and the secret (and its reveal at 65-85% of rows; the hero's own small secret not before ~35%).
+- Story clarity: the incident (what happened) by row 3; the hero's name + role + key trait said in one line by row 3 (put it in retentionMap.heroIntro); every arrest/accusation states the charge and evidence; important people named with their role at first appearance; side characters get a one-line intro; the origin of every piece of evidence is explained (how did it get there / who took it); flashbacks labelled as memories, max 2-3 rows; trial order = accusation before defence; a truth the hero told privately reaches the judges; any lesson/motto is stated word for word; the last story rows mirror an opening situation reversed, then the outro.
+- No filler: every expansion row has a real purpose (intro / stakes / plant / payoff / obstacle / turn / confession / relationship / aftermath / mirror). No rows of only waiting, glancing, walking, carrying, or repeated reactions; a silence gets at most 2 rows. Replace filler with NEW information (evidence, obstacles, a supporting character's small arc). No recaps, no two rows showing the same thing.
+- Every clue in retentionMap.plants has a later payoffRow and a "payoff" saying how it is USED to change the outcome; add any new clue you introduce.
+- If two character names look alike, rename the less important one in "renames" (and use the new name everywhere).
+- Keep retentionMap complete and its row numbers consistent with the new outline (incidentRow, heroIntroRow, heroIntro, mysteryAAnsweredRow, revealRow, stakesRow, plants, openLoopRows, flashbackRows, mirrorEnding, secret, hookQuestion, mysteryA, mysteryB, stakes).
+- English only. Each summary one sentence, max 22 words. "changes" = short list of what you changed.`;
+  const user = `Story: ${t.logline || job.topic || ''}
+Characters: ${(cand.characters || []).map(c => `${c.name} (${c.role || ''})`).join(', ')}
+
+PROBLEMS TO FIX:
+${warns.map((w, i) => `${i + 1}. ${w}`).join('\n')}
+
+CURRENT retentionMap:
+${JSON.stringify(cand.retentionMap || {})}
+
+CURRENT PLAN (${N} rows):
+${cand.outline.map(fmt).join('\n')}`;
+  const res = await callGeneration(system, user);
+  const outline = normalizeOutline(res && res.outline);
+  if(!outline || outline.length !== N) throw new Error(`repair returned ${outline ? outline.length : 0} rows instead of ${N}`);
+  if(lockedUpTo) for(let i = 0; i < lockedUpTo; i++) outline[i] = cand.outline[i];
+  let next = { outline, retentionMap: (res.retentionMap && typeof res.retentionMap === 'object') ? res.retentionMap : cand.retentionMap, characters: clonePlan(cand.characters || []), renames: (cand.renames || []).slice(), changes: Array.isArray(res.changes) ? res.changes.slice(0, 12) : [] };
+  const renames = (Array.isArray(res.renames) ? res.renames : []).filter(r => r && r.from && r.to && r.from !== r.to);
+  if(renames.length){
+    const pairs = renames.map(r => ({ original: String(r.from).trim(), renamed: String(r.to).trim() }));
+    const changes = next.changes; // keep the change log as written ("Renamed X to Y")
+    const renamed = applyNameChanges({ outline: next.outline, retentionMap: next.retentionMap, characters: next.characters }, pairs);
+    next = Object.assign(next, renamed, { changes, renames: (cand.renames || []).concat(pairs) });
+  }
+  return next;
+}
+let planGateBusy = false;
+// Checks the current plan, repairs it up to PLAN_GATE_ROUNDS times and keeps
+// the best-scoring version. Rows already written as scenes are locked.
+async function runPlanGate(opts){
+  const o = opts || {};
+  if(!job || !getOutline()) return null;
+  const say = msg => { if(o.onStatus) o.onStatus(msg); };
+  const lockedUpTo = lastWrittenRow();
+  const base = { outline: clonePlan(getOutline()), retentionMap: clonePlan(getRetentionMap() || null), characters: clonePlan((job.styleBlock && job.styleBlock.characters) || []), renames: [], changes: [] };
+  const versions = [{ label: 'Original plan', cand: base, audit: auditPlanCandidate(base) }];
+  let best = versions[0];
+  for(let round = 1; round <= (o.rounds || PLAN_GATE_ROUNDS); round++){
+    if(!best.audit.warns.length || best.audit.score >= PLAN_GATE_GOOD_ENOUGH) break;
+    say(`Repairing the plan — round ${round} (${best.audit.warns.length} problem${best.audit.warns.length > 1 ? 's' : ''})…`);
+    try{
+      const cand = await repairPlanCandidate(best.cand, best.audit.warns, lockedUpTo);
+      const v = { label: `Repair ${round}`, cand, audit: auditPlanCandidate(cand) };
+      versions.push(v);
+      // Only a STRICTLY better plan replaces the current best; a round that
+      // doesn't improve anything ends the loop (no point paying for more).
+      if(v.audit.score > best.audit.score) best = v;
+      else break;
+    }catch(e){
+      console.warn('[Generator] Plan repair round failed:', e);
+      versions.push({ label: `Repair ${round}`, failed: e.message, audit: { warns: [], score: -1 } });
+    }
+  }
+  // Apply the winner to the live job.
+  const win = best.cand;
+  job.treatment.outline = win.outline;
+  if(win.retentionMap) job.treatment.retentionMap = win.retentionMap;
+  if(job.styleBlock) job.styleBlock.characters = win.characters;
+  if(win.renames && win.renames.length){
+    job.thumbnail = applyNameChanges(job.thumbnail, win.renames);
+    ['logline', 'sourceBeats', 'narratorVoice'].forEach(k => { if(job.treatment[k] != null) job.treatment[k] = applyNameChanges({ v: job.treatment[k] }, win.renames).v; });
+    job.treatment.nameChanges = (job.treatment.nameChanges || []).concat(win.renames);
+  }
+  job.treatment.planGate = {
+    at: Date.now(),
+    picked: versions.indexOf(best),
+    versions: versions.map(v => ({ label: v.label, score: v.audit.score, problems: v.audit.warns.slice(0, 20), failed: v.failed || null, changes: (v.cand && v.cand.changes) || [] }))
+  };
+  return job.treatment.planGate;
+}
+// Manual button in the Plan quality panel (locks rows already written).
+async function manualPlanGate(){
+  if(planGateBusy) return;
+  planGateBusy = true;
+  renderResults();
+  try{
+    const g = await runPlanGate({ onStatus: m => showToast(m) });
+    await saveJobToStorage(true);
+    if(g) showToast(`Plan quality ${g.versions[g.picked].score}/100 — kept "${g.versions[g.picked].label}"`);
+  }catch(e){
+    showToast(`Plan check failed: ${e.message}`);
+  }finally{
+    planGateBusy = false;
+    renderResults();
+  }
+}
+function renderPlanGate(){
+  const g = job.treatment && job.treatment.planGate;
+  const outline = getOutline();
+  if(!outline) return '';
+  const live = auditPlanCandidate({ outline, retentionMap: getRetentionMap(), characters: (job.styleBlock && job.styleBlock.characters) || [] });
+  const btn = `<button class="btn btn-regen" onclick="manualPlanGate()" ${planGateBusy ? 'disabled' : ''}>${planGateBusy ? '⏳ Checking & repairing…' : '🔧 Check & repair plan'}</button>`;
+  const cls = live.score >= 90 ? 'good' : live.score >= 70 ? 'mid' : 'bad';
+  return `
+    <div class="pg-score ${cls}"><span class="pg-num">${live.score}</span><span class="pg-of">/100</span><span class="pg-cap">${live.warns.length ? `${live.warns.length} problem${live.warns.length > 1 ? 's' : ''} left` : 'all checks passed'}</span></div>
+    ${g ? `<div class="pg-versions">${g.versions.map((v, i) => `<div class="pg-v ${i === g.picked ? 'picked' : ''}"><span>${escHtml(v.label)}</span><b>${v.failed ? 'failed' : v.score}</b>${i === g.picked ? '<em>kept ✓</em>' : ''}</div>`).join('')}</div>` : ''}
+    ${g && g.versions[g.picked] && g.versions[g.picked].changes.length ? `<div class="cd" style="margin:8px 0;"><b>What the repair changed</b><br>${g.versions[g.picked].changes.map(c => '• ' + escHtml(c)).join('<br>')}</div>` : ''}
+    ${live.warns.length ? live.warns.map(w => `<div class="ret-line warn">⚠ ${escHtml(w)}</div>`).join('') : ''}
+    <div class="btn-row" style="margin-top:10px;">${btn}</div>
+    <div class="hint">Every new plan is checked automatically; problems are sent back to the AI to fix (up to ${PLAN_GATE_ROUNDS} rounds) and the best-scoring version is kept. Rows already written as scenes are never changed.</div>`;
+}
+
 // Checks the plan's structure against the method. It can't promise viewers
 // will stay, but it catches the structural problems that make them leave.
 function checkRetention(){
@@ -1906,24 +2126,8 @@ function checkRetention(){
 
   if(m.mirrorEnding) ok.push(`Mirror ending: ${m.mirrorEnding}`); else warn.push('No mirror ending planned.');
 
-  // Plan quality: expansion rows without a job, and near-duplicate rows.
-  if(outline.some(r => 'purpose' in r && r.purpose)){
-    const noPurpose = outline.filter(r => r.kind === 'expansion' && !String(r.purpose || '').trim());
-    if(noPurpose.length) warn.push(`${noPurpose.length} added row(s) have no story purpose (rows ${noPurpose.map(r => r.row).join(', ')}) — likely filler.`);
-    else ok.push('Every added row has a story purpose.');
-  }
-  const sig = t => new Set(String(t || '').toLowerCase().replace(/[^a-z0-9\s]/g, ' ').split(/\s+/).filter(w => w.length > 3));
-  const dupes = [];
-  for(let i = 0; i < outline.length; i++){
-    const a = sig(outline[i].summary);
-    for(let j = i + 1; j <= Math.min(i + 3, outline.length - 1); j++){
-      const b = sig(outline[j].summary);
-      const inter = [...a].filter(w => b.has(w)).length;
-      const uni = new Set([...a, ...b]).size;
-      if(uni && inter / uni >= 0.5) dupes.push(`${outline[i].row}/${outline[j].row}`);
-    }
-  }
-  if(dupes.length) warn.push(`Rows that look almost the same: ${dupes.slice(0, 6).join(', ')}${dupes.length > 6 ? '…' : ''} — they may feel repetitive.`);
+  // Plan hygiene: filler rows, near-duplicates, look-alike names.
+  { const h = planHygieneWarnings(outline, (job.styleBlock && job.styleBlock.characters) || []); warn.push(...h.warn); ok.push(...h.ok); }
 
   // Clarity: viewers must know what happened and who the hero is right away.
   if(valid(m.incidentRow)){
@@ -2013,7 +2217,9 @@ async function generateScript(){
 
     const userPrompt = `Source material (a premise to retell originally — rename every character):\n${source}\n\n${totalSeconds ? `Total video length: ${minuteVal} minutes (${totalSeconds}s)` : "Length not specified — treat as a short clip"}\n${topic ? `Retelling angle (secondary — a stylistic twist only, must never override or replace the source material's actual content above): ${topic}` : `No retelling angle given — follow the source material's own story directly, with no reframing.`}\nCharacter / render style: ${styleLabelFor(currentStyle, customStyle)}\nStory setting / cultural context: ${setting || 'Auto — infer one setting from the source and lock it'}\nOutput language for dialogue/narration: ${document.getElementById('language').value}\nScene plan: ${targetSceneCount ? (expandMode === 'strict' ? `source only — up to ~${targetSceneCount} scenes, fewer if the source is thinner` : `exactly ${targetSceneCount} outline rows — expand faithfully if the source is shorter`) : 'as many rows as the source supports'}${retentionOn ? '\nStory doctor: ON — restructure for retention per STORY DOCTOR and return treatment.retentionMap' : ''}`;
 
-    const parsedRaw = sanitizeParsedScenes(await callGeneration(systemPrompt, userPrompt));
+    const gateOn = isPlanGateOn() && !!targetSceneCount;
+    const planFirstNote = gateOn ? `\nPLAN-FIRST OVERRIDE — this wins over any instruction above to write scenes now: return "scenes": [] (an empty array) in THIS response. Put all the effort into sourceBeats, treatment.outline (every row with a real "purpose"), treatment.retentionMap, styleBlock (characters with clearly different-sounding names) and the thumbnail. The plan will be checked and then the scenes are written in a separate step.` : '';
+    const parsedRaw = sanitizeParsedScenes(await callGeneration(systemPrompt + planFirstNote, userPrompt));
     const nameChanges = (parsedRaw.treatment && Array.isArray(parsedRaw.treatment.nameChanges)) ? parsedRaw.treatment.nameChanges : [];
     const parsed = applyNameChanges(parsedRaw, nameChanges);
 
@@ -2039,6 +2245,17 @@ async function generateScript(){
       job.treatment.outline = normalizeOutline(job.treatment.outline);
     }
     if(!Array.isArray(job.scenes)) job.scenes = [];
+    let gateRan = false;
+    if(gateOn && getOutline()){
+      job.scenes = []; // scenes are written from the checked plan below
+      try{
+        const label = document.getElementById('genLabel');
+        await runPlanGate({ onStatus: m => { if(label) label.textContent = m; } });
+        gateRan = true;
+      }catch(e){
+        console.warn('[Generator] Plan gate failed — continuing with the original plan:', e);
+      }
+    }
     const openingRows = getOutline();
     if(openingRows) job.scenes = job.scenes.slice(0, BATCH_SIZE);
     job.scenes.forEach((sc, i) => {
@@ -2060,6 +2277,14 @@ async function generateScript(){
     // (or navigating away) always leaves this batch recoverable from
     // "📂 Load saved job". Silent: no toast on every generation.
     await saveJobToStorage(true);
+    // Plan-first: the opening response had no scenes — write the first batch
+    // now, from the checked (and repaired) plan.
+    if(!job.scenes.length && getOutline()){
+      const label = document.getElementById('genLabel');
+      if(label) label.textContent = 'Writing the first scenes…';
+      showToast(gateRan ? `Plan checked (${job.treatment.planGate.versions[job.treatment.planGate.picked].score}/100) — writing the first scenes…` : 'Writing the first scenes…');
+      await continueScript();
+    }
   }catch(e){
     showError('Generation failed: ' + e.message + '. Try trimming the source text or simplifying the topic, then generate again.');
   }finally{
@@ -3252,6 +3477,12 @@ function renderResults(){
         ${planRows.map(r => `<div class="plan-row ${r.row <= writtenRow ? 'written' : ''}"><span class="plan-n">${r.row}</span><span class="plan-kind ${r.kind}">${r.kind === 'expansion' ? 'EXP' : r.kind === 'outro' ? 'OUT' : 'SRC'}</span><span><b>${r.location}</b> · ${r.summary}</span></div>`).join('')}
         <div class="hint">SRC = from your source · EXP = planned expansion · OUT = closing outro. Written rows are dimmed.</div>
       </div>
+    </details>` : ''}
+
+    ${getOutline() ? `
+    <details class="acc" data-acc="plangate" ${openAttr('plangate', true)}>
+      <summary><span>🛡 Plan quality</span></summary>
+      <div class="acc-body treatment-item">${renderPlanGate()}</div>
     </details>` : ''}
 
     ${retention ? `
