@@ -1921,6 +1921,27 @@ function planHygieneWarnings(outline, roster){
     }
   }
   if(dupes.length) warn.push(`Rows that look almost the same: ${dupes.slice(0, 6).join(', ')}${dupes.length > 6 ? '…' : ''} — they may feel repetitive.`);
+  // Long stretches in one place (planning rule: max 4 rows in a row).
+  const locKey = l => String(l || '').toLowerCase().replace(/^(the|a|an)\s+/, '').replace(/[,·(].*$/, '').trim();
+  const longRuns = [];
+  for(let i = 0; i < outline.length;){
+    let j = i;
+    while(j + 1 < outline.length && locKey(outline[j + 1].location) && locKey(outline[j + 1].location) === locKey(outline[i].location)) j++;
+    if(j - i + 1 > 4) longRuns.push(`rows ${outline[i].row}-${outline[j].row} (${j - i + 1} rows)`);
+    i = j + 1;
+  }
+  if(longRuns.length) warn.push(`Too long in one place: ${longRuns.join(', ')} — max 4 rows in a row; cut waiting rows or intercut with new information elsewhere.`);
+  // Runs of "tension"/"reaction" rows = the same silence stretched out.
+  const isStall = r => r.kind === 'expansion' && /^\s*(tension|reaction|silence|waiting|suspense|pressure)\b/i.test(String(r.purpose || ''));
+  const stalls = [];
+  for(let i = 0; i < outline.length;){
+    if(!isStall(outline[i])){ i++; continue; }
+    let j = i;
+    while(j + 1 < outline.length && isStall(outline[j + 1])) j++;
+    if(j - i + 1 >= 3) stalls.push(`rows ${outline[i].row}-${outline[j].row}`);
+    i = j + 1;
+  }
+  if(stalls.length) warn.push(`Stalling — ${stalls.join(', ')} are back-to-back tension/reaction rows (filler); keep at most 2 and replace the rest with new evidence or a turn.`);
   const names = (roster || []).map(c => String(c.name || '').trim()).filter(Boolean);
   const lev = (a, b) => {
     a = a.toLowerCase(); b = b.toLowerCase();
@@ -1943,7 +1964,7 @@ function planHygieneWarnings(outline, roster){
   return { warn, ok };
 }
 // High-impact problems cost more points.
-const PLAN_HIGH_RE = /too late|too early|never clearly introduced|No row shows the incident|no hero introduction|no planned use|look alike|filler|no story purpose|only mood|hint the secret|No reveal row|didn't return a retention map/i;
+const PLAN_HIGH_RE = /Stalling|Too long in one place|too late|too early|never clearly introduced|No row shows the incident|no hero introduction|no planned use|look alike|filler|no story purpose|only mood|hint the secret|No reveal row|didn't return a retention map/i;
 function scorePlanWarnings(warns){
   let score = 100;
   (warns || []).forEach(w => { score -= PLAN_HIGH_RE.test(w) ? 9 : 4; });
