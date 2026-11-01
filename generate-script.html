@@ -180,6 +180,15 @@
   .btn-check.on{border-color:var(--done);color:var(--done);}
   .btn-check.on.partial{border-color:var(--amber);color:var(--amber);}
 
+  /* ---- GPT-6 model plan ---- */
+  .mp-table{width:100%;border-collapse:collapse;margin-top:8px;font-size:12px;}
+  .mp-table td{padding:5px 6px;border-top:1px solid var(--line);color:var(--text-dim);}
+  .mp-table td:nth-child(2){color:var(--text);white-space:nowrap;}
+  .mp-table td:nth-child(3){text-align:right;}
+  .mp-eff{font:600 10px 'IBM Plex Mono',monospace;text-transform:uppercase;letter-spacing:.05em;padding:2px 7px;border-radius:999px;border:1px solid var(--line);}
+  .mp-high{color:#1A1405;background:var(--amber);border-color:var(--amber);}
+  .mp-medium{color:var(--amber);border-color:var(--amber-dim);}
+  .mp-low{color:var(--text-dim);}
   /* ---- Plan quality gate ---- */
   .pg-score{display:flex;align-items:baseline;gap:4px;margin-bottom:10px;}
   .pg-num{font:700 30px 'Space Grotesk','Inter',sans-serif;line-height:1;}
@@ -302,6 +311,9 @@
         <input type="text" id="customModel" placeholder="Custom model ID, e.g. google/gemini-3.8-flash" style="display:none;margin-top:8px;font-size:12px;"
           oninput="try{localStorage.setItem('customModel', this.value)}catch(e){}">
         <div class="model-note" id="modelNote"></div>
+        <label class="check-label premium-toggle" style="margin-top:10px;"><input type="checkbox" id="premiumPlan" onchange="onPremiumToggle(this.checked); renderModelPlanBox();"><span>Use the <b>GPT-6 model plan</b> (Astra · Sol · Luna)</span></label>
+        <div class="hint" id="premiumNote">Each job goes to the model that suits it — Astra with high reasoning for the story, Sol for prompts &amp; SEO, Luna for JSON checks. Unticked: everything uses the model above. Works with OpenAI or OpenRouter keys; any model your key can't use falls back to the one above.</div>
+        <div id="modelPlanBox" style="display:none;"></div>
       </div>
       <div class="lang-field">
         <div class="key-label-row"><span class="key-icon">🌐</span><span>Language</span></div>
@@ -582,6 +594,7 @@ function populateModelSelect(provider, preferred){
   onModelChange(true);
 }
 function onProviderChange(){
+  setTimeout(() => { if(typeof renderModelPlanBox === 'function') renderModelPlanBox(); }, 0);
   const provider = currentProvider();
   try{ localStorage.setItem('aiProvider', provider); }catch(e){}
   let preferred = null;
@@ -621,6 +634,8 @@ function getSelectedModel(){
     preferred = localStorage.getItem(`model:${provider}`) || (provider === 'openai' ? localStorage.getItem('openaiModel') : null);
     const savedRetention = localStorage.getItem('retentionMode');
     if(savedRetention !== null) document.getElementById('retentionMode').checked = savedRetention === '1';
+    if(localStorage.getItem('premiumPlan') === '1' && document.getElementById('premiumPlan')) document.getElementById('premiumPlan').checked = true;
+    setTimeout(renderModelPlanBox, 0);
     const savedGate = localStorage.getItem('planGate');
     if(savedGate !== null && document.getElementById('planGate')) document.getElementById('planGate').checked = savedGate === '1';
     const savedExpand = localStorage.getItem('expandMode');
@@ -1166,31 +1181,126 @@ function parseModelJson(rawText){
 
 // Direct browser call to any OpenAI-compatible provider. Retries once without
 // response_format for models that reject JSON mode.
-async function callChatCompletions(base, apiKey, model, systemPrompt, userPrompt){
+async function callChatCompletions(base, apiKey, model, systemPrompt, userPrompt, effort){
+  const isOpenRouter = /openrouter/.test(base);
+  let useEffort = !!effort;
   const doFetch = (useJsonMode) => fetch(`${base}/chat/completions`, {
     method: "POST",
     headers: { "Content-Type": "application/json", "Authorization": `Bearer ${apiKey}` },
     body: JSON.stringify(Object.assign({
       model,
       messages: [{ role: "system", content: systemPrompt }, { role: "user", content: userPrompt }]
-    }, useJsonMode ? { response_format: { type: "json_object" } } : {}))
+    }, useJsonMode ? { response_format: { type: "json_object" } } : {},
+       useEffort ? (isOpenRouter ? { reasoning: { effort } } : { reasoning_effort: effort }) : {}))
   });
   let response = await doFetch(true);
   if(response.status === 400){
     const errBody = await response.clone().text();
-    if(/response_format|json_object|json mode/i.test(errBody)) response = await doFetch(false);
+    if(useEffort && /reasoning/i.test(errBody)){ useEffort = false; response = await doFetch(true); }
+    if(response.status === 400){
+      const errBody2 = await response.clone().text();
+      if(/response_format|json_object|json mode/i.test(errBody2)) response = await doFetch(false);
+    }
   }
   return response;
 }
 
-async function callGeneration(systemPrompt, userPrompt){
+// ---------------------------------------------------------------------------
+// GPT-6 MODEL PLAN — when the checkbox is ticked, each kind of request goes
+// to the model + reasoning level that suits it (your workflow table):
+//   Topic strategy / Main script / Script review → Astra, high reasoning
+//   Scene prompts / Thumbnail / SEO              → Sol, medium
+//   Shorts                                       → Sol, low
+//   JSON validation (repairing broken AI output) → Luna, low
+// Unticked: everything uses the model picked above, as before. If a planned
+// model isn't available on this key, that request falls back to the picked
+// model automatically, so generation never just fails.
+// ---------------------------------------------------------------------------
+const GPT6_MODELS = { astra: 'gpt-6-astra', sol: 'gpt-6-sol', luna: 'gpt-6-luna' };
+const MODEL_PLAN = {
+  strategy:     { label: 'Topic strategy (story plan)',        model: 'astra', effort: 'high' },
+  script:       { label: 'Main script (scenes & narration)',   model: 'astra', effort: 'high' },
+  review:       { label: 'Script review (plan check & fixes)', model: 'astra', effort: 'high' },
+  scenePrompts: { label: 'Scene prompts (Generate again)',     model: 'sol',   effort: 'medium' },
+  thumbnail:    { label: 'Thumbnail concepts',                 model: 'sol',   effort: 'medium' },
+  seo:          { label: 'SEO (YouTube details)',              model: 'sol',   effort: 'medium' },
+  audio:        { label: 'Music & SFX prompts',                model: 'sol',   effort: 'medium' },
+  shorts:       { label: 'Shorts',                             model: 'sol',   effort: 'low' },
+  json:         { label: 'JSON validation',                    model: 'luna',  effort: 'low' }
+};
+function isPremiumOn(){
+  const el = document.getElementById('premiumPlan');
+  return !!(el && el.checked);
+}
+function planModelId(key, provider){
+  const id = GPT6_MODELS[key];
+  if(!id) return null;
+  if(provider === 'openai') return id;
+  if(provider === 'openrouter') return 'openai/' + id;
+  return null; // e.g. DeepSeek can't run OpenAI models
+}
+// Model + reasoning for one task, or null = use the normal picked model.
+function modelForTask(task){
+  if(!isPremiumOn() || !readApiKey()) return null;
+  const p = MODEL_PLAN[task];
+  if(!p) return null;
+  const model = planModelId(p.model, currentProvider());
+  return model ? { model, effort: p.effort } : null;
+}
+function onPremiumToggle(on){
+  try{ localStorage.setItem('premiumPlan', on ? '1' : '0'); }catch(e){}
+  if(on && !planModelId('astra', currentProvider())) showToast(`The GPT-6 plan needs an OpenAI or OpenRouter key — your picked model is used with ${currentProvider()}`);
+  else if(on) showToast('GPT-6 plan on — Astra for the story, Sol for prompts & SEO, Luna for JSON checks');
+}
+const planFallbackWarned = new Set();
+async function callTask(task, systemPrompt, userPrompt){
+  const m = modelForTask(task);
+  if(!m) return callGeneration(systemPrompt, userPrompt);
+  try{
+    return await callGeneration(systemPrompt, userPrompt, { model: m.model, effort: m.effort });
+  }catch(e){
+    // Model not available on this account / provider → use the picked model.
+    if(/\b(400|403|404)\b|model|not found|does not exist|access|permission/i.test(e.message)){
+      console.warn(`[Generator] ${m.model} unavailable for "${task}", falling back:`, e.message);
+      if(!planFallbackWarned.has(m.model)){ showToast(`${m.model} isn't available on this key — used ${getSelectedModel()} instead`); planFallbackWarned.add(m.model); }
+      return callGeneration(systemPrompt, userPrompt);
+    }
+    throw e;
+  }
+}
+// Kept for older call sites: "important" = story-level work.
+function callImportant(systemPrompt, userPrompt){ return callTask('strategy', systemPrompt, userPrompt); }
+// JSON validation step: when a reply can't be parsed, ask Luna (low
+// reasoning) to turn it into valid JSON without changing its content.
+async function repairJsonWithModel(rawText){
+  const m = modelForTask('json');
+  if(!m) return null;
+  const system = 'You fix broken JSON. Return ONLY the same data as valid JSON — same keys, same values, same order. Do not add, remove, summarise or rewrite any content. Remove any text outside the JSON.';
+  try{
+    return await callGeneration(system, String(rawText).slice(0, 120000), { model: m.model, effort: m.effort, noJsonRepair: true });
+  }catch(e){
+    console.warn('[Generator] JSON validation with Luna failed:', e.message);
+    return null;
+  }
+}
+function renderModelPlanBox(){
+  const box = document.getElementById('modelPlanBox');
+  if(!box) return;
+  box.style.display = isPremiumOn() ? '' : 'none';
+  box.innerHTML = isPremiumOn() ? renderModelPlanTable() : '';
+}
+function renderModelPlanTable(){
+  const prov = currentProvider();
+  return `<table class="mp-table"><tbody>${Object.values(MODEL_PLAN).map(p => `<tr><td>${p.label}</td><td><b>${p.model.charAt(0).toUpperCase() + p.model.slice(1)}</b></td><td><span class="mp-eff mp-${p.effort}">${p.effort}</span></td></tr>`).join('')}</tbody></table>${planModelId('astra', prov) ? '' : '<div class="hint" style="color:var(--amber);">Your provider can\'t run GPT-6 models — the picked model is used instead.</div>'}`;
+}
+async function callGeneration(systemPrompt, userPrompt, opts){
   const openaiKey = readApiKey();
   const backendUrl = document.getElementById('backendUrl').value.trim();
   // Tolerate either "http://host:port" or "http://host:port/api" in the
   // field — the endpoint below always adds "/api/generate-script" itself.
   const backendBase = backendUrl.replace(/\/$/,'').replace(/\/api$/i,'');
   const provider = currentProvider();
-  const selectedModel = getSelectedModel();
+  const selectedModel = (opts && opts.model) || getSelectedModel();
   if(openaiKey && !selectedModel) throw new Error('Pick a model, or type a custom model ID');
   let rawText;
 
@@ -1200,7 +1310,7 @@ async function callGeneration(systemPrompt, userPrompt){
       response = await fetch(`${backendBase}/api/generate-script`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ openaiKey, systemPrompt, userPrompt, model: selectedModel, provider, baseUrl: PROVIDERS[provider].base })
+        body: JSON.stringify({ openaiKey, systemPrompt, userPrompt, model: selectedModel, provider, baseUrl: PROVIDERS[provider].base, reasoningEffort: (opts && opts.effort) || null })
       });
     }catch(networkErr){
       throw new Error(`Could not reach your backend proxy at "${backendBase}/api/generate-script" — make sure it's running (cd backend && node server.js) and the URL is correct.`);
@@ -1215,7 +1325,7 @@ async function callGeneration(systemPrompt, userPrompt){
   }else if(openaiKey){
     let response;
     try{
-      response = await callChatCompletions(PROVIDERS[provider].base, openaiKey, selectedModel, systemPrompt, userPrompt);
+      response = await callChatCompletions(PROVIDERS[provider].base, openaiKey, selectedModel, systemPrompt, userPrompt, (opts && opts.effort) || null);
     }catch(networkErr){
       throw new Error(`Could not reach ${provider} directly from the browser — this is usually blocked by CORS. Add a backend proxy URL above (cd backend && node server.js, then use http://localhost:3000) to work around it.`);
     }
@@ -1249,7 +1359,14 @@ async function callGeneration(systemPrompt, userPrompt){
     rawText = textBlock.text;
   }
 
-  return parseModelJson(rawText);
+  try{
+    return parseModelJson(rawText);
+  }catch(parseErr){
+    if(opts && opts.noJsonRepair) throw parseErr;
+    const fixed = await repairJsonWithModel(rawText);
+    if(fixed) return fixed;
+    throw parseErr;
+  }
 }
 
 // Safety net for the same class of thing as fullVideoAudioPrompt()'s dialogue
@@ -1847,7 +1964,7 @@ SECRET (never reveal or hint before row ${m.revealRow || '?'}): ${m.secret || '�
 
 ${usable.map((g, i) => `GAP ${i + 1} — no open question between row ${g.from || 'start'} and row ${g.to}. Rows you may change:
 ${g.rows.map(fmt).join('\n')}`).join('\n\n')}`;
-    const res = await callGeneration(system, user);
+    const res = await callTask('review', system, user);
     const fixes = (res && Array.isArray(res.fixes)) ? res.fixes : [];
     const allowed = new Set(usable.flatMap(g => g.rows.map(r => +r.row)));
     const good = fixes.filter(f => f && allowed.has(+f.row) && f.summary);
@@ -2018,7 +2135,7 @@ ${JSON.stringify(cand.retentionMap || {})}
 
 CURRENT PLAN (${N} rows):
 ${cand.outline.map(fmt).join('\n')}`;
-  const res = await callGeneration(system, user);
+  const res = await callTask('review', system, user);
   const outline = normalizeOutline(res && res.outline);
   if(!outline || outline.length !== N) throw new Error(`repair returned ${outline ? outline.length : 0} rows instead of ${N}`);
   if(lockedUpTo) for(let i = 0; i < lockedUpTo; i++) outline[i] = cand.outline[i];
@@ -2071,6 +2188,7 @@ async function runPlanGate(opts){
   }
   job.treatment.planGate = {
     at: Date.now(),
+    model: ((modelForTask('review') || {}).model) || getSelectedModel(),
     picked: versions.indexOf(best),
     versions: versions.map(v => ({ label: v.label, score: v.audit.score, problems: v.audit.warns.slice(0, 20), failed: v.failed || null, changes: (v.cand && v.cand.changes) || [] }))
   };
@@ -2101,6 +2219,7 @@ function renderPlanGate(){
   const cls = live.score >= 90 ? 'good' : live.score >= 70 ? 'mid' : 'bad';
   return `
     <div class="pg-score ${cls}"><span class="pg-num">${live.score}</span><span class="pg-of">/100</span><span class="pg-cap">${live.warns.length ? `${live.warns.length} problem${live.warns.length > 1 ? 's' : ''} left` : 'all checks passed'}</span></div>
+    ${g && g.model ? `<div class="cd" style="margin-bottom:8px;">Planned &amp; checked with <b>${escHtml(g.model)}</b></div>` : ''}
     ${g ? `<div class="pg-versions">${g.versions.map((v, i) => `<div class="pg-v ${i === g.picked ? 'picked' : ''}"><span>${escHtml(v.label)}</span><b>${v.failed ? 'failed' : v.score}</b>${i === g.picked ? '<em>kept ✓</em>' : ''}</div>`).join('')}</div>` : ''}
     ${g && g.versions[g.picked] && g.versions[g.picked].changes.length ? `<div class="cd" style="margin:8px 0;"><b>What the repair changed</b><br>${g.versions[g.picked].changes.map(c => '• ' + escHtml(c)).join('<br>')}</div>` : ''}
     ${live.warns.length ? live.warns.map(w => `<div class="ret-line warn">⚠ ${escHtml(w)}</div>`).join('') : ''}
@@ -2240,7 +2359,7 @@ async function generateScript(){
 
     const gateOn = isPlanGateOn() && !!targetSceneCount;
     const planFirstNote = gateOn ? `\nPLAN-FIRST OVERRIDE — this wins over any instruction above to write scenes now: return "scenes": [] (an empty array) in THIS response. Put all the effort into sourceBeats, treatment.outline (every row with a real "purpose"), treatment.retentionMap, styleBlock (characters with clearly different-sounding names) and the thumbnail. The plan will be checked and then the scenes are written in a separate step.` : '';
-    const parsedRaw = sanitizeParsedScenes(await callGeneration(systemPrompt + planFirstNote, userPrompt));
+    const parsedRaw = sanitizeParsedScenes(await callTask('strategy', systemPrompt + planFirstNote, userPrompt));
     const nameChanges = (parsedRaw.treatment && Array.isArray(parsedRaw.treatment.nameChanges)) ? parsedRaw.treatment.nameChanges : [];
     const parsed = applyNameChanges(parsedRaw, nameChanges);
 
@@ -2352,7 +2471,7 @@ async function continueScript(){
 
     const userPrompt = `Source material (a premise being retold originally):\n${sourceTextForPrompt}\n\n${job.currentTopic ? `Retelling angle (secondary — a stylistic twist only): ${job.currentTopic}` : `No retelling angle given — follow the source material's own story directly.`}\nCharacter / render style: ${styleLabelFor(job.characterStyle, job.customStyle)}\nStory setting / cultural context: ${job.setting || t.setting || 'as established in the opening batch'}\nOutput language for dialogue/narration: ${lang}${nameChangesText}\n\nEstablished look — reuse exactly:\nStyle: ${job.styleBlock.description}\nWorld: ${t.environment || 'infer from earlier scenes'}\nColor grade: ${t.colorGrade || '—'}\nCharacters (do not invent new named characters):\n${job.styleBlock.characters.map(c => `- ${c.name} (${c.role}): ${c.description}${c.faceSignature ? ` FACE: ${c.faceSignature}` : ''}${c.visualTag ? ` VISUAL TAG: ${c.visualTag}` : ''}`).join('\n')}${Array.isArray(job.styleBlock.products) && job.styleBlock.products.length ? `\n\nProducts — reuse these exact descriptions:\n${job.styleBlock.products.map(p => `- ${p.name}: ${p.description}`).join('\n')}` : ''}\n\nSource beats:\n${(t.sourceBeats || []).map((b,i) => `${i+1}. ${b}`).join('\n') || '(none recorded)'}\n${outline ? `\nFULL OUTLINE (the whole video, for foreshadowing and payoff):\n${outline.map(fmtRow).join('\n')}\n\nTHIS BATCH'S ROWS — write exactly these, in order:\n${rows.map(fmtRow).join('\n')}\n` : ''}${retentionBatchNote(rows)}\nALREADY WRITTEN — never repeat any of these moments, actions, or lines:\n${writtenScenesLog() || '(none)'}\n\nThe previous scene ended at ${formatTime(lastEndSeconds)}. Its imagePrompt (your first new imagePrompt must look clearly different):\n"${lastScene ? lastScene.imagePrompt : 'opening of the video'}"\n\nIts action (continue from it if the next row stays in the same place):\n"${lastScene ? lastScene.videoAudioPrompt : 'opening of the video'}"\n${job.totalSeconds ? `\nTotal video length target: ${job.totalSeconds}s.` : ''}`;
 
-    const parsed = applyNameChanges(sanitizeParsedScenes(await callGeneration(systemPrompt, userPrompt)), nameChanges);
+    const parsed = applyNameChanges(sanitizeParsedScenes(await callTask('script', systemPrompt, userPrompt)), nameChanges);
     let newScenes = Array.isArray(parsed.scenes) ? parsed.scenes : [];
     // Pin each new scene to its planned row and location even if the model
     // forgot to echo them back.
@@ -2747,7 +2866,7 @@ ${scene.imagePrompt}
 
 CURRENT videoAudioPrompt:
 ${scene.videoAudioPrompt}`;
-    const res = await callGeneration(system, user);
+    const res = await callTask('scenePrompts', system, user);
     const out = res && (res.imagePrompt ? res : (res.scene || res));
     if(!out || !out.imagePrompt || !out.videoAudioPrompt) throw new Error('The AI returned no prompts');
     scene._history = (scene._history || []).concat([{ imagePrompt: scene.imagePrompt, videoAudioPrompt: scene.videoAudioPrompt, blocking: scene.blocking }]).slice(-5);
@@ -2796,7 +2915,7 @@ Title that will be added: "${thumbnailTitle()}"
 
 CURRENT thumbnail prompt (the user did not like the result — make a different one):
 ${job.thumbnail.prompt}`;
-    const res = await callGeneration(system, user);
+    const res = await callTask('thumbnail', system, user);
     const out = res && (res.prompt ? res : (res.thumbnail || res));
     if(!out || !out.prompt) throw new Error('The AI returned no thumbnail prompt');
     job.thumbnail._history = (job.thumbnail._history || []).concat([{ prompt: job.thumbnail.prompt, videoPrompt: job.thumbnail.videoPrompt || null }]).slice(-5);
@@ -3249,7 +3368,7 @@ Main characters: ${((job.styleBlock && job.styleBlock.characters) || []).slice(0
 
 Plan (start time — beat — what happens):
 ${rows.map(r => `${fmtChapterTime(r.start)} — ${r.beat} — ${r.summary}`).join('\n')}`;
-    const res = await callGeneration(system, user);
+    const res = await callTask('seo', system, user);
     if(!res || !Array.isArray(res.titles) || !res.description) throw new Error('The AI returned incomplete details');
     const chapters = (Array.isArray(res.chapters) ? res.chapters : []).filter(c => c && c.time && c.label);
     if(chapters.length && chapters[0].time !== '0:00') chapters.unshift({ time: '0:00', label: chapters[0].label });
@@ -3341,7 +3460,7 @@ ${rows.map(r => `${fmtChapterTime(r.start)} — ${r.beat} — ${String(r.summary
 
 Scene sound cues:
 ${cues.join('\n') || '(none written yet — infer from the plan)'}`;
-    const res = await callGeneration(system, user);
+    const res = await callTask('audio', system, user);
     if(!res || !res.theme || !res.theme.prompt) throw new Error('The AI returned no music theme');
     job.audioMeta = {
       theme: res.theme,

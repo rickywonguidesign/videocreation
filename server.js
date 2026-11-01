@@ -22,7 +22,12 @@ app.use(express.static(__dirname));
 app.use(express.json({ limit: '20mb' }));
 app.use('/api/generate-script', cors({ origin: '*' }));
 
-async function callProvider({ provider, key, model, systemPrompt, userPrompt }) {
+// Reasoning level ("low" | "medium" | "high") chosen per task by the page's
+// GPT-6 model plan. Sent only when given; if a model rejects it, the request
+// is retried once without it.
+const EFFORTS = new Set(['low', 'medium', 'high']);
+
+async function callProvider({ provider, key, model, systemPrompt, userPrompt, effort }) {
     const headers = {
         'Content-Type': 'application/json',
         'Authorization': `Bearer ${key}`
@@ -31,18 +36,27 @@ async function callProvider({ provider, key, model, systemPrompt, userPrompt }) 
         headers['HTTP-Referer'] = 'http://localhost';
         headers['X-Title'] = 'ScriptGen Scene Generator';
     }
+    let useEffort = EFFORTS.has(effort);
     const makeBody = (jsonMode) => JSON.stringify({
         model,
         messages: [
             { role: 'system', content: systemPrompt },
             { role: 'user', content: userPrompt }
         ],
-        ...(jsonMode ? { response_format: { type: 'json_object' } } : {})
+        ...(jsonMode ? { response_format: { type: 'json_object' } } : {}),
+        ...(useEffort ? (provider === 'openrouter' ? { reasoning: { effort } } : { reasoning_effort: effort }) : {})
     });
 
     const url = `${PROVIDERS[provider]}/chat/completions`;
     let response = await fetch(url, { method: 'POST', headers, body: makeBody(true) });
 
+    if (response.status === 400) {
+        // A model that doesn't support a reasoning level — retry without it.
+        if (useEffort && /reasoning/i.test(await response.clone().text())) {
+            useEffort = false;
+            response = await fetch(url, { method: 'POST', headers, body: makeBody(true) });
+        }
+    }
     // Some models (especially via OpenRouter) reject JSON mode — retry once without it.
     if (response.status === 400) {
         const errText = await response.clone().text();
@@ -56,7 +70,7 @@ async function callProvider({ provider, key, model, systemPrompt, userPrompt }) 
 app.post('/api/generate-script', async (req, res) => {
     // "openaiKey" is kept as the field name for backward compatibility —
     // it holds whichever provider's key the page sends.
-    const { openaiKey, systemPrompt, userPrompt, model } = req.body;
+    const { openaiKey, systemPrompt, userPrompt, model, reasoningEffort } = req.body;
     const provider = PROVIDERS[req.body.provider] ? req.body.provider : 'openai';
     const key = openaiKey || process.env[`${provider.toUpperCase()}_API_KEY`];
     const chosenModel = model || DEFAULT_MODEL[provider];
@@ -70,7 +84,7 @@ app.post('/api/generate-script', async (req, res) => {
 
     try {
         const started = Date.now();
-        const response = await callProvider({ provider, key, model: chosenModel, systemPrompt, userPrompt });
+        const response = await callProvider({ provider, key, model: chosenModel, systemPrompt, userPrompt, effort: reasoningEffort });
 
         if (!response.ok) {
             const errText = await response.text();
@@ -83,7 +97,7 @@ app.post('/api/generate-script', async (req, res) => {
 
         // Token usage in the terminal helps compare cost between models.
         const u = data.usage || {};
-        console.log(`[${new Date().toISOString()}] ${provider}/${chosenModel} ${Date.now() - started}ms · in ${u.prompt_tokens ?? '?'} / out ${u.completion_tokens ?? '?'} tokens`);
+        console.log(`[${new Date().toISOString()}] ${provider}/${chosenModel}${EFFORTS.has(reasoningEffort) ? ` (${reasoningEffort})` : ''} ${Date.now() - started}ms · in ${u.prompt_tokens ?? '?'} / out ${u.completion_tokens ?? '?'} tokens`);
 
         res.json({ content, model: data.model || chosenModel, usage: data.usage || null });
     } catch (err) {
