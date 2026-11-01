@@ -192,6 +192,7 @@
   .mp-head{display:flex;align-items:center;justify-content:space-between;margin-top:12px;font-family:'IBM Plex Mono',monospace;font-size:10.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--text-dim);}
   .mp-recheck{font:600 11px 'Inter',sans-serif;text-transform:none;letter-spacing:0;padding:3px 9px;border-radius:6px;border:1px solid var(--line);background:transparent;color:var(--text);cursor:pointer;}
   .mp-st{font:500 11.5px 'IBM Plex Mono',monospace;}
+  .mp-reason td{border-top:none !important;padding-top:0 !important;font:11px/1.45 'IBM Plex Mono',monospace;color:#E07A6A !important;opacity:.85;word-break:break-word;}
   .mp-ok{color:var(--done);} .mp-bad{color:#E07A6A;} .mp-wait{color:var(--text-dim);}
   /* ---- Plan quality gate ---- */
   .pg-score{display:flex;align-items:baseline;gap:4px;margin-bottom:10px;}
@@ -1310,11 +1311,14 @@ async function runModelCheck(force){
     const ids = await listAvailableModelIds();
     for(const fam of Object.keys(GPT6_CANDIDATES)){
       const cands = GPT6_CANDIDATES[fam].map(id => withProviderPrefix(id, provider));
-      let ordered = cands;
+      // The model list is only a HINT for which ID to try first (some keys list
+      // dated IDs like "gpt-6-astra-2026-09-10", some lists are incomplete) —
+      // a model is only marked unavailable after a real test request fails.
+      let ordered = cands.slice();
       if(ids){
-        const present = cands.filter(id => ids.includes(id));
-        if(!present.length){ result[fam] = { status: 'missing', id: null, note: `none of ${cands.join(', ')} on this key` }; continue; }
-        ordered = present;
+        const listed = [];
+        cands.forEach(c => ids.forEach(id => { if((id === c || id.startsWith(c + '-')) && !listed.includes(id)) listed.push(id); }));
+        ordered = listed.concat(cands.filter(c => !listed.includes(c)));
       }
       let done = false;
       for(const id of ordered){
@@ -1322,8 +1326,9 @@ async function runModelCheck(force){
           const out = await callGeneration('Reply with JSON only.', 'Return exactly {"ok":true} as JSON.', { model: id, effort: 'low', noJsonRepair: true });
           if(out){ result[fam] = { status: 'ok', id, note: 'answered a test request' }; done = true; break; }
         }catch(e){
-          result[fam] = { status: 'error', id, note: e.message.slice(0, 140) };
-          if(!/\b(400|403|404)\b|model|not found|does not exist|access|permission/i.test(e.message)) break; // network etc. — don't try more IDs
+          const modelProblem = /\b(400|403|404)\b|model|not found|does not exist|access|permission/i.test(e.message);
+          result[fam] = { status: modelProblem ? 'missing' : 'error', id, note: `${id}: ${e.message.slice(0, 220)}` };
+          if(!modelProblem) break; // network / backend problem — trying more IDs won't help
         }
       }
       if(!done && !result[fam]) result[fam] = { status: 'missing', id: null, note: 'no ID answered' };
@@ -1408,13 +1413,20 @@ function famStatus(fam){
   const c = modelCheck && modelCheck[fam];
   if(!c) return '<span class="mp-st mp-wait">not checked</span>';
   if(c.status === 'ok') return `<span class="mp-st mp-ok" title="${escHtml(c.note)}">✓ ${escHtml(c.id)}</span>`;
-  return `<span class="mp-st mp-bad" title="${escHtml(c.note)}">✗ uses ${escHtml(getSelectedModel() || 'picked model')}</span>`;
+  if(c.status === 'error') return `<span class="mp-st mp-bad">✗ test failed</span>`;
+  return `<span class="mp-st mp-bad">✗ not available → uses ${escHtml(getSelectedModel() || 'picked model')}</span>`;
+}
+// The exact reason, shown under the row (so a problem is visible without hovering).
+function famReason(fam){
+  const c = modelCheck && modelCheck[fam];
+  if(!c || c.status === 'ok' || modelCheckBusy) return '';
+  return `<tr class="mp-reason"><td colspan="3">${escHtml(c.note)}</td></tr>`;
 }
 function renderModelPlanTable(){
   const prov = currentProvider();
   if(!withProviderPrefix('x', prov)) return '<div class="hint" style="color:var(--amber);">Your provider can\'t run GPT-6 models — the picked model is used instead.</div>';
   const fams = ['astra', 'sol', 'luna'];
-  const statusRows = fams.map(f => `<tr><td><b>${f.charAt(0).toUpperCase() + f.slice(1)}</b></td><td colspan="2" style="text-align:right;">${famStatus(f)}</td></tr>`).join('');
+  const statusRows = fams.map(f => `<tr><td><b>${f.charAt(0).toUpperCase() + f.slice(1)}</b></td><td colspan="2" style="text-align:right;">${famStatus(f)}</td></tr>${famReason(f)}`).join('');
   return `<table class="mp-table"><tbody>${Object.values(MODEL_PLAN).map(p => `<tr><td>${p.label}</td><td><b>${p.model.charAt(0).toUpperCase() + p.model.slice(1)}</b></td><td><span class="mp-eff mp-${p.effort}">${p.effort}</span></td></tr>`).join('')}</tbody></table>
     ${backendStatus && !backendStatus.ok ? `<div class="ret-line warn" style="margin-top:10px;">⚠ ${escHtml(backendHelpText(backendStatus))}</div>` : ''}${backendStatus && backendStatus.ok ? `<div class="hint" style="margin-top:8px;">Backend ✓ server.js ${escHtml(backendStatus.version)}</div>` : ''}
     <div class="mp-head">Model check ${readApiKey() ? `<button type="button" class="mp-recheck" onclick="runModelCheck(true)" ${modelCheckBusy ? 'disabled' : ''}>${modelCheckBusy ? 'Checking…' : '↻ Check again'}</button>` : '<span class="hint">— add your API key to check</span>'}</div>
