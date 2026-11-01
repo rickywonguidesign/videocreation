@@ -189,6 +189,10 @@
   .mp-high{color:#1A1405;background:var(--amber);border-color:var(--amber);}
   .mp-medium{color:var(--amber);border-color:var(--amber-dim);}
   .mp-low{color:var(--text-dim);}
+  .mp-head{display:flex;align-items:center;justify-content:space-between;margin-top:12px;font-family:'IBM Plex Mono',monospace;font-size:10.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--text-dim);}
+  .mp-recheck{font:600 11px 'Inter',sans-serif;text-transform:none;letter-spacing:0;padding:3px 9px;border-radius:6px;border:1px solid var(--line);background:transparent;color:var(--text);cursor:pointer;}
+  .mp-st{font:500 11.5px 'IBM Plex Mono',monospace;}
+  .mp-ok{color:var(--done);} .mp-bad{color:#E07A6A;} .mp-wait{color:var(--text-dim);}
   /* ---- Plan quality gate ---- */
   .pg-score{display:flex;align-items:baseline;gap:4px;margin-bottom:10px;}
   .pg-num{font:700 30px 'Space Grotesk','Inter',sans-serif;line-height:1;}
@@ -1127,7 +1131,7 @@ function readApiKey(){
   }
   return cleaned;
 }
-function cleanKeyField(){ readApiKey(); }
+function cleanKeyField(){ readApiKey(); if(typeof isPremiumOn === 'function' && isPremiumOn() && readApiKey()) runModelCheck(true); }
 
 function selectStyle(el){
   document.querySelectorAll('.style-opt').forEach(o=>o.classList.remove('active'));
@@ -1181,6 +1185,30 @@ function parseModelJson(rawText){
 
 // Direct browser call to any OpenAI-compatible provider. Retries once without
 // response_format for models that reject JSON mode.
+// OpenAI Responses API (direct-from-browser path) — for models not served on
+// Chat Completions. Returns the reply text.
+async function callOpenAIResponses(apiKey, model, systemPrompt, userPrompt, effort){
+  let useEffort = !!effort, useJson = true;
+  const go = () => fetch('https://api.openai.com/v1/responses', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
+    body: JSON.stringify(Object.assign({ model, instructions: systemPrompt, input: userPrompt },
+      useJson ? { text: { format: { type: 'json_object' } } } : {},
+      useEffort ? { reasoning: { effort } } : {}))
+  });
+  let r = await go();
+  for(let i = 0; i < 2 && r.status === 400; i++){
+    const t = await r.clone().text();
+    if(useEffort && /reasoning/i.test(t)) useEffort = false;
+    else if(useJson && /format|json/i.test(t)) useJson = false;
+    else break;
+    r = await go();
+  }
+  if(!r.ok) throw new Error(`openai returned ${r.status} — ${(await r.text()).slice(0, 120)}`);
+  const d = await r.json();
+  if(d.output_text) return d.output_text;
+  return (d.output || []).filter(x => x && x.type === 'message').flatMap(x => x.content || []).filter(c => c && typeof c.text === 'string').map(c => c.text).join('');
+}
 async function callChatCompletions(base, apiKey, model, systemPrompt, userPrompt, effort){
   const isOpenRouter = /openrouter/.test(base);
   let useEffort = !!effort;
@@ -1216,7 +1244,15 @@ async function callChatCompletions(base, apiKey, model, systemPrompt, userPrompt
 // model isn't available on this key, that request falls back to the picked
 // model automatically, so generation never just fails.
 // ---------------------------------------------------------------------------
-const GPT6_MODELS = { astra: 'gpt-6-astra', sol: 'gpt-6-sol', luna: 'gpt-6-luna' };
+// Candidate model IDs per family, in order of preference. Sources disagree on
+// the exact Sol/Luna IDs (OpenAI's model list shows gpt-6.1-sol and
+// gpt-6-luna; some providers use gpt-5.6-sol / gpt-5.6-luna), so the page asks
+// the API which models this key can use and picks the first match.
+const GPT6_CANDIDATES = {
+  astra: ['gpt-6-astra'],
+  sol:   ['gpt-6.1-sol', 'gpt-6-sol', 'gpt-5.6-sol'],
+  luna:  ['gpt-6-luna', 'gpt-5.6-luna']
+};
 const MODEL_PLAN = {
   strategy:     { label: 'Topic strategy (story plan)',        model: 'astra', effort: 'high' },
   script:       { label: 'Main script (scenes & narration)',   model: 'astra', effort: 'high' },
@@ -1232,56 +1268,133 @@ function isPremiumOn(){
   const el = document.getElementById('premiumPlan');
   return !!(el && el.checked);
 }
-function planModelId(key, provider){
-  const id = GPT6_MODELS[key];
-  if(!id) return null;
+function withProviderPrefix(id, provider){
   if(provider === 'openai') return id;
   if(provider === 'openrouter') return 'openai/' + id;
   return null; // e.g. DeepSeek can't run OpenAI models
+}
+// ---- Model check: which IDs does this key have, and do they answer? -------
+// modelCheck[family] = { status: 'ok' | 'missing' | 'error' | 'unknown', id, note }
+let modelCheck = null;
+let modelCheckKey = '';
+let modelCheckBusy = false;
+function modelCheckSignature(){ return `${currentProvider()}|${(readApiKey() || '').slice(-6)}|${(document.getElementById('backendUrl').value || '').trim()}`; }
+async function listAvailableModelIds(){
+  const key = readApiKey();
+  const provider = currentProvider();
+  const backend = (document.getElementById('backendUrl').value || '').trim().replace(/\/$/, '').replace(/\/api$/i, '');
+  try{
+    const r = backend
+      ? await fetch(`${backend}/api/models`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ openaiKey: key, provider }) })
+      : await fetch(`${PROVIDERS[provider].base}/models`, { headers: { Authorization: `Bearer ${key}` } });
+    if(!r.ok) return null;
+    const data = await r.json();
+    const ids = Array.isArray(data.ids) ? data.ids : (Array.isArray(data.data) ? data.data.map(m => m && m.id) : []);
+    return ids.filter(Boolean);
+  }catch(e){ return null; } // older server without /api/models, or CORS — fall back to trying IDs
+}
+// Resolves the real ID for each family and sends one tiny test request per
+// family, so a wrong ID or an unsupported setting shows up before a real job.
+async function runModelCheck(force){
+  if(!isPremiumOn() || !readApiKey()) return modelCheck;
+  if(!withProviderPrefix('x', currentProvider())){ modelCheck = null; renderModelPlanBox(); return null; }
+  const sig = modelCheckSignature();
+  if(!force && modelCheck && modelCheckKey === sig) return modelCheck;
+  if(modelCheckBusy) return modelCheck;
+  modelCheckBusy = true;
+  renderModelPlanBox();
+  const provider = currentProvider();
+  const result = {};
+  try{
+    const ids = await listAvailableModelIds();
+    for(const fam of Object.keys(GPT6_CANDIDATES)){
+      const cands = GPT6_CANDIDATES[fam].map(id => withProviderPrefix(id, provider));
+      let ordered = cands;
+      if(ids){
+        const present = cands.filter(id => ids.includes(id));
+        if(!present.length){ result[fam] = { status: 'missing', id: null, note: `none of ${cands.join(', ')} on this key` }; continue; }
+        ordered = present;
+      }
+      let done = false;
+      for(const id of ordered){
+        try{
+          const out = await callGeneration('Reply with JSON only.', 'Return exactly {"ok":true} as JSON.', { model: id, effort: 'low', noJsonRepair: true });
+          if(out){ result[fam] = { status: 'ok', id, note: 'answered a test request' }; done = true; break; }
+        }catch(e){
+          result[fam] = { status: 'error', id, note: e.message.slice(0, 140) };
+          if(!/\b(400|403|404)\b|model|not found|does not exist|access|permission/i.test(e.message)) break; // network etc. — don't try more IDs
+        }
+      }
+      if(!done && !result[fam]) result[fam] = { status: 'missing', id: null, note: 'no ID answered' };
+    }
+    modelCheck = result;
+    modelCheckKey = sig;
+  }finally{
+    modelCheckBusy = false;
+    renderModelPlanBox();
+  }
+  return modelCheck;
 }
 // Model + reasoning for one task, or null = use the normal picked model.
 function modelForTask(task){
   if(!isPremiumOn() || !readApiKey()) return null;
   const p = MODEL_PLAN[task];
   if(!p) return null;
-  const model = planModelId(p.model, currentProvider());
-  return model ? { model, effort: p.effort } : null;
+  const provider = currentProvider();
+  if(!withProviderPrefix('x', provider)) return null;
+  const chk = modelCheck && modelCheck[p.model];
+  if(chk && chk.status === 'ok') return { model: chk.id, effort: p.effort, candidates: [chk.id] };
+  if(chk && chk.status === 'missing') return null; // known not available → picked model
+  const candidates = GPT6_CANDIDATES[p.model].map(id => withProviderPrefix(id, provider));
+  return { model: candidates[0], effort: p.effort, candidates };
 }
 function onPremiumToggle(on){
   try{ localStorage.setItem('premiumPlan', on ? '1' : '0'); }catch(e){}
-  if(on && !planModelId('astra', currentProvider())) showToast(`The GPT-6 plan needs an OpenAI or OpenRouter key — your picked model is used with ${currentProvider()}`);
-  else if(on) showToast('GPT-6 plan on — Astra for the story, Sol for prompts & SEO, Luna for JSON checks');
+  if(on && !withProviderPrefix('x', currentProvider())) showToast(`The GPT-6 plan needs an OpenAI or OpenRouter key — your picked model is used with ${currentProvider()}`);
+  else if(on){
+    showToast('GPT-6 plan on — checking which models your key can use…');
+    if(readApiKey()) runModelCheck(true);
+  }
 }
 const planFallbackWarned = new Set();
+const MODEL_ERR_RE = /\b(400|403|404)\b|model|not found|does not exist|access|permission/i;
 async function callTask(task, systemPrompt, userPrompt){
+  if(isPremiumOn() && readApiKey() && !modelCheck) { try{ await runModelCheck(false); }catch(e){} }
   const m = modelForTask(task);
   if(!m) return callGeneration(systemPrompt, userPrompt);
-  try{
-    return await callGeneration(systemPrompt, userPrompt, { model: m.model, effort: m.effort });
-  }catch(e){
-    // Model not available on this account / provider → use the picked model.
-    if(/\b(400|403|404)\b|model|not found|does not exist|access|permission/i.test(e.message)){
-      console.warn(`[Generator] ${m.model} unavailable for "${task}", falling back:`, e.message);
-      if(!planFallbackWarned.has(m.model)){ showToast(`${m.model} isn't available on this key — used ${getSelectedModel()} instead`); planFallbackWarned.add(m.model); }
-      return callGeneration(systemPrompt, userPrompt);
+  let lastErr = null;
+  for(const id of m.candidates){
+    try{
+      return await callGeneration(systemPrompt, userPrompt, { model: id, effort: m.effort });
+    }catch(e){
+      lastErr = e;
+      if(!MODEL_ERR_RE.test(e.message)) throw e; // a real failure, not a model problem
+      console.warn(`[Generator] ${id} unavailable for "${task}":`, e.message);
     }
-    throw e;
   }
+  // No GPT-6 ID worked → the picked model.
+  if(!planFallbackWarned.has(m.model)){ showToast(`${m.model} isn't available on this key — used ${getSelectedModel()} instead`); planFallbackWarned.add(m.model); }
+  console.warn('[Generator] Falling back to the picked model:', lastErr && lastErr.message);
+  return callGeneration(systemPrompt, userPrompt);
 }
 // Kept for older call sites: "important" = story-level work.
 function callImportant(systemPrompt, userPrompt){ return callTask('strategy', systemPrompt, userPrompt); }
 // JSON validation step: when a reply can't be parsed, ask Luna (low
 // reasoning) to turn it into valid JSON without changing its content.
 async function repairJsonWithModel(rawText){
-  const m = modelForTask('json');
-  if(!m) return null;
+  // Luna when the GPT-6 plan is on and Luna is available; otherwise the picked
+  // model still gets one chance to fix the JSON before the step fails.
+  const m = modelForTask('json') || { candidates: [getSelectedModel()], effort: null };
   const system = 'You fix broken JSON. Return ONLY the same data as valid JSON — same keys, same values, same order. Do not add, remove, summarise or rewrite any content. Remove any text outside the JSON.';
-  try{
-    return await callGeneration(system, String(rawText).slice(0, 120000), { model: m.model, effort: m.effort, noJsonRepair: true });
-  }catch(e){
-    console.warn('[Generator] JSON validation with Luna failed:', e.message);
-    return null;
+  for(const id of m.candidates){
+    try{
+      return await callGeneration(system, String(rawText).slice(0, 120000), { model: id || undefined, effort: m.effort, noJsonRepair: true });
+    }catch(e){
+      console.warn('[Generator] JSON validation failed with', id, e.message);
+      if(!MODEL_ERR_RE.test(e.message)) break;
+    }
   }
+  return null;
 }
 function renderModelPlanBox(){
   const box = document.getElementById('modelPlanBox');
@@ -1289,9 +1402,21 @@ function renderModelPlanBox(){
   box.style.display = isPremiumOn() ? '' : 'none';
   box.innerHTML = isPremiumOn() ? renderModelPlanTable() : '';
 }
+function famStatus(fam){
+  if(modelCheckBusy) return '<span class="mp-st mp-wait">checking…</span>';
+  const c = modelCheck && modelCheck[fam];
+  if(!c) return '<span class="mp-st mp-wait">not checked</span>';
+  if(c.status === 'ok') return `<span class="mp-st mp-ok" title="${escHtml(c.note)}">✓ ${escHtml(c.id)}</span>`;
+  return `<span class="mp-st mp-bad" title="${escHtml(c.note)}">✗ uses ${escHtml(getSelectedModel() || 'picked model')}</span>`;
+}
 function renderModelPlanTable(){
   const prov = currentProvider();
-  return `<table class="mp-table"><tbody>${Object.values(MODEL_PLAN).map(p => `<tr><td>${p.label}</td><td><b>${p.model.charAt(0).toUpperCase() + p.model.slice(1)}</b></td><td><span class="mp-eff mp-${p.effort}">${p.effort}</span></td></tr>`).join('')}</tbody></table>${planModelId('astra', prov) ? '' : '<div class="hint" style="color:var(--amber);">Your provider can\'t run GPT-6 models — the picked model is used instead.</div>'}`;
+  if(!withProviderPrefix('x', prov)) return '<div class="hint" style="color:var(--amber);">Your provider can\'t run GPT-6 models — the picked model is used instead.</div>';
+  const fams = ['astra', 'sol', 'luna'];
+  const statusRows = fams.map(f => `<tr><td><b>${f.charAt(0).toUpperCase() + f.slice(1)}</b></td><td colspan="2" style="text-align:right;">${famStatus(f)}</td></tr>`).join('');
+  return `<table class="mp-table"><tbody>${Object.values(MODEL_PLAN).map(p => `<tr><td>${p.label}</td><td><b>${p.model.charAt(0).toUpperCase() + p.model.slice(1)}</b></td><td><span class="mp-eff mp-${p.effort}">${p.effort}</span></td></tr>`).join('')}</tbody></table>
+    <div class="mp-head">Model check ${readApiKey() ? `<button type="button" class="mp-recheck" onclick="runModelCheck(true)" ${modelCheckBusy ? 'disabled' : ''}>${modelCheckBusy ? 'Checking…' : '↻ Check again'}</button>` : '<span class="hint">— add your API key to check</span>'}</div>
+    <table class="mp-table"><tbody>${statusRows}</tbody></table>`;
 }
 async function callGeneration(systemPrompt, userPrompt, opts){
   const openaiKey = readApiKey();
@@ -1331,10 +1456,17 @@ async function callGeneration(systemPrompt, userPrompt, opts){
     }
     if(!response.ok){
       const errBody = await response.text();
-      throw new Error(`${provider} returned ${response.status} — check your key and model ID. ${errBody.slice(0,120)}`);
+      // A model that's only served on OpenAI's Responses API → use it.
+      if(provider === 'openai' && [400, 404].includes(response.status) && /responses api|\/v1\/responses|v1\/chat\/completions|only supported (?:in|with|on)|use the responses/i.test(errBody)){
+        rawText = await callOpenAIResponses(openaiKey, selectedModel, systemPrompt, userPrompt, (opts && opts.effort) || null);
+      }else{
+        throw new Error(`${provider} returned ${response.status} — check your key and model ID. ${errBody.slice(0,120)}`);
+      }
     }
-    const data = await response.json();
-    rawText = data.choices && data.choices[0] && data.choices[0].message && data.choices[0].message.content;
+    if(!rawText){
+      const data = await response.json();
+      rawText = data.choices && data.choices[0] && data.choices[0].message && data.choices[0].message.content;
+    }
     if(!rawText) throw new Error(`No content in ${provider} response`);
   }else{
     let response;
