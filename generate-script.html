@@ -1303,6 +1303,7 @@ async function runModelCheck(force){
   if(modelCheckBusy) return modelCheck;
   modelCheckBusy = true;
   renderModelPlanBox();
+  await checkBackend(true);
   const provider = currentProvider();
   const result = {};
   try{
@@ -1415,8 +1416,39 @@ function renderModelPlanTable(){
   const fams = ['astra', 'sol', 'luna'];
   const statusRows = fams.map(f => `<tr><td><b>${f.charAt(0).toUpperCase() + f.slice(1)}</b></td><td colspan="2" style="text-align:right;">${famStatus(f)}</td></tr>`).join('');
   return `<table class="mp-table"><tbody>${Object.values(MODEL_PLAN).map(p => `<tr><td>${p.label}</td><td><b>${p.model.charAt(0).toUpperCase() + p.model.slice(1)}</b></td><td><span class="mp-eff mp-${p.effort}">${p.effort}</span></td></tr>`).join('')}</tbody></table>
+    ${backendStatus && !backendStatus.ok ? `<div class="ret-line warn" style="margin-top:10px;">⚠ ${escHtml(backendHelpText(backendStatus))}</div>` : ''}${backendStatus && backendStatus.ok ? `<div class="hint" style="margin-top:8px;">Backend ✓ server.js ${escHtml(backendStatus.version)}</div>` : ''}
     <div class="mp-head">Model check ${readApiKey() ? `<button type="button" class="mp-recheck" onclick="runModelCheck(true)" ${modelCheckBusy ? 'disabled' : ''}>${modelCheckBusy ? 'Checking…' : '↻ Check again'}</button>` : '<span class="hint">— add your API key to check</span>'}</div>
     <table class="mp-table"><tbody>${statusRows}</tbody></table>`;
+}
+// ---- Backend version check -------------------------------------------------
+// The GPT-6 plan needs the updated server.js (long timeout, Responses API,
+// reasoning levels). An old deploy answers long requests with
+// "fetch failed", so check once and say clearly what to do.
+const REQUIRED_SERVER_VERSION = '2026-11-01.2';
+let backendStatus = null; // { ok, version, url } | { ok:false, reason, url }
+async function checkBackend(force){
+  const backend = (document.getElementById('backendUrl').value || '').trim().replace(/\/$/, '').replace(/\/api$/i, '');
+  if(!backend) return null;
+  if(!force && backendStatus && backendStatus.url === backend) return backendStatus;
+  try{
+    const r = await fetch(`${backend}/api/health`, { cache: 'no-store' });
+    if(!r.ok){ backendStatus = { ok: false, url: backend, reason: r.status === 404 ? 'it has no /api/health' : `health check returned ${r.status}` }; }
+    else{
+      const d = await r.json();
+      backendStatus = d.version >= REQUIRED_SERVER_VERSION ? { ok: true, url: backend, version: d.version } : { ok: false, url: backend, version: d.version, reason: `server.js version ${d.version} is older than ${REQUIRED_SERVER_VERSION}` };
+    }
+  }catch(e){
+    backendStatus = { ok: false, url: backend, reason: `can't reach ${backend} (${e.message})` };
+  }
+  if(typeof renderModelPlanBox === 'function') renderModelPlanBox();
+  return backendStatus;
+}
+function backendHelpText(st){
+  if(!st || st.ok) return '';
+  const local = /localhost|127\.0\.0\.1/.test(st.url);
+  return local
+    ? `Your Backend URL is ${st.url} — a server on this computer that's running an OLD server.js (${st.reason}). Stop it (Ctrl+C in its terminal) and start it again with "node server.js" from the updated folder, or set the Backend URL to your Render address.`
+    : `The backend at ${st.url} is running an OLD server.js (${st.reason}). Check that the latest commit is deployed on Render (Dashboard → your service → Events → "Deploy live"), or click "Manual Deploy → Deploy latest commit".`;
 }
 async function callGeneration(systemPrompt, userPrompt, opts){
   const openaiKey = readApiKey();
@@ -1442,6 +1474,11 @@ async function callGeneration(systemPrompt, userPrompt, opts){
     }
     if(!response.ok){
       const errBody = await response.text();
+      if(/fetch failed/i.test(errBody)){
+        const st = await checkBackend(true);
+        if(st && !st.ok) throw new Error(backendHelpText(st));
+        throw new Error(`The backend lost the connection to the AI provider ("fetch failed"). Try again; if it repeats, redeploy the latest server.js.`);
+      }
       throw new Error(`Backend returned ${response.status}. ${errBody.slice(0,150)}`);
     }
     const data = await response.json();
@@ -2468,6 +2505,13 @@ async function generateScript(){
   if(document.getElementById('storySetting').value === 'custom' && !setting){
     showError('You picked a custom story setting — describe it in the box under the setting dropdown, or choose one from the list.');
     return;
+  }
+
+  // The GPT-6 plan needs the updated server.js — an old one fails long
+  // requests after 5 minutes with "fetch failed". Check before spending tokens.
+  if(isPremiumOn() && (document.getElementById('backendUrl').value || '').trim()){
+    const st = await checkBackend(true);
+    if(st && !st.ok){ showError(backendHelpText(st)); return; }
   }
 
   setLoading(true);

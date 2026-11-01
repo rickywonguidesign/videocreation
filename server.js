@@ -225,5 +225,12 @@ app.post('/api/models', async (req, res) => {
     }
 });
 
+// Lets the page confirm it's talking to THIS version of the server (an old
+// deploy still running is the usual reason a fix "doesn't work").
+const SERVER_VERSION = '2026-11-01.2';
+app.get('/api/health', cors({ origin: '*' }), (req, res) => {
+    res.json({ ok: true, version: SERVER_VERSION, aiTimeoutMinutes: AI_TIMEOUT_MS / 60000, features: ['models', 'responses-fallback', 'reasoning-effort', 'long-timeout'] });
+});
+
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => console.log(`Server running on port ${PORT} (providers: ${Object.keys(PROVIDERS).join(', ')})`));
+app.listen(PORT, () => console.log(`Server ${SERVER_VERSION} running on port ${PORT} (providers: ${Object.keys(PROVIDERS).join(', ')})`));
