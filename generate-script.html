@@ -194,6 +194,17 @@
   .mp-st{font:500 11.5px 'IBM Plex Mono',monospace;}
   .mp-reason td{border-top:none !important;padding-top:0 !important;font:11px/1.45 'IBM Plex Mono',monospace;color:#E07A6A !important;opacity:.85;word-break:break-word;}
   .mp-ok{color:var(--done);} .mp-bad{color:#E07A6A;} .mp-wait{color:var(--text-dim);}
+  /* ---- Upload & schedule ---- */
+  .yt-steps{margin:8px 0 12px;padding-left:18px;font-size:12.5px;line-height:1.65;color:var(--text-dim);}
+  .yt-steps code,.yt-acct code{font-size:11.5px;}
+  .yt-acct{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:8px 10px;border:1px solid var(--line);border-radius:8px;margin-bottom:10px;font-size:12.5px;}
+  .yt-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:10px;}
+  .yt-prog{margin-top:10px;}
+  .yt-bar{height:8px;border-radius:999px;background:var(--line);overflow:hidden;}
+  .yt-bar span{display:block;height:100%;background:var(--done);transition:width .3s;}
+  .yt-done{margin-top:10px;padding:10px;border:1px solid var(--done);border-radius:8px;font-size:12.5px;line-height:1.6;}
+  .yt-done a,details[data-acc="ytupload"] .hint a,details[data-acc="ytupload"] .yt-steps a{color:var(--amber);}
+  details[data-acc="ytupload"] input[type=file]{font-size:12px;color:var(--text-dim);margin-top:4px;}
   /* ---- Plan quality gate ---- */
   .pg-score{display:flex;align-items:baseline;gap:4px;margin-bottom:10px;}
   .pg-num{font:700 30px 'Space Grotesk','Inter',sans-serif;line-height:1;}
@@ -3704,6 +3715,268 @@ function renderAudioMeta(){
     </div>` : ''}
     <div class="btn-row" style="margin-top:4px;">${btn}</div>`;
 }
+// ---------------------------------------------------------------------------
+// UPLOAD & SCHEDULE TO YOUTUBE — straight from the browser to YouTube (no
+// video passes through our server). You pick the finished MP4 (+ thumbnail),
+// the title/description/tags come from "YouTube upload details", and the
+// video is uploaded as PRIVATE with a publish date — YouTube itself makes it
+// public at that time, so nothing needs to stay switched on.
+// Sign-in uses Google's OAuth (Google Identity Services) with your own
+// OAuth Client ID; the access token lives only in this tab.
+// ---------------------------------------------------------------------------
+const ytSleep = ms => new Promise(r => setTimeout(r, ms));
+const YT_SCOPES = 'https://www.googleapis.com/auth/youtube.upload https://www.googleapis.com/auth/youtube.force-ssl';
+const YT_CHUNK = 8 * 1024 * 1024; // must be a multiple of 256 KB
+const YT_LANG_CODES = { English: 'en', Vietnamese: 'vi', Japanese: 'ja', Korean: 'ko', 'Chinese (Simplified)': 'zh-Hans', Spanish: 'es', French: 'fr', Thai: 'th', Indonesian: 'id' };
+const YT_CATEGORIES = [['1', 'Film & Animation'], ['24', 'Entertainment'], ['22', 'People & Blogs'], ['27', 'Education']];
+let ytToken = null;          // { access_token, expires_at }
+let ytTokenClient = null;
+let ytChannel = null;        // { id, title }
+let ytUpload = null;         // { phase, pct, msg, videoId, error }
+let ytVideoFile = null, ytThumbFile = null;
+// Form values survive re-renders (the panel re-draws on many events).
+let ytForm = {};
+function ytSet(k, v){ ytForm[k] = v; }
+
+function ytClientId(){ try{ return localStorage.getItem('ytClientId') || ''; }catch(e){ return ''; } }
+function ytSaveClientId(v){
+  try{ localStorage.setItem('ytClientId', String(v || '').trim()); }catch(e){}
+  ytTokenClient = null;
+  renderResults();
+}
+function ytLoadGis(){
+  if(window.google && google.accounts && google.accounts.oauth2) return Promise.resolve();
+  return new Promise((resolve, reject) => {
+    const s = document.createElement('script');
+    s.src = 'https://accounts.google.com/gsi/client';
+    s.async = true;
+    s.onload = () => resolve();
+    s.onerror = () => reject(new Error('Could not load Google sign-in'));
+    document.head.appendChild(s);
+  });
+}
+function ytTokenValid(){ return !!(ytToken && ytToken.expires_at > Date.now() + 60000); }
+async function ytSignIn(){
+  const clientId = ytClientId();
+  if(!clientId){ showToast('Add your Google OAuth Client ID first'); return false; }
+  await ytLoadGis();
+  return new Promise(resolve => {
+    ytTokenClient = google.accounts.oauth2.initTokenClient({
+      client_id: clientId,
+      scope: YT_SCOPES,
+      callback: async (resp) => {
+        if(resp.error){ showToast(`Google sign-in failed: ${resp.error}`); return resolve(false); }
+        ytToken = { access_token: resp.access_token, expires_at: Date.now() + (resp.expires_in || 3600) * 1000 };
+        try{
+          const r = await fetch('https://www.googleapis.com/youtube/v3/channels?part=snippet&mine=true', { headers: { Authorization: `Bearer ${ytToken.access_token}` } });
+          const d = await r.json();
+          const ch = d.items && d.items[0];
+          ytChannel = ch ? { id: ch.id, title: ch.snippet.title } : null;
+          if(!ch) showToast('Signed in, but this Google account has no YouTube channel');
+        }catch(e){ ytChannel = null; }
+        renderResults();
+        resolve(true);
+      },
+      error_callback: (err) => { showToast(`Google sign-in closed: ${err && err.type || 'cancelled'}`); resolve(false); }
+    });
+    ytTokenClient.requestAccessToken({ prompt: ytToken ? '' : 'consent' });
+  });
+}
+function ytSignOut(){
+  if(ytToken && window.google && google.accounts && google.accounts.oauth2) google.accounts.oauth2.revoke(ytToken.access_token, () => {});
+  ytToken = null; ytChannel = null;
+  renderResults();
+}
+function ytFileInfo(){
+  const a = document.getElementById('ytVideoInfo'); if(a) a.textContent = ytVideoFile ? `${ytVideoFile.name} · ${Math.round(ytVideoFile.size / 1048576)} MB` : '';
+  const b = document.getElementById('ytThumbInfo'); if(b) b.textContent = ytThumbFile ? `${ytThumbFile.name} · ${Math.round(ytThumbFile.size / 1024)} KB` : '';
+}
+function ytPickVideo(input){ ytVideoFile = input.files && input.files[0] || null; ytFileInfo(); }
+function ytPickThumb(input){
+  const f = input.files && input.files[0] || null;
+  if(f && f.size > 2 * 1024 * 1024){ showToast('Thumbnail must be under 2 MB (JPG or PNG) — YouTube rejects bigger files'); input.value = ''; ytThumbFile = null; }
+  else ytThumbFile = f;
+  ytFileInfo();
+}
+// Default schedule: the next day at 19:00 local time.
+function ytDefaultWhen(){
+  const d = new Date(); d.setDate(d.getDate() + 1); d.setHours(19, 0, 0, 0);
+  const pad = n => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+function ytCleanText(t){ return String(t || '').replace(/[<>]/g, ''); } // YouTube rejects < and > in titles/descriptions
+function ytFormValues(){
+  const v = id => (document.getElementById(id) || {}).value || '';
+  const tags = v('ytTags').split(',').map(x => x.trim()).filter(Boolean);
+  const trimmed = []; let total = 0;
+  for(const t of tags){ const cost = t.length + (t.includes(' ') ? 2 : 0) + (trimmed.length ? 1 : 0); if(total + cost > 490) break; trimmed.push(t); total += cost; }
+  return {
+    title: ytCleanText(v('ytTitle')).trim().slice(0, 100),
+    description: ytCleanText(v('ytDesc')).slice(0, 5000),
+    tags: trimmed,
+    categoryId: v('ytCategory') || '1',
+    mode: v('ytMode') || 'schedule',
+    when: v('ytWhen'),
+    aiDisclosure: !!(document.getElementById('ytAi') || {}).checked
+  };
+}
+function ytXhr(method, url, headers, body, onProgress){
+  return new Promise((resolve, reject) => {
+    const x = new XMLHttpRequest();
+    x.open(method, url, true);
+    Object.entries(headers || {}).forEach(([k, val]) => x.setRequestHeader(k, val));
+    if(onProgress && x.upload) x.upload.onprogress = e => { if(e.lengthComputable) onProgress(e.loaded); };
+    x.onload = () => resolve(x);
+    x.onerror = () => reject(new Error('network error'));
+    x.send(body);
+  });
+}
+function ytSetStatus(patch){ ytUpload = Object.assign({}, ytUpload || {}, patch); const el = document.getElementById('ytStatus'); if(el) el.innerHTML = ytStatusHtml(); }
+function ytStatusHtml(){
+  const u = ytUpload;
+  if(!u) return '';
+  if(u.error) return `<div class="ret-line warn">⚠ ${escHtml(u.error)}</div>`;
+  if(u.videoId) return `<div class="yt-done">✓ ${escHtml(u.msg || 'Uploaded')}<br><a href="https://youtu.be/${u.videoId}" target="_blank" rel="noopener">youtu.be/${u.videoId}</a> · <a href="https://studio.youtube.com/video/${u.videoId}/edit" target="_blank" rel="noopener">Open in YouTube Studio</a></div>`;
+  return `<div class="yt-prog"><div class="yt-bar"><span style="width:${Math.round(u.pct || 0)}%"></span></div><div class="hint">${escHtml(u.msg || '')}</div></div>`;
+}
+async function ytUploadAndSchedule(){
+  if(ytUpload && ytUpload.phase === 'uploading') return;
+  const f = ytFormValues();
+  if(!ytVideoFile){ showToast('Choose the finished video file first'); return; }
+  if(!f.title){ showToast('Add a title'); return; }
+  let publishAt = null;
+  if(f.mode === 'schedule'){
+    const when = f.when ? new Date(f.when) : null; // datetime-local = your local time
+    if(!when || isNaN(when)){ showToast('Pick a publish date and time'); return; }
+    if(when.getTime() < Date.now() + 15 * 60000){ showToast('Pick a publish time at least 15 minutes from now — a past time would publish immediately'); return; }
+    publishAt = when.toISOString();
+  }
+  if(!ytTokenValid()){ const ok = await ytSignIn(); if(!ok) return; }
+  const meta = {
+    snippet: { title: f.title, description: f.description, tags: f.tags, categoryId: f.categoryId, defaultLanguage: YT_LANG_CODES[job.language] || 'en', defaultAudioLanguage: YT_LANG_CODES[job.language] || 'en' },
+    status: Object.assign(
+      { privacyStatus: f.mode === 'schedule' ? 'private' : f.mode, selfDeclaredMadeForKids: false, containsSyntheticMedia: f.aiDisclosure },
+      publishAt ? { publishAt } : {})
+  };
+  ytUpload = { phase: 'uploading', pct: 0, msg: 'Starting upload…' };
+  renderResults();
+  try{
+    // 1) start a resumable upload session
+    const init = await ytXhr('POST', 'https://www.googleapis.com/upload/youtube/v3/videos?uploadType=resumable&part=snippet,status', {
+      Authorization: `Bearer ${ytToken.access_token}`,
+      'Content-Type': 'application/json; charset=UTF-8',
+      'X-Upload-Content-Type': ytVideoFile.type || 'video/mp4',
+      'X-Upload-Content-Length': String(ytVideoFile.size)
+    }, JSON.stringify(meta));
+    if(init.status !== 200) throw new Error(ytErrorText(init));
+    const sessionUrl = init.getResponseHeader('Location');
+    if(!sessionUrl) throw new Error('YouTube did not return an upload address');
+    // 2) send the file in chunks (resumes after a dropped chunk)
+    let offset = 0, video = null, retries = 0;
+    while(offset < ytVideoFile.size){
+      const end = Math.min(offset + YT_CHUNK, ytVideoFile.size);
+      let r;
+      try{
+        r = await ytXhr('PUT', sessionUrl, { 'Content-Range': `bytes ${offset}-${end - 1}/${ytVideoFile.size}` }, ytVideoFile.slice(offset, end),
+          loaded => ytSetStatus({ pct: (offset + loaded) / ytVideoFile.size * 100, msg: `Uploading… ${Math.round((offset + loaded) / 1048576)} / ${Math.round(ytVideoFile.size / 1048576)} MB` }));
+      }catch(netErr){
+        if(++retries > 5) throw new Error('The connection kept dropping — check your internet and try again');
+        await ytSleep(2000 * retries);
+        const q = await ytXhr('PUT', sessionUrl, { 'Content-Range': `bytes */${ytVideoFile.size}` }, null);
+        const range = q.getResponseHeader('Range');
+        offset = range ? (+range.split('-')[1] + 1) : 0;
+        continue;
+      }
+      if(r.status === 308){ const range = r.getResponseHeader('Range'); offset = range ? (+range.split('-')[1] + 1) : end; retries = 0; continue; }
+      if(r.status === 200 || r.status === 201){ video = JSON.parse(r.responseText); break; }
+      if(r.status >= 500 && ++retries <= 5){ await ytSleep(2000 * retries); continue; }
+      throw new Error(ytErrorText(r));
+    }
+    if(!video || !video.id) throw new Error('Upload finished but YouTube returned no video ID');
+    // 3) custom thumbnail
+    let thumbNote = '';
+    if(ytThumbFile){
+      ytSetStatus({ pct: 100, msg: 'Setting the thumbnail…' });
+      const t = await ytXhr('POST', `https://www.googleapis.com/upload/youtube/v3/thumbnails/set?videoId=${video.id}`, { Authorization: `Bearer ${ytToken.access_token}`, 'Content-Type': ytThumbFile.type || 'image/jpeg' }, ytThumbFile);
+      if(t.status !== 200) thumbNote = ` Thumbnail not set (${ytErrorText(t)}) — add it in YouTube Studio.`;
+    }
+    const when = publishAt ? new Date(publishAt).toLocaleString() : null;
+    job.youtubeUploads = (job.youtubeUploads || []).concat([{ videoId: video.id, title: f.title, publishAt, privacy: meta.status.privacyStatus, at: Date.now() }]);
+    await saveJobToStorage(true);
+    const status = video.status && video.status.uploadStatus;
+    ytUpload = { phase: 'done', videoId: video.id, msg: `${publishAt ? `Scheduled — goes public ${when}` : `Uploaded as ${meta.status.privacyStatus}`}.${thumbNote}${status === 'rejected' ? ' YouTube rejected the file — check Studio.' : ''}` };
+    ytVideoFile = null; ytThumbFile = null; ytForm = {};
+    renderResults();
+    showToast(publishAt ? `Scheduled for ${when}` : 'Uploaded to YouTube');
+  }catch(e){
+    console.error('[Generator] YouTube upload failed:', e);
+    ytUpload = { phase: 'error', error: e.message };
+    renderResults();
+  }
+}
+function ytErrorText(x){
+  let reason = '', message = '';
+  try{ const d = JSON.parse(x.responseText); const e0 = d.error && d.error.errors && d.error.errors[0]; reason = (e0 && e0.reason) || ''; message = (d.error && d.error.message) || ''; }catch(e){}
+  const hints = {
+    uploadLimitExceeded: 'this channel has hit its daily upload limit — try again tomorrow',
+    quotaExceeded: 'the Google Cloud project is out of API quota for today',
+    invalidPublishAt: 'the publish time was rejected — pick a future time',
+    forbidden: 'this channel isn\'t allowed to do this (custom thumbnails need a verified channel)',
+    authError: 'sign-in expired — click Sign in again',
+    youtubeSignupRequired: 'this Google account has no YouTube channel'
+  };
+  return `${x.status}${reason ? ' ' + reason : ''}: ${hints[reason] || message || 'request failed'}`;
+}
+function renderYouTubeUpload(){
+  const y = job.youtubeMeta || {};
+  const clientId = ytClientId();
+  const uploads = job.youtubeUploads || [];
+  const busy = ytUpload && ytUpload.phase === 'uploading';
+  if(!clientId){
+    return `<div class="cd">Upload the finished video and schedule it on your channel, straight from here. One-time setup: create a free OAuth Client ID in Google Cloud and paste it below.</div>
+      <ol class="yt-steps">
+        <li>Open <a href="https://console.cloud.google.com/" target="_blank" rel="noopener">Google Cloud Console</a> → create a project.</li>
+        <li><b>APIs &amp; Services → Library</b> → enable <b>YouTube Data API v3</b>.</li>
+        <li><b>OAuth consent screen</b> → External → add your Google account as a <b>test user</b>.</li>
+        <li><b>Credentials → Create credentials → OAuth client ID → Web application</b>. Under <b>Authorized JavaScript origins</b> add <code>${escHtml(location.origin)}</code>.</li>
+        <li>Copy the <b>Client ID</b> (ends in <code>.apps.googleusercontent.com</code>) and paste it here.</li>
+      </ol>
+      <div class="fab-row"><input type="text" id="ytClientIdInput" class="fab-input" style="text-align:left;" placeholder="xxxx.apps.googleusercontent.com"><button class="fab-btn fab-btn-primary" onclick="ytSaveClientId(document.getElementById('ytClientIdInput').value)">Save</button></div>`;
+  }
+  const titles = Array.isArray(y.titles) ? y.titles : [];
+  const desc = job.youtubeMeta ? ytFullDescription() : '';
+  return `
+    <div class="yt-acct">${ytTokenValid()
+      ? `<span>✓ Signed in${ytChannel ? ` · <b>${escHtml(ytChannel.title)}</b>` : ''}</span><button class="yt-copy" onclick="ytSignOut()">Sign out</button>`
+      : `<span>Not signed in</span><button class="yt-copy" onclick="ytSignIn()">Sign in with Google</button>`}</div>
+    ${!job.youtubeMeta ? `<div class="hint" style="margin:6px 0 10px;">Tip: generate <b>YouTube upload details</b> above first — the title, description and tags fill in automatically.</div>` : ''}
+    <label class="yt-label">Video file <span>the finished MP4 you edited</span></label>
+    <input type="file" accept="video/*" onchange="ytPickVideo(this)" ${busy ? 'disabled' : ''}>
+    <div class="hint" id="ytVideoInfo">${ytVideoFile ? `Selected: ${escHtml(ytVideoFile.name)} · ${Math.round(ytVideoFile.size / 1048576)} MB` : ''}</div>
+    <label class="yt-label" style="margin-top:10px;">Thumbnail <span>JPG/PNG, 1280×720, under 2 MB (optional)</span></label>
+    <input type="file" accept="image/jpeg,image/png" onchange="ytPickThumb(this)" ${busy ? 'disabled' : ''}>
+    <div class="hint" id="ytThumbInfo">${ytThumbFile ? `Selected: ${escHtml(ytThumbFile.name)}` : ''}</div>
+    <label class="yt-label" style="margin-top:10px;">Title <span>max 100 characters</span></label>
+    <input type="text" id="ytTitle" maxlength="100" value="${escHtml(ytForm.title != null ? ytForm.title : (titles[0] || job.topic || ''))}" oninput="ytSet('title', this.value)">
+    ${titles.length > 1 ? `<div class="yt-chips" style="margin-top:6px;">${titles.map((t, i) => `<span class="yt-chip" style="cursor:pointer;" onclick="ytSet('title', job.youtubeMeta.titles[${i}]); document.getElementById('ytTitle').value = job.youtubeMeta.titles[${i}]">Use title ${i + 1}</span>`).join('')}</div>` : ''}
+    <label class="yt-label" style="margin-top:10px;">Description</label>
+    <textarea id="ytDesc" style="height:120px;" oninput="ytSet('desc', this.value)">${escHtml(ytForm.desc != null ? ytForm.desc : desc)}</textarea>
+    <label class="yt-label" style="margin-top:10px;">Tags <span>comma-separated</span></label>
+    <input type="text" id="ytTags" value="${escHtml(ytForm.tags != null ? ytForm.tags : (y.tags || []).join(', '))}" oninput="ytSet('tags', this.value)">
+    <div class="yt-grid">
+      <div><label class="yt-label">Category</label><select id="ytCategory" class="select-full" onchange="ytSet('cat', this.value)">${YT_CATEGORIES.map(([id, n]) => `<option value="${id}" ${(ytForm.cat || '1') === id ? 'selected' : ''}>${n}</option>`).join('')}</select></div>
+      <div><label class="yt-label">Publish</label><select id="ytMode" class="select-full" onchange="ytSet('mode', this.value); document.getElementById('ytWhenWrap').style.display = this.value === 'schedule' ? '' : 'none'">
+        ${[['schedule', 'Schedule'], ['private', 'Private (no date)'], ['unlisted', 'Unlisted'], ['public', 'Public now']].map(([v, n]) => `<option value="${v}" ${(ytForm.mode || 'schedule') === v ? 'selected' : ''}>${n}</option>`).join('')}</select></div>
+    </div>
+    <div id="ytWhenWrap" style="${(ytForm.mode || 'schedule') === 'schedule' ? '' : 'display:none;'}"><label class="yt-label" style="margin-top:10px;">Goes public at <span>your local time</span></label>
+      <input type="datetime-local" id="ytWhen" value="${escHtml(ytForm.when || ytDefaultWhen())}" oninput="ytSet('when', this.value)"></div>
+    <label class="check-label" style="margin-top:10px;"><input type="checkbox" id="ytAi" ${ytForm.ai === false ? '' : 'checked'} onchange="ytSet('ai', this.checked)"><span>Disclose AI-generated / altered content (YouTube policy)</span></label>
+    <div class="btn-row" style="margin-top:12px;"><button class="btn btn-video" style="background:var(--done);color:#0A1F0D;" onclick="ytUploadAndSchedule()" ${busy ? 'disabled' : ''}>${busy ? '⏳ Uploading…' : '📤 Upload & schedule'}</button></div>
+    <div id="ytStatus">${ytStatusHtml()}</div>
+    ${uploads.length ? `<div class="yt-label" style="margin-top:12px;">Uploaded from this job</div>${uploads.slice().reverse().map(u => `<div class="yt-copy-row"><div class="yt-text">${escHtml(u.title)}<br><span class="hint">${u.publishAt ? `goes public ${escHtml(new Date(u.publishAt).toLocaleString())}` : escHtml(u.privacy)} · <a href="https://studio.youtube.com/video/${u.videoId}/edit" target="_blank" rel="noopener">Studio</a></span></div></div>`).join('')}` : ''}
+    <div class="hint" style="margin-top:10px;">The video goes up as <b>private</b> with a publish date, and YouTube makes it public at that time — your computer and the server don't need to stay on. Note: until your Google Cloud project passes YouTube's API audit, YouTube keeps API uploads private (they won't go public on schedule) — you can still publish them by hand in Studio. <a href="#" onclick="ytSaveClientId(''); return false;">Change Client ID</a></div>`;
+}
+
 function renderYouTubeMeta(){
   const y = job.youtubeMeta;
   const btn = `<button class="btn btn-regen" onclick="generateYouTubeMeta()" ${ytBusy ? 'disabled' : ''}>${ytBusy ? '⏳ Writing…' : (y ? '↻ Generate again' : '✨ Generate YouTube details')}</button>`;
@@ -3882,6 +4155,11 @@ function renderResults(){
     <details class="acc" data-acc="ytmeta" ${openAttr('ytmeta', false)}>
       <summary><span>📺 YouTube upload details <span class="acc-sub">${job.youtubeMeta ? 'ready' : 'title · description · tags'}</span></span></summary>
       <div class="acc-body char-card">${renderYouTubeMeta()}</div>
+    </details>
+
+    <details class="acc" data-acc="ytupload" ${openAttr('ytupload', false)}>
+      <summary><span>📤 Upload &amp; schedule <span class="acc-sub">${(job.youtubeUploads || []).length ? `${job.youtubeUploads.length} uploaded` : 'to your YouTube channel'}</span></span></summary>
+      <div class="acc-body char-card">${renderYouTubeUpload()}</div>
     </details>
 
     <details class="acc" data-acc="audiometa" ${openAttr('audiometa', false)}>
