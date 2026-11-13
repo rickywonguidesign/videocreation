@@ -2123,9 +2123,14 @@ function findLoopGaps(){
   const N = outline.length;
   const loops = (Array.isArray(m.openLoopRows) ? m.openLoopRows : []).map(Number).filter(n => n >= 1 && n <= N).sort((a,b) => a - b);
   const end = (+m.revealRow >= 1 && +m.revealRow <= N) ? +m.revealRow : N;
+  return loopGapsFor(loops, end);
+}
+// Stretches with no open question, up to the reveal. Row 1 is the hook — an
+// open question by definition — so counting starts there, not at row 0.
+function loopGapsFor(loops, end){
   const gaps = [];
-  let prev = 0;
-  loops.filter(n => n < end).concat([end]).forEach(n => { if(n - prev > MAX_LOOP_GAP) gaps.push({ from: prev, to: n }); prev = n; });
+  let prev = 1;
+  loops.filter(n => n > 1 && n < end).concat([end]).forEach(n => { if(n - prev > MAX_LOOP_GAP) gaps.push({ from: prev, to: n }); prev = n; });
   return gaps;
 }
 let retentionFixBusy = false;
@@ -2201,7 +2206,7 @@ async function undoRetentionFix(){
 // only after that, from the winning plan.
 // ---------------------------------------------------------------------------
 const PLAN_GATE_ROUNDS = 2;
-const PLAN_GATE_GOOD_ENOUGH = 95;
+const PLAN_GATE_GOOD_ENOUGH = 100; // keep repairing while ANY problem is left (still max PLAN_GATE_ROUNDS, and stops if a round doesn't improve)
 function isPlanGateOn(){
   const el = document.getElementById('planGate');
   return !el || !!el.checked;
@@ -2273,7 +2278,7 @@ function planHygieneWarnings(outline, roster){
   return { warn, ok };
 }
 // High-impact problems cost more points.
-const PLAN_HIGH_RE = /Stalling|Too long in one place|too late|too early|never clearly introduced|No row shows the incident|no hero introduction|no planned use|look alike|filler|no story purpose|only mood|hint the secret|No reveal row|didn't return a retention map/i;
+const PLAN_HIGH_RE = /Open-loop gaps|Stalling|Too long in one place|too late|too early|never clearly introduced|No row shows the incident|no hero introduction|no planned use|look alike|filler|no story purpose|only mood|hint the secret|No reveal row|didn't return a retention map/i;
 function scorePlanWarnings(warns){
   let score = 100;
   (warns || []).forEach(w => { score -= PLAN_HIGH_RE.test(w) ? 9 : 4; });
@@ -2484,9 +2489,12 @@ function checkRetention(){
   }
 
   const loops = (Array.isArray(m.openLoopRows) ? m.openLoopRows : []).filter(valid).map(Number).sort((a,b) => a - b);
-  let maxGap = 0, prev = 0;
-  loops.concat([+m.revealRow || N]).forEach(n => { maxGap = Math.max(maxGap, n - prev); prev = n; });
-  (loops.length && maxGap <= 5 ? ok : warn).push(loops.length ? `Open loops at rows ${loops.join(', ')}${maxGap > 5 ? ` — a gap of ${maxGap} rows with no open question` : ''}.` : 'No open-loop rows planned.');
+  const loopEnd = valid(m.revealRow) ? +m.revealRow : N;
+  const loopGaps = loopGapsFor(loops, loopEnd);
+  if(!loops.length) warn.push('No open-loop rows planned.');
+  else if(!loopGaps.length) ok.push(`Open loops at rows ${loops.join(', ')} — never more than ${MAX_LOOP_GAP} rows without an open question.`);
+  // List EVERY gap with its rows, so the repair step knows exactly where to add a hook.
+  else warn.push(`Open-loop gaps (no open question for more than ${MAX_LOOP_GAP} rows): ${loopGaps.map(g => `rows ${g.from}–${g.to} (${g.to - g.from})`).join(', ')} — add a new curiosity hook (and its row to openLoopRows) near the middle of each. Current open loops: ${loops.join(', ')}.`);
 
   // Scene-level: flag written lines before the reveal that may give the secret away.
   if(m.secret && valid(m.revealRow)){
