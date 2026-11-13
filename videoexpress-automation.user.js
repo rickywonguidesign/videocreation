@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         VideoExpress Scene Automation
 // @namespace    videocreation-automation
-// @version      2.4
+// @version      2.5
 // @description  Pastes a scene's Image Prompt + Video/Audio Prompt into VideoExpress's Create Video From Prompt modal, sets options, auto-picks the reference photo from the library, and drives it through Create Image -> Create Video. Auto-runs as soon as a new scene payload appears on the clipboard — no button click needed after the first one.
 // @match        https://app.videoexpress.ai/*
 // @grant        none
@@ -19,7 +19,7 @@
     console.warn('[VE-Automation] Another copy of this script is already running on this page (v' + window.__veAutomationLoaded + ') — this copy will stay idle. Open Tampermonkey and disable/delete the duplicate script.');
     return;
   }
-  window.__veAutomationLoaded = '2.4';
+  window.__veAutomationLoaded = '2.5';
   // ============================================================
   // CONFIG — edit these to change behavior without touching the
   // engine logic below. Mirrors videoexpress-automation-flow.json.
@@ -44,7 +44,8 @@
       use_consistent_character: true,
       shared: false,
       advanced_mode: true,
-      // enhance_video_prompt: v2.4 — NOT set by the script any more; your own tick on the page is kept (see runFlow).
+      // enhance_video_prompt: v2.5 — always UNTICKED by the script ("Automatically enhance my video prompt"),
+      // so VideoExpress uses the generator's video prompt exactly as written. See forceEnhanceVideoOff().
       manual_video_length: true,
       talking_video: false
     },
@@ -904,10 +905,29 @@
       // that if VideoExpress resets it (it does when a reference photo is picked).
       const autoEnhanceEl = document.querySelector("input[type='checkbox'][name='auto_enhance_prompt']");
       const userAutoEnhance = autoEnhanceEl ? autoEnhanceEl.checked : null;
-      // v2.4: same for "Enhance video prompt".
-      const enhanceVideoEl = document.querySelector("input[type='checkbox'][name='enhance_video_prompt']");
-      const userEnhanceVideo = enhanceVideoEl ? enhanceVideoEl.checked : null;
-      console.log('[VE-Automation] Keeping your settings — Auto enhance prompt:', userAutoEnhance, '· Enhance video prompt:', userEnhanceVideo);
+      console.log('[VE-Automation] Keeping your setting — Auto enhance prompt:', userAutoEnhance);
+      // v2.5: "Automatically enhance my video prompt" must be OFF. Found by its
+      // name, or by its label text if the site renames the field. VideoExpress
+      // re-ticks it on its own (consistent character, reference photo, image
+      // generation), so it's switched off again at each of those points.
+      function findEnhanceVideoBox() {
+        const byName = Array.from(document.querySelectorAll("input[type='checkbox'][name='enhance_video_prompt']"));
+        const visible = byName.find(isVisible) || byName[0];
+        if (visible) return visible;
+        const label = Array.from(document.querySelectorAll('label')).find(l => /enhance my video prompt|enhance video prompt/i.test(l.textContent || ''));
+        return label ? (label.querySelector("input[type='checkbox']") || (label.htmlFor && document.getElementById(label.htmlFor))) : null;
+      }
+      async function forceEnhanceVideoOff(when) {
+        const el = findEnhanceVideoBox();
+        if (!el) { console.warn(`[VE-Automation] "Enhance video prompt" checkbox not found (${when}).`); return; }
+        if (el.checked) {
+          el.click();
+          await sleep(250);
+          if (el.checked) { el.checked = false; el.dispatchEvent(new Event('change', { bubbles: true })); }
+          console.log(`[VE-Automation] Unticked "Automatically enhance my video prompt" (${when}) → now ${el.checked ? 'STILL ticked' : 'off'}.`);
+        }
+      }
+      await forceEnhanceVideoOff('start');
       // Puts a checkbox back to how YOU left it, only if the site changed it.
       async function restoreUserSetting(name, wanted, label) {
         if (wanted === null) return;
@@ -986,7 +1006,7 @@
       // Set AFTER the reference photo step, since selecting it resets these.
       const cbFinal = CONFIG.checkboxDesiredState;
       await restoreUserSetting('auto_enhance_prompt', userAutoEnhance, 'auto_enhance_prompt');
-      await restoreUserSetting('enhance_video_prompt', userEnhanceVideo, 'enhance_video_prompt');
+      await forceEnhanceVideoOff('after reference photo');
       // The site's own slide counter (aria-label="N / N") tells us when a
       // genuinely NEW slide was added.
       function getSwiperTotalCount() {
@@ -1043,9 +1063,8 @@
       if (CONFIG.requireManualConfirmation) {
         await pauseForUser('Image generated — check it looks right, then continue to create the video.');
       }
-      // Right before Create Video: if image generation reset it, put your
-      // "Enhance video prompt" choice back (never forces it on or off).
-      await restoreUserSetting('enhance_video_prompt', userEnhanceVideo, 'enhance_video_prompt');
+      // Right before Create Video: image generation can re-tick it — switch it off again.
+      await forceEnhanceVideoOff('before Create Video');
       await checkPause();
       log('Waiting for the Create Video button to become visible...');
       const createVideoBtn = await waitForElement('button.button-generate-video-submit:not(.hidden)');

@@ -3808,7 +3808,13 @@ async function ytSignIn(){
       client_id: clientId,
       scope: YT_SCOPES,
       callback: async (resp) => {
-        if(resp.error){ showToast(`Google sign-in failed: ${resp.error}`); return resolve(false); }
+        if(resp.error){
+          ytUpload = { phase: 'error', error: resp.error === 'access_denied'
+            ? 'Google blocked the sign-in (access_denied). Your Google Cloud app is in "Testing", so only test users can sign in: Google Cloud Console → Google Auth Platform (or "OAuth consent screen") → Audience → Test users → Add users → add the Gmail that owns your YouTube channel, save, then try again.'
+            : `Google sign-in failed: ${resp.error}` };
+          renderResults();
+          return resolve(false);
+        }
         ytToken = { access_token: resp.access_token, expires_at: Date.now() + (resp.expires_in || 3600) * 1000 };
         try{
           const r = await fetch('https://www.googleapis.com/youtube/v3/channels?part=snippet&mine=true', { headers: { Authorization: `Bearer ${ytToken.access_token}` } });
@@ -3980,7 +3986,7 @@ function renderYouTubeUpload(){
       <ol class="yt-steps">
         <li>Open <a href="https://console.cloud.google.com/" target="_blank" rel="noopener">Google Cloud Console</a> → create a project.</li>
         <li><b>APIs &amp; Services → Library</b> → enable <b>YouTube Data API v3</b>.</li>
-        <li><b>OAuth consent screen</b> → External → add your Google account as a <b>test user</b>.</li>
+        <li><b>Google Auth Platform</b> (or <b>OAuth consent screen</b>) → User type <b>External</b> → <b>Audience → Test users → Add users</b> → add the <b>Gmail that owns your YouTube channel</b>. Without this, sign-in fails with <i>"Error 403: access_denied"</i>.</li>
         <li><b>Credentials → Create credentials → OAuth client ID → Web application</b>. Under <b>Authorized JavaScript origins</b> add <code>${escHtml(location.origin)}</code>.</li>
         <li>Copy the <b>Client ID</b> (ends in <code>.apps.googleusercontent.com</code>) and paste it here.</li>
       </ol>
