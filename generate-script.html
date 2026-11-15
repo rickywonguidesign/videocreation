@@ -442,7 +442,8 @@
       <label>Character style</label>
       <div class="style-toggle">
         <div class="style-opt" data-style="Human" onclick="selectStyle(this)">Human</div>
-        <div class="style-opt" data-style="2D" onclick="selectStyle(this)">2D</div>
+        <div class="style-opt" data-style="2D" onclick="selectStyle(this)" title="Classic flat hand-drawn 2D: clean ink outlines, cel shading, painted backgrounds">2D</div>
+        <div class="style-opt" data-style="2.5D" onclick="selectStyle(this)" title="Hand-painted 2D characters in deep layered, cinematic painted environments — still drawn, never CGI">2.5D</div>
         <div class="style-opt active" data-style="3D" onclick="selectStyle(this)">3D</div>
         <div class="style-opt" data-style="Photorealistic (Cinematic)" onclick="selectStyle(this)">Photorealistic (Cinematic)</div>
         <div class="style-opt" data-style="Other" onclick="selectStyle(this)">Other</div>
@@ -678,14 +679,22 @@ const STYLE_PRESETS = {
     tag: 'Live-action cinematic footage with real human actors, natural skin texture, real-world locations and materials',
     negative: 'not a cartoon, not anime, not a 3D render, not an illustration'
   },
+  // 2D = classic FLAT hand-drawn look. 2.5D = the same drawn characters, but
+  // in deep, layered, cinematic painted environments. Both are DRAWN — the
+  // drawn-medium words come first and the anti-3D negatives are strong,
+  // because "depth", "lighting" or "realistic" words alone pull image models
+  // toward a 3D/CGI render.
   '2D': {
     animated: true,
-    // 2D anchors come FIRST: image models weigh the start of a prompt most, and
-    // words like "2.5D", "semi-realistic", "volumetric lighting" or "realistic
-    // textures" on their own pull them toward a 3D/CGI render.
-    tag: '2D hand-painted animation illustration, every character drawn with clean visible ink line art and painted cel shading with soft brush texture, flat 2D drawn characters like a frame from a premium hand-drawn animated feature film — NOT CGI. Cinematic 2D storytelling with 2.5D depth only in the layered parallax painted backgrounds, semi-realistic adult characters drawn in a 2D illustration style, mature facial proportions, expressive but natural eyes, detailed digital painting, sophisticated character design, layered atmospheric painted environments, dramatic cinematic composition, deep midnight navy shadows, warm metallic golden sunrise illumination, painted light rays, subtle painted atmospheric fog, beautiful environmental depth, painted fabric folds, soft painterly shading, emotional storytelling, film-quality color grading, premium animated feature film aesthetic. Character continuity is essential: preserve the established character\'s facial identity, hairstyle, age, proportions, clothing, and distinguishing features across all scenes. 16:9 cinematic composition, visually compelling storytelling',
+    tag: 'Classic 2D hand-drawn animation frame, flat 2D illustration: crisp clean ink outlines on every character, flat cel-shaded color fills with one soft shadow tone, simple graphic forms, hand-painted flat 2D backgrounds, like a traditional hand-drawn animated feature film — clearly drawn, NOT CGI. semi-realistic adult characters, mature facial proportions, expressive but natural eyes, sophisticated character design. Character continuity is essential: preserve the established character\'s facial identity, hairstyle, age, proportions, clothing, and distinguishing features across all scenes. 16:9 cinematic composition, visually compelling storytelling, film-quality color grading',
+    negative: 'no depth-of-field blur, no volumetric 3D lighting, NOT a 3D render, no CGI, no Pixar or Disney 3D look, no 3D modeling, no plastic or rubbery skin, no subsurface-scattering skin, no ray-traced render look, no childish cartoon proportions, no oversized eyes, no exaggerated expressions, no text, no watermark, NOT a photograph, NOT live-action'
+  },
+  '2.5D': {
+    animated: true,
+    tag: '2.5D animated illustration: hand-painted 2D characters with clean visible ink line art and painted cel shading with soft brush texture, placed in deep layered parallax painted environments (separate painted foreground, midground and background planes) — like a premium hand-drawn animated feature with multiplane depth, clearly drawn and painted, NOT CGI. Cinematic 2D storytelling, semi-realistic adult characters, mature facial proportions, expressive but natural eyes, sophisticated character design. Character continuity is essential: preserve the established character\'s facial identity, hairstyle, age, proportions, clothing, and distinguishing features across all scenes. 16:9 cinematic composition, visually compelling storytelling, detailed digital painting, layered atmospheric painted environments, dramatic cinematic composition, deep midnight navy shadows, warm metallic golden sunrise illumination, painted light rays, subtle painted atmospheric fog, beautiful environmental depth, painted fabric folds, soft painterly shading, emotional storytelling, film-quality color grading, premium animated feature film aesthetic',
     negative: 'NOT a 3D render, no CGI, no Pixar or Disney 3D look, no 3D modeling, no plastic or rubbery skin, no subsurface-scattering skin, no ray-traced render look, no childish cartoon proportions, no oversized eyes, no exaggerated expressions, no text, no watermark, NOT a photograph, NOT live-action'
   },
+
 
   '3D': {
     animated: true,

@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         VideoExpress Scene Automation
 // @namespace    videocreation-automation
-// @version      2.5
+// @version      2.6
 // @description  Pastes a scene's Image Prompt + Video/Audio Prompt into VideoExpress's Create Video From Prompt modal, sets options, auto-picks the reference photo from the library, and drives it through Create Image -> Create Video. Auto-runs as soon as a new scene payload appears on the clipboard — no button click needed after the first one.
 // @match        https://app.videoexpress.ai/*
 // @grant        none
@@ -19,7 +19,7 @@
     console.warn('[VE-Automation] Another copy of this script is already running on this page (v' + window.__veAutomationLoaded + ') — this copy will stay idle. Open Tampermonkey and disable/delete the duplicate script.');
     return;
   }
-  window.__veAutomationLoaded = '2.5';
+  window.__veAutomationLoaded = '2.6';
   // ============================================================
   // CONFIG — edit these to change behavior without touching the
   // engine logic below. Mirrors videoexpress-automation-flow.json.
@@ -29,6 +29,7 @@
     characterStyleMap: {
       "Human": "human",
       "2D": "2d",
+      "2.5D": "2d", // v2.6: VideoExpress has no 2.5D option — 2.5D is a drawn style, so it uses 2D
       "3D": "3d",
       "Photorealistic (Cinematic)": "photorealistic",
       "Other": "other"
