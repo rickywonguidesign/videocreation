@@ -680,8 +680,8 @@ const STYLE_PRESETS = {
   },
   '2D': {
     animated: true,
-    tag: '2D hand-drawn animation style, flat cel-shaded illustration with clean confident line art, painterly 2D backgrounds, the look of a high-end 2D animated feature film',
-    negative: 'NOT a photograph, NOT live-action, NOT photorealistic, NOT a 3D render, no real human faces, no photographic skin texture'
+    tag: 'Cinematic 2D and 2.5D hybrid animated storytelling, semi-realistic adult characters, mature facial proportions, expressive but natural eyes, detailed digital painting, sophisticated character design, layered atmospheric environments, dramatic cinematic composition, deep midnight navy shadows, warm metallic golden sunrise illumination, volumetric lighting, subtle atmospheric fog, beautiful environmental depth, realistic fabric textures, soft painterly shading, emotional storytelling, film-quality color grading, premium animated feature film aesthetic. Character continuity is essential: preserve the established character\'s facial identity, hairstyle, age, proportions, clothing, and distinguishing features across all scenes. 16:9 cinematic composition, visually compelling storytelling',
+    negative: 'no childish cartoon proportions, no oversized eyes, no exaggerated expressions, no text, no watermark, NOT a photograph, NOT live-action, NOT a 3D render'
   },
   '3D': {
     animated: true,
@@ -715,6 +715,10 @@ function withStyleHeader(body){
   const setting = jobSettingText();
   const head = `${spec.tag}.${setting ? ` Setting: ${setting}.` : ''}`;
   return `${head} ${body || ''}`.trim();
+}
+// For prompts that SHOULD contain text (the thumbnail title banner).
+function styleNegativeNoTextBan(){
+  return styleNegative().split(',').map(x => x.trim()).filter(x => x && !/^no text$/i.test(x)).join(', ');
 }
 function styleNegative(){
   return jobStyleSpec().negative || '';
@@ -3161,8 +3165,9 @@ function videoNegativeLine(scene, hasDialogue){
   const parts = ['no text', 'no texture', 'no gore', 'no watermark'];
   if(!hasDialogue) parts.push('no lip-sync', 'no talking mouths');
   if(!musicOn) parts.push('no background music', 'no score', 'no soundtrack');
-  const neg = styleNegative();
-  return parts.join(', ') + (neg ? `, ${neg}` : '');
+  // Merge with the style's own negatives without repeating any item.
+  styleNegative().split(',').map(x => x.trim()).filter(Boolean).forEach(x => { if(!parts.some(p => p.toLowerCase() === x.toLowerCase())) parts.push(x); });
+  return parts.join(', ');
 }
 // Safety net: a clip has ONE spoken line at most (8-10 s). The model sometimes
 // writes a second quoted reply into videoAudioPrompt ("…then challenges, \"…\"")
@@ -3469,7 +3474,7 @@ function stripFaceSignatureRepeat(prompt){
 }
 function fullThumbnailPrompt(){
   if(!job.thumbnail || !job.thumbnail.prompt) return '';
-  const neg = styleNegative();
+  const neg = styleNegativeNoTextBan();
   const chars = thumbnailCharacters();
   const title = thumbnailTitle();
   const parts = [];
@@ -3529,7 +3534,7 @@ function fullThumbnailVideoPrompt(){
   const musicOn = (job && typeof job.musicTheme === 'boolean') ? job.musicTheme : false;
   const negParts = ['no new or changing text', 'no texture', 'no gore', 'no watermark', 'no lip-sync', 'no talking mouths'];
   if(!musicOn) negParts.push('no background music', 'no score', 'no soundtrack');
-  const neg = styleNegative();
+  const neg = styleNegativeNoTextBan();
   return `[Clip Thumbnail] ${withStyleHeader(prompt)} ${negParts.join(', ')}${neg ? `, ${neg}` : ''}.`;
 }
 async function copyThumbnailVideoPrompt(){
