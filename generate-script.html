@@ -680,9 +680,13 @@ const STYLE_PRESETS = {
   },
   '2D': {
     animated: true,
-    tag: 'Cinematic 2D and 2.5D hybrid animated storytelling, semi-realistic adult characters, mature facial proportions, expressive but natural eyes, detailed digital painting, sophisticated character design, layered atmospheric environments, dramatic cinematic composition, deep midnight navy shadows, warm metallic golden sunrise illumination, volumetric lighting, subtle atmospheric fog, beautiful environmental depth, realistic fabric textures, soft painterly shading, emotional storytelling, film-quality color grading, premium animated feature film aesthetic. Character continuity is essential: preserve the established character\'s facial identity, hairstyle, age, proportions, clothing, and distinguishing features across all scenes. 16:9 cinematic composition, visually compelling storytelling',
-    negative: 'no childish cartoon proportions, no oversized eyes, no exaggerated expressions, no text, no watermark, NOT a photograph, NOT live-action, NOT a 3D render'
+    // 2D anchors come FIRST: image models weigh the start of a prompt most, and
+    // words like "2.5D", "semi-realistic", "volumetric lighting" or "realistic
+    // textures" on their own pull them toward a 3D/CGI render.
+    tag: '2D hand-painted animation illustration, every character drawn with clean visible ink line art and painted cel shading with soft brush texture, flat 2D drawn characters like a frame from a premium hand-drawn animated feature film — NOT CGI. Cinematic 2D storytelling with 2.5D depth only in the layered parallax painted backgrounds, semi-realistic adult characters drawn in a 2D illustration style, mature facial proportions, expressive but natural eyes, detailed digital painting, sophisticated character design, layered atmospheric painted environments, dramatic cinematic composition, deep midnight navy shadows, warm metallic golden sunrise illumination, painted light rays, subtle painted atmospheric fog, beautiful environmental depth, painted fabric folds, soft painterly shading, emotional storytelling, film-quality color grading, premium animated feature film aesthetic. Character continuity is essential: preserve the established character\'s facial identity, hairstyle, age, proportions, clothing, and distinguishing features across all scenes. 16:9 cinematic composition, visually compelling storytelling',
+    negative: 'NOT a 3D render, no CGI, no Pixar or Disney 3D look, no 3D modeling, no plastic or rubbery skin, no subsurface-scattering skin, no ray-traced render look, no childish cartoon proportions, no oversized eyes, no exaggerated expressions, no text, no watermark, NOT a photograph, NOT live-action'
   },
+
   '3D': {
     animated: true,
     tag: 'Stylized 3D animated CGI, high-end feature-animation render, stylized character proportions with large expressive eyes, soft subsurface-scattered skin, sculpted stylized hair, global illumination, rendered in a 3D animation engine',
