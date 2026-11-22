@@ -473,6 +473,16 @@
     </div>
 
     <div class="field">
+      <label class="check-label"><input type="checkbox" id="simpleEnglish" checked onchange="try{localStorage.setItem('simpleEnglish', this.checked ? '1' : '0')}catch(e){}"><span>Simple English — easy words every viewer understands</span></label>
+      <div class="hint">Narration, dialogue and titles use everyday words (about A2–B1 level), short sentences of 6–14 words, one idea per sentence, no idioms and no old-fashioned or fancy words — so English learners and younger viewers can follow without pausing. The story stays just as gripping. A "Simple English check" panel flags any line that is still hard and can rewrite it for you.</div>
+    </div>
+
+    <div class="field">
+      <label class="check-label"><input type="checkbox" id="monetizeSafe" checked onchange="try{localStorage.setItem('monetizeSafe', this.checked ? '1' : '0')}catch(e){}"><span>Unique &amp; monetization-safe (YouTube Partner Program)</span></label>
+      <div class="hint">Every new story must be clearly different from the ones you made before — new names, a different hook, twist, thumbnail title and opening words (your past stories are remembered on this browser) — so the channel never looks mass-produced. It also stays advertiser-friendly: no graphic violence, gore, swearing, sexual content or drug focus, no real people or tragedies, and titles that honestly match the story. A "Monetization check" panel grades each video before you upload.</div>
+    </div>
+
+    <div class="field">
       <label class="check-label"><input type="checkbox" id="retentionMode" checked onchange="try{localStorage.setItem('retentionMode', this.checked ? '1' : '0')}catch(e){}"><span>Story doctor — restructure for retention (keep viewers to the end)</span></label>
       <div class="hint">Rebuilds the plan around what keeps people watching: a hook that's a visible puzzle, a two-stage mystery (the first answer opens a deeper question), stakes raised early, one secret held until ~70-85% of the video, clues planted early that pay off later, no recaps, "show before tell" at the reveal, the lesson stated once, and a mirror ending. Core events, ending, and moral never change. A "Retention check" panel then grades the plan before you spend credits on video.</div>
       <label class="check-label" style="margin-top:10px;"><input type="checkbox" id="planGate" checked onchange="try{localStorage.setItem('planGate', this.checked ? '1' : '0')}catch(e){}"><span>Check &amp; auto-repair the plan before writing scenes</span></label>
@@ -655,6 +665,10 @@ function getSelectedModel(){
     setTimeout(renderModelPlanBox, 0);
     const savedGate = localStorage.getItem('planGate');
     if(savedGate !== null && document.getElementById('planGate')) document.getElementById('planGate').checked = savedGate === '1';
+    const savedSimple = localStorage.getItem('simpleEnglish');
+    if(savedSimple !== null && document.getElementById('simpleEnglish')) document.getElementById('simpleEnglish').checked = savedSimple === '1';
+    const savedMonetize = localStorage.getItem('monetizeSafe');
+    if(savedMonetize !== null && document.getElementById('monetizeSafe')) document.getElementById('monetizeSafe').checked = savedMonetize === '1';
     const savedExpand = localStorage.getItem('expandMode');
     if(savedExpand) document.getElementById('expandMode').value = savedExpand;
     const savedCustom = localStorage.getItem('customModel');
@@ -2317,6 +2331,7 @@ function auditPlanCandidate(cand){
       warns = planHygieneWarnings(cand.outline, cand.characters).warn;
       if(job.retentionMode && !cand.retentionMap) warns.push("The model didn't return a retention map.");
     }
+    if(storyOptsFromJob().monetizeSafe) warns = warns.concat(uniquenessPlanWarnings(cand.characters));
     return { warns, score: scorePlanWarnings(warns) };
   }finally{
     job.treatment = saved.t;
@@ -2528,9 +2543,367 @@ function checkRetention(){
   return { ok, warn };
 }
 
-function jobRulesTail(styleName, customStyle, setting, retentionOn){
+// ---------------------------------------------------------------------------
+// SIMPLE ENGLISH + UNIQUE & MONETIZATION-SAFE
+// Two checkboxes on the form. Simple English adds a hard language rule to
+// every writing request and a readability check on the written lines.
+// Unique & monetization-safe remembers past stories (this browser + saved
+// jobs), tells the planner not to repeat them, keeps everything
+// advertiser-friendly, and grades the video in a "Monetization check" panel.
+// ---------------------------------------------------------------------------
+function formChecked(id, def){ const el = document.getElementById(id); return el ? !!el.checked : !!def; }
+function storyOptsFromForm(){ return { simpleEnglish: formChecked('simpleEnglish', true), monetizeSafe: formChecked('monetizeSafe', true) }; }
+function storyOptsFromJob(){
+  const f = storyOptsFromForm();
+  return {
+    simpleEnglish: job && job.simpleEnglish != null ? !!job.simpleEnglish : f.simpleEnglish,
+    monetizeSafe: job && job.monetizeSafe != null ? !!job.monetizeSafe : f.monetizeSafe
+  };
+}
+
+function simpleEnglishRule(){
+  return `\nSIMPLE ENGLISH RULE — HARD CONSTRAINT for every word the viewer hears or reads ("narrationLine", "dialogue", treatment.logline, the thumbnail textOverlay/subtitle/titleIdeas, outro and call-to-action lines). It overrides "SOUND HUMAN", "novelist" wording and any other style instruction above wherever they conflict:
+- Use common everyday words that an English learner (CEFR A2–B1) or a 10-year-old knows. Choose the simple word: "start" not "commence", "help" not "assist", "sad" not "melancholy", "look" not "gaze upon", "quiet" not "tranquil", "brave" not "valiant".
+- Short sentences: 6–14 words each, never more than 18. One idea per sentence. Simple present or past tense, active voice. When a line needs more words to fill its 8-10 seconds, use 2–3 short sentences — never one long one.
+- No idioms, slang or metaphors that need explaining; no poetic, literary or old-fashioned words (thee, thou, alas, whilst, behold, amidst, perchance, lest, hence); no rare words; no chains of adjectives; no semicolons.
+- Say names often enough that the viewer always knows who is speaking or acting. When a new person appears, say who they are in plain words ("Mina, the baker's daughter").
+- Simple does NOT mean childish or flat: keep concrete details, strong simple verbs, clear cause and effect, tension, mystery and real emotion.
+(If the output language is not English, apply the same idea in that language: everyday words, short sentences, no idioms or literary words.)`;
+}
+
+const STORY_HISTORY_KEY = 'storyHistory';
+const STORY_HISTORY_MAX = 60;
+let storyHistoryCache = null;
+function readLocalHistory(){
+  try{ const a = JSON.parse(localStorage.getItem(STORY_HISTORY_KEY) || '[]'); return Array.isArray(a) ? a : []; }catch(e){ return []; }
+}
+function writeLocalHistory(a){ try{ localStorage.setItem(STORY_HISTORY_KEY, JSON.stringify(a.slice(0, STORY_HISTORY_MAX))); }catch(e){} }
+function historyClearedAt(){ try{ return +localStorage.getItem('storyHistoryClearedAt') || 0; }catch(e){ return 0; } }
+function firstSpokenLine(scenes){
+  for(const s of (scenes || [])){
+    const l = (s && (s.narrationLine || (s.dialogue ? splitSpokenLine(s.dialogue).line : ''))) || '';
+    if(l.trim()) return l.trim();
+  }
+  return '';
+}
+function storySummaryOf(j){
+  if(!j || !j.jobId) return null;
+  const t = j.treatment || {}; const m = t.retentionMap || {}; const th = j.thumbnail || {};
+  const cut = (v, n) => String(v || '').replace(/\s+/g, ' ').trim().slice(0, n || 140);
+  return {
+    id: j.jobId, at: Date.now(),
+    title: cut(th.customTitle || th.textOverlay, 60),
+    topic: cut(j.topic, 80),
+    logline: cut(t.logline, 220),
+    names: ((j.styleBlock && j.styleBlock.characters) || []).map(c => c && c.name).filter(Boolean).slice(0, 8),
+    setting: cut(t.setting || j.setting, 80),
+    hook: cut(m.hookQuestion, 140),
+    secret: cut(m.secret, 140),
+    opening: firstSpokenLine(j.scenes).split(/\s+/).slice(0, 8).join(' ')
+  };
+}
+function recordStoryHistory(j){
+  const s = storySummaryOf(j);
+  if(!s || !(s.logline || s.title)) return;
+  const list = readLocalHistory();
+  const prev = list.find(x => x.id === s.id);
+  if(prev && prev.at) s.at = prev.at;
+  if(!s.opening && prev && prev.opening) s.opening = prev.opening;
+  writeLocalHistory([s].concat(list.filter(x => x.id !== s.id)));
+  if(storyHistoryCache) storyHistoryCache = [s].concat(storyHistoryCache.filter(x => x.id !== s.id));
+}
+// Local history + every saved job (so stories made before this feature count too).
+async function loadStoryHistory(){
+  if(storyHistoryCache) return storyHistoryCache;
+  const cleared = historyClearedAt();
+  let list = readLocalHistory();
+  try{
+    const idx = await getSavedJobsIndex();
+    for(const it of idx.slice(0, 40)){
+      if(list.some(x => x.id === it.jobId)) continue;
+      const savedAt = Date.parse(it.savedAt) || 0;
+      if(cleared && savedAt <= cleared) continue;
+      try{
+        const r = await window.storage.get(`job:${it.jobId}`);
+        const s = r && storySummaryOf(JSON.parse(r.value));
+        if(s && (s.logline || s.title)){ s.at = savedAt; list.push(s); }
+      }catch(e){}
+    }
+  }catch(e){}
+  list.sort((a, b) => (b.at || 0) - (a.at || 0));
+  storyHistoryCache = list.slice(0, STORY_HISTORY_MAX);
+  writeLocalHistory(storyHistoryCache);
+  return storyHistoryCache;
+}
+function pastStories(excludeId){ return (storyHistoryCache || readLocalHistory()).filter(s => s && s.id !== excludeId); }
+function clearStoryHistory(){
+  if(!confirm('Forget all past stories? New stories will no longer be checked against them.')) return;
+  try{ localStorage.setItem('storyHistoryClearedAt', String(Date.now())); }catch(e){}
+  writeLocalHistory([]);
+  storyHistoryCache = [];
+  if(job && job.jobId) recordStoryHistory(job);
+  showToast('Story history cleared');
+  renderResults();
+}
+
+function monetizeRule(history, brief){
+  const core = `\nUNIQUE & MONETIZATION-SAFE RULE — this channel is in the YouTube Partner Program and must stay monetized (YouTube's "inauthentic content" and advertiser-friendly guidelines):
+(a) ORIGINAL, NOT MASS-PRODUCED: the video must feel hand-made, never templated. Do not open with "Once upon a time", "Long ago", "In a small village", "Have you ever wondered" or any other stock opener, and never reuse the opening words, hook, twist or closing line of a past story.
+(b) REAL VALUE: a specific human situation, a character who changes, and a lesson the viewer can use in their own life. No filler, no repeated scenes, no padding to reach the length.
+(c) ADVERTISER-FRIENDLY in every field, prompts included: no blood, gore or injury detail (keep fights and danger bloodless, implied or off-screen); no detailed death on screen; no suicide or self-harm; no sexual content, nudity or suggestive poses; no swearing or slurs, not even mild ones; no drugs, smoking or drunkenness as a focus; no weapon pointed at the camera; no real people, real brands or real tragedies/news events; no jokes that mock any group; no child in danger shown graphically. Fear, conflict, loss and sadness are fine when shown with restraint.
+(d) HONEST PACKAGING: the thumbnail title, video titles and hook promise only what the story really delivers — curiosity yes, false promises no.`;
+  if(brief) return core;
+  const cut = (v, n) => String(v || '').slice(0, n);
+  const past = (history || []).slice(0, 25).map(s => `- "${cut(s.title || s.topic, 60)}"${s.names && s.names.length ? ` — names: ${s.names.join(', ')}` : ''}${s.setting ? ` — setting: ${cut(s.setting, 60)}` : ''}${s.logline ? ` — story: ${cut(s.logline, 160)}` : ''}${s.hook ? ` — hook: ${cut(s.hook, 100)}` : ''}${s.secret ? ` — twist: ${cut(s.secret, 100)}` : ''}${s.opening ? ` — opened with: "${s.opening}…"` : ''}`).join('\n');
+  return core + `
+(e) UNIQUE ACROSS THE CHANNEL: this story must be clearly different from every past story below — brand-new character names (never reuse any name listed), a different setting or era where the source allows, a different hook question, a different secret/twist, a different thumbnail title and different opening words. If the source premise is close to a past story, change the angle, the hero's situation and the twist so it feels new. The same life lesson is allowed only with a clearly new angle.
+PAST STORIES ON THIS CHANNEL (newest first):
+${past || '- none saved yet'}`;
+}
+
+const NAME_TITLE_WORDS = new Set(['old', 'young', 'little', 'big', 'master', 'lady', 'lord', 'sir', 'madam', 'mr', 'mrs', 'ms', 'dr', 'auntie', 'uncle', 'aunt', 'grandma', 'grandpa', 'granny', 'the', 'king', 'queen', 'prince', 'princess', 'captain', 'elder', 'mother', 'father', 'brother', 'sister']);
+function nameKeys(name){
+  const words = String(name || '').toLowerCase().replace(/[^\p{L}\s'-]/gu, ' ').split(/\s+/).filter(Boolean);
+  const keys = new Set();
+  if(words.length) keys.add(words.join(' '));
+  const core = words.find(w => !NAME_TITLE_WORDS.has(w) && w.length >= 3);
+  if(core) keys.add(core);
+  return keys;
+}
+function uniquenessPlanWarnings(characters){
+  const past = pastStories(job && job.jobId);
+  if(!past.length) return [];
+  const warns = [];
+  (characters || []).forEach(c => {
+    if(!c || !c.name) return;
+    const keys = nameKeys(c.name);
+    const hit = past.find(s => (s.names || []).some(n => { const k = nameKeys(n); for(const x of keys) if(k.has(x)) return true; return false; }));
+    if(hit) warns.push(`Name reused from a past story: "${c.name}" was already used in "${hit.title || hit.topic || 'an earlier video'}" — give this character a brand-new name so every video feels unique.`);
+  });
+  return warns;
+}
+
+const SIM_STOP = new Set('the a an and or but of to in on at for with from by is are was were be been being his her their they he she it its this that these those as into who what when where why how not no one two up out over after before about than then so has have had will would can could must just only very all any some each every our your you him them we us i me my'.split(' '));
+function simWords(str){ return new Set(String(str || '').toLowerCase().replace(/[^a-z\s]/g, ' ').split(/\s+/).filter(w => w.length > 2 && !SIM_STOP.has(w))); }
+function jaccard(a, b){ if(!a.size || !b.size) return 0; let n = 0; a.forEach(w => { if(b.has(w)) n++; }); return n / (a.size + b.size - n); }
+
+const AD_RISK = [
+  { label: 'graphic violence', re: /\b(blood|bloody|bloodied|bleeding|gore|gory|corpses?|stab|stabs|stabbed|stabbing|behead\w*|decapitat\w*|slit (?:his|her|their) throat|guts|mutilat\w*|dismember\w*|massacre\w*|tortur\w*|severed)\b/i },
+  { label: 'self-harm', re: /\b(suicide|suicidal|kill(?:ed|s)? (?:him|her|my|them|your)sel(?:f|ves)|hang(?:ed)? (?:him|her)self|self-harm)\b/i },
+  { label: 'sexual content', re: /\b(naked|nude|nudity|sex|sexual|sexy|seduc\w*|lingerie|erotic|cleavage)\b/i },
+  { label: 'swearing', re: /\b(damn\w*|hell|bastards?|shit\w*|fuck\w*|bitch\w*|crap|piss\w*|asshole)\b/i },
+  { label: 'drugs / alcohol focus', re: /\b(cocaine|heroin|opium|meth|weed|marijuana|drunk|drunken|overdos\w*)\b/i }
+];
+function adRiskScan(){
+  const hits = [];
+  const fields = [['thumbnail title', thumbnailTitle()], ['thumbnail subtitle', thumbnailSubtitle && thumbnailSubtitle()], ['logline', (job.treatment || {}).logline]];
+  (job.scenes || []).forEach(sc => {
+    fields.push([`clip ${sc.sceneNumber} narration`, sc.narrationLine]);
+    fields.push([`clip ${sc.sceneNumber} dialogue`, sc.dialogue]);
+    fields.push([`clip ${sc.sceneNumber} image prompt`, sc.imagePrompt]);
+    fields.push([`clip ${sc.sceneNumber} video prompt`, sc.videoAudioPrompt]);
+  });
+  fields.forEach(([where, text]) => {
+    if(!text) return;
+    // Negative lines ("no blood, no gore") are fine — only scan the positive part.
+    const positive = String(text).replace(/\[Negative\][^\n]*/gi, '').replace(/\b(?:no|not|never|without)\s+[\w-]+(?:\s*,\s*(?:no\s+)?[\w-]+)*/gi, ' ');
+    AD_RISK.forEach(r => { const m = positive.match(r.re); if(m) hits.push({ where, word: m[0], label: r.label }); });
+  });
+  return hits;
+}
+
+// --- Simple English check ----------------------------------------------------
+const FANCY_WORDS = new Set('commence assist melancholy perchance alas whilst behold beheld amidst amid thee thou thy thine hence thus nevertheless notwithstanding endeavour endeavor utilize facilitate furthermore moreover lest wherein whence hitherto forthwith countenance visage forlorn solemn somber sombre ominous treacherous resolute ponder pondered pondering beckoned beckon unyielding relentless serene tranquil ethereal labyrinth reverie vestige valiant vigilant clandestine trepidation foreboding ensued ensue abode bestow bestowed imbued myriad plethora quintessential juxtaposition ubiquitous ephemeral enigmatic enigma inexorable indomitable insidious undeterred unwavering steadfast benevolent malevolent sorrowful wretched dwelling heretofore yonder alight aloft akin wrought'.split(' '));
+const EASY_LONG = new Set('everybody everything everyone anybody anything everywhere somebody something information especially understanding interesting usually actually finally family families together another remember remembered celebrate beautiful dangerous important impossible exactly already television ordinary immediately unfortunately'.split(' '));
+function syllableCount(word){
+  const w = word.toLowerCase().replace(/[^a-z]/g, '');
+  if(!w) return 0;
+  if(w.length <= 3) return 1;
+  const m = w.replace(/(?:[^laeiouy]es|ed|[^laeiouy]e)$/, '').replace(/^y/, '').match(/[aeiouy]{1,2}/g);
+  return m ? m.length : 1;
+}
+function spokenLinesOf(sc){
+  const out = [];
+  if(sc.narrationLine) out.push({ field: 'narration', text: String(sc.narrationLine) });
+  if(sc.dialogue){ const l = splitSpokenLine(sc.dialogue).line || sc.dialogue; if(l) out.push({ field: 'dialogue', text: String(l) }); }
+  return out;
+}
+function simpleEnglishScan(){
+  const flagged = [];
+  let sentences = 0, words = 0, longCount = 0;
+  const names = new Set(((job.styleBlock && job.styleBlock.characters) || []).flatMap(c => String(c.name || '').toLowerCase().split(/\s+/)));
+  (job.scenes || []).forEach(sc => {
+    const issues = [];
+    spokenLinesOf(sc).forEach(({ field, text }) => {
+      const sents = text.replace(/["“”]/g, '').split(/(?<=[.!?…])\s+/).map(x => x.trim()).filter(Boolean);
+      sents.forEach(snt => {
+        const ws = snt.split(/\s+/).filter(w => /[A-Za-z]/.test(w));
+        sentences++; words += ws.length;
+        if(ws.length > 18){ longCount++; issues.push(`${field}: long sentence (${ws.length} words)`); }
+        const hard = ws.map(w => w.replace(/^[^A-Za-z]+|[^A-Za-z']+$/g, '')).filter((w, i) => {
+          const lw = w.toLowerCase().replace(/'s$/, '');
+          if(!lw || names.has(lw)) return false;
+          if(i > 0 && /^[A-Z]/.test(w)) return false; // a name mid-sentence
+          if(FANCY_WORDS.has(lw)) return true;
+          return syllableCount(lw) >= 4 && !EASY_LONG.has(lw) && !/(?:ly|ing|ed|ness)$/.test(lw) ? true : false;
+        });
+        if(hard.length) issues.push(`${field}: hard word${hard.length > 1 ? 's' : ''} ${Array.from(new Set(hard)).join(', ')}`);
+        if(/;/.test(snt)) issues.push(`${field}: semicolon`);
+      });
+    });
+    if(issues.length) flagged.push({ sc, issues });
+  });
+  return { flagged, sentences, avg: sentences ? words / sentences : 0, longCount };
+}
+
+let simplifyBusy = false;
+async function simplifyHardLines(){
+  if(simplifyBusy) return;
+  const flagged = simpleEnglishScan().flagged.slice(0, 25);
+  if(!flagged.length) return;
+  simplifyBusy = true;
+  renderResults();
+  try{
+    const lang = job.language || 'English';
+    const system = `You rewrite the spoken lines of a YouTube story video into SIMPLE ${lang}. Reply with ONLY JSON: {"lines": [{"sceneNumber": number, "narrationLine": string|null, "dialogue": string|null}]}.
+Rules: keep the exact meaning, names, story facts, tension and emotion. Use everyday words an English learner (A2–B1) knows; sentences of 6–14 words, never more than 18; simple tenses; active voice; no idioms, no poetic or old-fashioned words, no semicolons. Keep about the same total length — each line must still fill 8-10 seconds (about 20-25 words). If a dialogue starts with a speaker lead-in (e.g. 'Mina says: "…"'), keep that lead-in format exactly and change only the quoted words. Return null for any field you were not given. Never add new information.`;
+    const user = JSON.stringify(flagged.map(f => ({ sceneNumber: f.sc.sceneNumber, narrationLine: f.sc.narrationLine || null, dialogue: f.sc.dialogue || null })), null, 1);
+    const res = await callTask('json', system, user);
+    const lines = (res && Array.isArray(res.lines)) ? res.lines : [];
+    let changed = 0;
+    lines.forEach(l => {
+      const sc = (job.scenes || []).find(s => +s.sceneNumber === +l.sceneNumber);
+      if(!sc) return;
+      if(sc.narrationLine && l.narrationLine && String(l.narrationLine).trim() !== sc.narrationLine){ sc.narrationLine = String(l.narrationLine).trim(); changed++; }
+      if(sc.dialogue && l.dialogue && String(l.dialogue).trim() !== sc.dialogue){
+        const oldLine = splitSpokenLine(sc.dialogue).line;
+        sc.dialogue = String(l.dialogue).trim();
+        const newLine = splitSpokenLine(sc.dialogue).line;
+        // The video prompt quotes the dialogue word for word — keep it in sync.
+        if(oldLine && newLine && sc.videoAudioPrompt && sc.videoAudioPrompt.includes(oldLine)) sc.videoAudioPrompt = sc.videoAudioPrompt.split(oldLine).join(newLine);
+        changed++;
+      }
+    });
+    if(!changed) throw new Error('The AI returned no simpler lines');
+    await saveJobToStorage(true);
+    showToast(`Simplified ${changed} line(s) — re-copy those clips' prompts / narration`);
+  }catch(e){
+    console.error('[Generator] Simplify failed:', e);
+    showToast(`Could not simplify: ${e.message}`);
+  }finally{
+    simplifyBusy = false;
+    renderResults();
+  }
+}
+
+// --- Monetization check -------------------------------------------------------
+function monetizeCheck(){
+  const warn = [], ok = [];
+  const past = pastStories(job.jobId);
+  const me = storySummaryOf(job) || {};
+  // Uniqueness against past stories
+  if(!past.length){
+    ok.push('First story in your history — nothing to compare yet (later stories are checked against this one).');
+  }else{
+    const mine = simWords([me.logline, me.hook, me.secret].join(' '));
+    let worst = null;
+    past.forEach(s => { const sim = jaccard(mine, simWords([s.logline, s.hook, s.secret].join(' '))); if(!worst || sim > worst.sim) worst = { s, sim }; });
+    if(worst && worst.sim >= 0.3) warn.push(`Story is very similar to "${worst.s.title || worst.s.topic}" (${Math.round(worst.sim * 100)}% overlap in plot words) — change the hero's situation, the hook or the twist so the channel doesn't look repetitive.`);
+    else ok.push(`Plot is different from all ${past.length} past stories${worst ? ` (closest: ${Math.round(worst.sim * 100)}% overlap)` : ''}.`);
+    const nameWarns = uniquenessPlanWarnings((job.styleBlock && job.styleBlock.characters) || []);
+    if(nameWarns.length) nameWarns.forEach(w => warn.push(w)); else ok.push('All character names are new for this channel.');
+    const tw = simWords(me.title);
+    const sameTitle = me.title && past.find(s => s.title && (s.title.toLowerCase() === me.title.toLowerCase() || jaccard(tw, simWords(s.title)) >= 0.6));
+    if(sameTitle) warn.push(`Thumbnail title "${me.title}" is almost the same as a past video ("${sameTitle.title}") — pick another title idea.`);
+    else if(me.title) ok.push('Thumbnail title is new.');
+    const op4 = x => String(x || '').toLowerCase().replace(/[^a-z\s]/g, ' ').trim().split(/\s+/).slice(0, 4).join(' ');
+    const op = op4(me.opening);
+    const sameOpen = op && op.split(' ').length >= 4 && past.find(s => op4(s.opening) === op);
+    if(sameOpen) warn.push(`The first line starts the same way as "${sameOpen.title || sameOpen.topic}" ("${me.opening.split(/\s+/).slice(0, 4).join(' ')}…") — rewrite the opening line.`);
+  }
+  if(/^(once upon a time|long ago|long, long ago|in a small village|have you ever wondered)/i.test(me.opening || '')) warn.push(`Stock opener "${me.opening.split(/\s+/).slice(0, 4).join(' ')}…" — templated openings make a channel look mass-produced. Rewrite clip 1's line.`);
+  // Original retelling
+  const leaks = Array.isArray(job.nameLeaks) ? job.nameLeaks : [];
+  if(leaks.length) warn.push(`Names copied from the source: ${leaks.join(', ')} — rename them so the retelling is original.`);
+  else ok.push('Retold originally — no names copied from the source.');
+  // Repeated scenes
+  const rep = Object.keys(findRepeats(job.scenes || []));
+  if(rep.length) warn.push(`${rep.length} clip(s) repeat an earlier clip (${rep.slice(0, 6).join(', ')}) — repetitive content can be judged "inauthentic". Regenerate them.`);
+  else if((job.scenes || []).length) ok.push('No repeated clips.');
+  // Advertiser-friendly words
+  const hits = adRiskScan();
+  if(hits.length) hits.slice(0, 8).forEach(h => warn.push(`Not advertiser-friendly (${h.label}): "${h.word}" in ${h.where} — soften or remove it to avoid limited ads ($ yellow icon).`));
+  else ok.push('No graphic, sexual, swearing or drug words found (advertiser-friendly).');
+  // Length / ads
+  if(job.totalSeconds && job.totalSeconds >= 480) ok.push(`${Math.round(job.totalSeconds / 60)} minutes — long enough for mid-roll ads (8+ minutes).`);
+  else if(job.totalSeconds) warn.push('Under 8 minutes — YouTube only allows mid-roll ads on videos of 8 minutes or more.');
+  // AI disclosure
+  if(typeof ytForm === 'object' && ytForm && ytForm.ai === false) warn.push('AI disclosure is OFF in the upload panel — turn on "Disclose AI-generated / altered content" (YouTube requires it for realistic AI content).');
+  else ok.push('AI disclosure will be set when uploading.');
+  return { warn, ok, past };
+}
+
+function renderStoryQualityPanels(openAttr){
+  if(!job) return '';
+  const o = storyOptsFromJob();
+  let html = '';
+  if(o.simpleEnglish && (job.scenes || []).length){
+    const se = simpleEnglishScan();
+    const level = se.avg <= 12 && !se.longCount ? 'easy' : se.avg <= 15 ? 'mostly easy' : 'hard';
+    html += `
+    <details class="acc ${se.flagged.length ? 'acc-char' : 'acc-treatment'}" data-acc="simpleeng" ${openAttr('simpleeng', se.flagged.length > 0)}>
+      <summary><span>📖 Simple English check <span class="acc-sub">${se.flagged.length ? `${se.flagged.length} clip(s) to fix` : 'all easy'}</span></span></summary>
+      <div class="acc-body treatment-item">
+        <div style="margin-bottom:8px;"><b>Reading level</b><span>${level} · ${se.avg.toFixed(1)} words per sentence on average · ${se.longCount} sentence(s) over 18 words</span></div>
+        ${se.flagged.slice(0, 12).map(f => `<div class="ret-line warn">⚠ Clip ${f.sc.sceneNumber}: ${escHtml(f.issues.join(' · '))}</div>`).join('')}
+        ${se.flagged.length > 12 ? `<div class="cd">…and ${se.flagged.length - 12} more</div>` : ''}
+        ${se.flagged.length ? `<div class="btn-row" style="margin:8px 0 10px;"><button class="btn btn-regen" onclick="simplifyHardLines()" ${simplifyBusy ? 'disabled' : ''}>${simplifyBusy ? '⏳ Simplifying…' : `✨ Simplify ${Math.min(se.flagged.length, 25)} clip(s)`}</button></div>` : '<div class="ret-line">✓ Every spoken line uses short sentences and everyday words.</div>'}
+        <div class="hint">Checks narration and dialogue of the clips written so far. "Simplify" rewrites only the flagged lines (same meaning, same length) and updates the quoted dialogue inside the video prompt.</div>
+      </div>
+    </details>`;
+  }
+  if(o.monetizeSafe){
+    const mc = monetizeCheck();
+    html += `
+    <details class="acc ${mc.warn.length ? 'acc-char' : 'acc-treatment'}" data-acc="monetize" ${openAttr('monetize', mc.warn.length > 0)}>
+      <summary><span>💰 Monetization check <span class="acc-sub">${mc.warn.length ? `${mc.warn.length} to fix` : 'all good'}</span></span></summary>
+      <div class="acc-body treatment-item">
+        ${mc.warn.map(w => `<div class="ret-line warn">⚠ ${escHtml(w)}</div>`).join('')}
+        ${mc.ok.map(w => `<div class="ret-line">✓ ${escHtml(w)}</div>`).join('')}
+        <div class="btn-row" style="margin:10px 0 6px;"><button class="btn btn-undo" onclick="clearStoryHistory()">🗑 Forget past stories (${mc.past.length})</button></div>
+        <div class="hint">YouTube demonetizes "inauthentic" (mass-produced, repetitive) content and limits ads on videos that aren't advertiser-friendly. This checks uniqueness against your past stories on this browser, original names, repeated clips, risky words, length and AI disclosure. It can't promise approval — YouTube reviews the whole channel — but it catches the common reasons for rejection.</div>
+      </div>
+    </details>`;
+  }
+  return html;
+}
+
+function thumbExtraRules(){
+  const o = storyOptsFromJob();
+  let r = '';
+  if(o.simpleEnglish) r += '\nSimple English: titleIdeas use only everyday words an English learner knows.';
+  if(o.monetizeSafe){
+    const past = pastStories(job && job.jobId).map(s => s.title).filter(Boolean).slice(0, 15);
+    r += `\nAdvertiser-friendly: no blood, gore, injury, weapon pointed at the viewer, nudity or shocking imagery; the image and titles must honestly match the story.${past.length ? ` Never reuse or closely copy these past thumbnail titles: ${past.map(t => `"${t}"`).join(', ')}.` : ''}`;
+  }
+  return r;
+}
+function seoExtraRules(){
+  const o = storyOptsFromJob();
+  let r = '';
+  if(o.simpleEnglish) r += '\n- Simple language: everyday words and short sentences in titles, description and pinned comment.';
+  if(o.monetizeSafe){
+    const past = pastStories(job && job.jobId).map(s => s.title || s.topic).filter(Boolean).slice(0, 15);
+    r += `\n- Advertiser-friendly: no violent, sexual, shocking, profane or drug words anywhere; titles must honestly describe the story (no misleading clickbait).${past.length ? `\n- Each title must be clearly different from past videos on this channel: ${past.map(t => `"${t}"`).join(', ')}.` : ''}`;
+  }
+  return r;
+}
+
+function jobRulesTail(styleName, customStyle, setting, retentionOn, opts){
+  const o = opts || storyOptsFromJob();
   return blockingRule() + styleLockRule(styleName, customStyle) + settingLockRule(setting) + storyCraftRule(setting) +
-    speechModeRule() + visualRegisterRule() + outroRule() + musicThemeRule() + retentionWriteRule(retentionOn);
+    speechModeRule() + visualRegisterRule() + outroRule() + musicThemeRule() + retentionWriteRule(retentionOn) +
+    (o.simpleEnglish ? simpleEnglishRule() : '') + (o.monetizeSafe ? monetizeRule(o.history || [], !!o.brief) : '');
 }
 
 function styleLabelFor(styleName, customStyle){
@@ -2579,8 +2952,9 @@ async function generateScript(){
     const expandMode = getExpandMode();
     const outroOn = !!(document.getElementById('outroCta') && document.getElementById('outroCta').checked);
     const retentionOn = isRetentionFormOn();
+    const storyHist = await loadStoryHistory();
     const planNote = planningRule(targetSceneCount, expandMode, outroOn) + (retentionOn ? retentionPlanRule() : '');
-    const systemPrompt = baseSystemPrompt() + `\nRules: styleBlock.description must reflect the requested character style per RENDER STYLE LOCK below. This is the OPENING batch of a longer video — cover only roughly the first 40-50 seconds as consecutive 8-10 second scenes, starting at 0:00, and make sure this batch covers the "Hook" and the start of "Build". Work in this order: (1) per SOURCE BEAT EXTRACTION, list treatment.sourceBeats as concrete, specific moments from the source material (as retold per ORIGINAL RETELLING below); (2) per PLANNING & EXPANSION RULE below, build treatment.locations and the FULL treatment.outline for the whole video; (3) only then write scenes — for outline rows 1-${BATCH_SIZE} ONLY (fewer if the outline is shorter), one scene per row, each with "outlineRow" set and depicting exactly that row.${planNote} Per HOOK & RETENTION: since this batch includes the Hook, open the very first scene already inside concrete action or an unresolved question pulled from sourceBeats — never a quiet establishing or waking-up moment — and write its logline/narration/dialogue to match: specific, active, no throat-clearing openers. If this is an ad/commercial piece, per ADS / COMMERCIAL STORYBOARD STRUCTURE this batch should open on ORDINARY WORLD with no product visible yet, saving PRODUCT INTRODUCTION for shortly after — otherwise ignore this sentence entirely. Vary shot size and camera movement scene to scene — never repeat the same combination twice in a row. Per VISUAL VARIETY: each scene's imagePrompt must show a visibly different pose/action/framing AND a visibly different specific background/set-dressing detail (a different spot within the one locked location, not the same patch of backdrop repeated) than the scene before it, even with environment and lighting locked — before finalizing, compare each imagePrompt to the one before it and rewrite either if they'd render as near-identical images, backgrounds included. Per ACTION CONTINUITY: each scene's opening action must visibly pick up from exactly where the previous scene's action ended — same body position, same object in hand, same emotional beat continuing — not a jump to an unrelated moment; check this against the previous scene before finalizing each one. Per CROWD & SCENE POPULATION RULE: if this batch's setting inherently implies other people (a city, a competition, a school, a market, a crowd of any kind), populate the imagery with concrete background people, not just the named cast alone in an empty-looking space — and make sure each of those background people is a visually distinct, randomly-generated look, never the named character's own description reused or reworded for someone else in the crowd. Per CHARACTER FACE VISIBILITY RULE: whenever a named character appears in this batch's scenes, keep their face clearly visible and unobstructed in imagePrompt and restate their faceSignature — no back-of-head, silhouette, or face-hidden framing — so the reference-image animation workflow has a consistent face to lock onto. Per EXTENDED SINGLE-ACTION PACING RULE: if this batch depicts one continuous ongoing event (a race, chase, competition, struggle), do not let it sit unchanged for more than 3-4 scenes without a concrete development — introduce one, or compress toward the event's resolution instead of padding it. Keep imagePrompt and videoAudioPrompt concise enough that the whole response fits in the token budget — but this does NOT apply to "dialogue" or "narrationLine": those must always hit their full 20-25 word / 8-10 second length regardless, even if it means fewer scenes in this batch. Never shorten a spoken line just to save tokens. Per LANGUAGE RULE: every field must be in English except "dialogue" and "narrationLine" — even if the source material below is itself written in ${document.getElementById('language').value}, describe it in English; only the spoken lines follow ${document.getElementById('language').value}.` + jobRulesTail(currentStyle, customStyle, setting, retentionOn);
+    const systemPrompt = baseSystemPrompt() + `\nRules: styleBlock.description must reflect the requested character style per RENDER STYLE LOCK below. This is the OPENING batch of a longer video — cover only roughly the first 40-50 seconds as consecutive 8-10 second scenes, starting at 0:00, and make sure this batch covers the "Hook" and the start of "Build". Work in this order: (1) per SOURCE BEAT EXTRACTION, list treatment.sourceBeats as concrete, specific moments from the source material (as retold per ORIGINAL RETELLING below); (2) per PLANNING & EXPANSION RULE below, build treatment.locations and the FULL treatment.outline for the whole video; (3) only then write scenes — for outline rows 1-${BATCH_SIZE} ONLY (fewer if the outline is shorter), one scene per row, each with "outlineRow" set and depicting exactly that row.${planNote} Per HOOK & RETENTION: since this batch includes the Hook, open the very first scene already inside concrete action or an unresolved question pulled from sourceBeats — never a quiet establishing or waking-up moment — and write its logline/narration/dialogue to match: specific, active, no throat-clearing openers. If this is an ad/commercial piece, per ADS / COMMERCIAL STORYBOARD STRUCTURE this batch should open on ORDINARY WORLD with no product visible yet, saving PRODUCT INTRODUCTION for shortly after — otherwise ignore this sentence entirely. Vary shot size and camera movement scene to scene — never repeat the same combination twice in a row. Per VISUAL VARIETY: each scene's imagePrompt must show a visibly different pose/action/framing AND a visibly different specific background/set-dressing detail (a different spot within the one locked location, not the same patch of backdrop repeated) than the scene before it, even with environment and lighting locked — before finalizing, compare each imagePrompt to the one before it and rewrite either if they'd render as near-identical images, backgrounds included. Per ACTION CONTINUITY: each scene's opening action must visibly pick up from exactly where the previous scene's action ended — same body position, same object in hand, same emotional beat continuing — not a jump to an unrelated moment; check this against the previous scene before finalizing each one. Per CROWD & SCENE POPULATION RULE: if this batch's setting inherently implies other people (a city, a competition, a school, a market, a crowd of any kind), populate the imagery with concrete background people, not just the named cast alone in an empty-looking space — and make sure each of those background people is a visually distinct, randomly-generated look, never the named character's own description reused or reworded for someone else in the crowd. Per CHARACTER FACE VISIBILITY RULE: whenever a named character appears in this batch's scenes, keep their face clearly visible and unobstructed in imagePrompt and restate their faceSignature — no back-of-head, silhouette, or face-hidden framing — so the reference-image animation workflow has a consistent face to lock onto. Per EXTENDED SINGLE-ACTION PACING RULE: if this batch depicts one continuous ongoing event (a race, chase, competition, struggle), do not let it sit unchanged for more than 3-4 scenes without a concrete development — introduce one, or compress toward the event's resolution instead of padding it. Keep imagePrompt and videoAudioPrompt concise enough that the whole response fits in the token budget — but this does NOT apply to "dialogue" or "narrationLine": those must always hit their full 20-25 word / 8-10 second length regardless, even if it means fewer scenes in this batch. Never shorten a spoken line just to save tokens. Per LANGUAGE RULE: every field must be in English except "dialogue" and "narrationLine" — even if the source material below is itself written in ${document.getElementById('language').value}, describe it in English; only the spoken lines follow ${document.getElementById('language').value}.` + jobRulesTail(currentStyle, customStyle, setting, retentionOn, Object.assign(storyOptsFromForm(), { history: storyHist }));
 
     const userPrompt = `Source material (a premise to retell originally — rename every character):\n${source}\n\n${totalSeconds ? `Total video length: ${minuteVal} minutes (${totalSeconds}s)` : "Length not specified — treat as a short clip"}\n${topic ? `Retelling angle (secondary — a stylistic twist only, must never override or replace the source material's actual content above): ${topic}` : `No retelling angle given — follow the source material's own story directly, with no reframing.`}\nCharacter / render style: ${styleLabelFor(currentStyle, customStyle)}\nStory setting / cultural context: ${setting || 'Auto — infer one setting from the source and lock it'}\nOutput language for dialogue/narration: ${document.getElementById('language').value}\nScene plan: ${targetSceneCount ? (expandMode === 'strict' ? `source only — up to ~${targetSceneCount} scenes, fewer if the source is thinner` : `exactly ${targetSceneCount} outline rows — expand faithfully if the source is shorter`) : 'as many rows as the source supports'}${retentionOn ? '\nStory doctor: ON — restructure for retention per STORY DOCTOR and return treatment.retentionMap' : ''}`;
 
@@ -2606,6 +2980,8 @@ async function generateScript(){
       totalSeconds: totalSeconds,
       expandMode,
       retentionMode: retentionOn,
+      simpleEnglish: storyOptsFromForm().simpleEnglish,
+      monetizeSafe: storyOptsFromForm().monetizeSafe,
       source, currentTopic: topic
     };
     if(job.treatment){
@@ -2635,6 +3011,7 @@ async function generateScript(){
     job.nameLeaks = findNameLeaks((job.styleBlock && job.styleBlock.characters) || [], source);
     doneMap = {};
     await loadProgress();
+    try{ recordStoryHistory(job); }catch(e){}
     renderResults();
     document.getElementById('formView').style.display = 'none';
     document.getElementById('resultsView').style.display = 'block';
@@ -2683,7 +3060,7 @@ async function continueScript(){
       ? `\nPLAN FOR THIS BATCH — HARD CONSTRAINT: This video was fully planned in treatment.outline during the opening batch. Write EXACTLY ${rows.length} scene(s) — one per outline row listed in the user message ("THIS BATCH'S ROWS"), in order, each with "outlineRow" set to its row number, depicting that row's location, time-of-day, and event. Rows of kind "expansion" are planned, faithful additions to the source — write them with the same craft and specificity as source rows, consistent with the characters, setting, and everything already shown. Use the full outline in the user message to foreshadow what is coming and to pay off what was set up earlier. ANTI-REPETITION: the user message lists every scene ALREADY WRITTEN — never depict, re-stage, or rephrase any of those moments, actions, or lines; if a row looks close to something already written, show the NEXT new development of that moment instead (keeping the row's location and purpose). Narration and dialogue must not reuse ideas, images, or phrasings from earlier lines.${isFinalBatch ? ' This batch contains the final rows of the plan — land the Payoff with real weight and close the video.' : ' End this batch on a small hook that pulls into the next row.'}`
       : `\nLEGACY JOB (no saved outline): Generate the next 3-5 consecutive scenes. The user message lists every scene ALREADY WRITTEN — never depict, re-stage, or rephrase any of those moments, actions, or lines. Each new scene must show a new development, and the story may move to new specific locations within the established setting. If the source has nothing left to show, land the Payoff in this batch; if the previous scene is already the Payoff or an Outro, output {"scenes": []}.${isFinalBatch ? ' This is likely the final batch — land the Payoff.' : ''}`;
 
-    const systemPrompt = baseSystemPrompt() + outputOverride + planNote + `\nRules: This CONTINUES an existing shot list. Vary shot size and camera movement, and don't repeat the immediately preceding scene's combination. Per VISUAL VARIETY: this batch's first new imagePrompt must look clearly different (pose/action/framing, AND background) from the last scene of the previous batch quoted below, and every scene after that must keep differing from the one before it. Per ACTION CONTINUITY: if this batch's first scene stays in the same location as the previous scene, it must pick up exactly where that scene left off (quoted below); if its outline row moves to a new location or time, open with a clear establishing beat that makes the transition read as intentional. Per CROWD & SCENE POPULATION RULE: if the setting inherently implies other people, populate the imagery with concrete, visually distinct background people — never the named character's own description reused. Per CHARACTER FACE VISIBILITY RULE: keep every named character's face clearly visible in imagePrompt and restate their faceSignature. Per EXTENDED SINGLE-ACTION PACING RULE: never let one ongoing event sit unchanged for more than 3-4 scenes. Do not invent new named characters beyond the roster given below. Keep imagePrompt and videoAudioPrompt concise enough that the whole response fits in the token budget — but "dialogue" and "narrationLine" must always hit their full 8-10 second length. Per LANGUAGE RULE: every field must be in English except "dialogue" and "narrationLine", which follow ${lang}.` + jobRulesTail(job.characterStyle, job.customStyle || '', job.setting || '', !!job.retentionMode);
+    const systemPrompt = baseSystemPrompt() + outputOverride + planNote + `\nRules: This CONTINUES an existing shot list. Vary shot size and camera movement, and don't repeat the immediately preceding scene's combination. Per VISUAL VARIETY: this batch's first new imagePrompt must look clearly different (pose/action/framing, AND background) from the last scene of the previous batch quoted below, and every scene after that must keep differing from the one before it. Per ACTION CONTINUITY: if this batch's first scene stays in the same location as the previous scene, it must pick up exactly where that scene left off (quoted below); if its outline row moves to a new location or time, open with a clear establishing beat that makes the transition read as intentional. Per CROWD & SCENE POPULATION RULE: if the setting inherently implies other people, populate the imagery with concrete, visually distinct background people — never the named character's own description reused. Per CHARACTER FACE VISIBILITY RULE: keep every named character's face clearly visible in imagePrompt and restate their faceSignature. Per EXTENDED SINGLE-ACTION PACING RULE: never let one ongoing event sit unchanged for more than 3-4 scenes. Do not invent new named characters beyond the roster given below. Keep imagePrompt and videoAudioPrompt concise enough that the whole response fits in the token budget — but "dialogue" and "narrationLine" must always hit their full 8-10 second length. Per LANGUAGE RULE: every field must be in English except "dialogue" and "narrationLine", which follow ${lang}.` + jobRulesTail(job.characterStyle, job.customStyle || '', job.setting || '', !!job.retentionMode, Object.assign(storyOptsFromJob(), { brief: true }));
 
     const nameChanges = (job.treatment && Array.isArray(job.treatment.nameChanges)) ? job.treatment.nameChanges : [];
     const nameChangesText = nameChanges.length
@@ -2797,6 +3174,7 @@ async function markCopyProgress(n, stage){
 }
 
 async function saveJobToStorage(silent){
+  try{ recordStoryHistory(job); }catch(e){}
   try{
     await window.storage.set(`job:${job.jobId}`, JSON.stringify(job));
 
@@ -3143,7 +3521,7 @@ Title that will be added: "${thumbnailTitle()}"
 
 CURRENT thumbnail prompt (the user did not like the result — make a different one):
 ${job.thumbnail.prompt}`;
-    const res = await callTask('thumbnail', system, user);
+    const res = await callTask('thumbnail', system + thumbExtraRules(), user);
     const out = res && (res.prompt ? res : (res.thumbnail || res));
     if(!out || !out.prompt) throw new Error('The AI returned no thumbnail prompt');
     job.thumbnail._history = (job.thumbnail._history || []).concat([{ prompt: job.thumbnail.prompt, videoPrompt: job.thumbnail.videoPrompt || null }]).slice(-5);
@@ -3680,7 +4058,7 @@ Main characters: ${((job.styleBlock && job.styleBlock.characters) || []).slice(0
 
 Plan (start time — beat — what happens):
 ${rows.map(r => `${fmtChapterTime(r.start)} — ${r.beat} — ${r.summary}`).join('\n')}`;
-    const res = await callTask('seo', system, user);
+    const res = await callTask('seo', system + seoExtraRules(), user);
     if(!res || !Array.isArray(res.titles) || !res.description) throw new Error('The AI returned incomplete details');
     const chapters = (Array.isArray(res.chapters) ? res.chapters : []).filter(c => c && c.time && c.label);
     if(chapters.length && chapters[0].time !== '0:00') chapters.unshift({ time: '0:00', label: chapters[0].label });
@@ -4222,6 +4600,8 @@ function renderResults(){
         <div class="hint">Checks the plan's structure — it can't guarantee watch time, but it catches the things that make viewers leave. If there are warnings, regenerating (or a stronger model) usually fixes them.</div>
       </div>
     </details>` : ''}
+
+    ${renderStoryQualityPanels(openAttr)}
 
     ${voiceList ? `
     <details class="acc" data-acc="voice" ${openAttr('voice', false)}>
