@@ -274,6 +274,18 @@
   .saved-actions{display:flex;gap:6px;flex-shrink:0;}
   .saved-actions button{font-family:'IBM Plex Mono',monospace;font-size:10px;padding:5px 9px;border-radius:4px;cursor:pointer;border:1px solid var(--line);background:none;color:var(--text-dim);}
   .saved-actions button:hover{color:var(--text);}
+  /* Phase 1: save status, save-failed banner, delete undo, import/export */
+  .save-chip{font-family:'IBM Plex Mono',monospace;font-size:10px;padding:4px 8px;border-radius:4px;border:1px solid var(--line);color:var(--text-dim);align-self:center;white-space:nowrap;}
+  .save-chip.ok{color:var(--done);border-color:rgba(123,174,127,.45);}
+  .save-chip.fail{color:var(--err);border-color:var(--err);}
+  .save-banner{position:fixed;left:50%;bottom:20px;transform:translateX(-50%);z-index:1000;background:var(--panel-raised);border:1px solid var(--err);color:var(--text);border-radius:8px;padding:12px 14px;font-size:12px;max-width:560px;width:calc(100% - 32px);box-shadow:0 6px 24px rgba(0,0,0,.45);display:none;line-height:1.5;}
+  .save-banner.show{display:block;}
+  .save-banner.undo{border-color:var(--amber);}
+  .save-banner .sb-actions{display:flex;gap:8px;margin-top:8px;flex-wrap:wrap;}
+  .save-banner button,.saved-tools button{font-family:'IBM Plex Mono',monospace;font-size:11px;padding:6px 10px;border-radius:4px;cursor:pointer;border:1px solid var(--line);background:none;color:var(--text);}
+  .save-banner button.primary{background:var(--amber);color:#1a1405;border-color:var(--amber);}
+  .saved-tools{display:flex;gap:8px;flex-wrap:wrap;margin:4px 0 14px;}
+  .saved-tools button:hover{border-color:var(--amber-dim);}
   .modal-close{width:100%;margin-top:14px;background:none;border:1px solid var(--line);color:var(--text-dim);font-family:'IBM Plex Mono',monospace;font-size:12px;padding:9px;border-radius:5px;cursor:pointer;}
   .empty-note{font-size:12px;color:var(--text-dim);text-align:center;padding:20px 0;}
 
@@ -515,7 +527,10 @@
     </div>
     <div class="results-topbar">
       <button class="back-btn" onclick="backToForm()" style="margin-bottom:0;">← New job</button>
-      <button class="back-btn" onclick="saveJobToStorage()" style="margin-bottom:0;border-color:var(--done);color:var(--done);">💾 Save job</button>
+      <span style="display:flex;gap:8px;align-items:center;">
+        <span id="saveStatus" class="save-chip" title="Auto-save status">Not saved yet</span>
+        <button class="back-btn" onclick="saveJobToStorage()" style="margin-bottom:0;border-color:var(--done);color:var(--done);">💾 Save job</button>
+      </span>
     </div>
     <div class="results-grid">
       <div class="scenes-col" id="scenesCol">
@@ -531,10 +546,19 @@
 </div>
 
 <div class="toast mono" id="toast"></div>
+<div class="save-banner" id="saveBanner" role="alert"><b>⚠ Your latest changes were NOT saved.</b> <span id="saveBannerMsg"></span>
+  <div class="sb-actions"><button class="primary" onclick="exportCurrentJob()">⬇ Export this project</button><button onclick="retrySave()">Try saving again</button><button onclick="hideSaveBanner()">Dismiss</button></div></div>
+<div class="save-banner undo" id="undoBar" role="status"><span id="undoMsg"></span>
+  <div class="sb-actions"><button class="primary" onclick="undoDelete()">↩ Undo</button></div></div>
+<input type="file" id="importFile" accept=".json,application/json" style="display:none" onchange="importProjectFile(this)">
 
 <div class="modal-overlay" id="savedModal">
   <div class="modal-panel">
     <h3>Saved jobs</h3>
+    <div class="saved-tools">
+      <button onclick="document.getElementById('importFile').click()" title="Add a project from an exported .json file as a NEW job — existing jobs are never changed">⬆ Import project</button>
+      <button onclick="exportCurrentJob()" title="Download the project that is open now (everything, including progress) as a .json backup">⬇ Export current project</button>
+    </div>
     <div id="savedList"></div>
     <button class="modal-close" onclick="closeSavedModal()">Close</button>
   </div>
@@ -1406,23 +1430,46 @@ function onPremiumToggle(on){
 }
 const planFallbackWarned = new Set();
 const MODEL_ERR_RE = /\b(400|403|404)\b|model|not found|does not exist|access|permission/i;
+// Errors that are NOT a model problem: temporary (rate limit, server busy,
+// dropped connection) or a bad key. These must never trigger a switch to
+// another model — a 429 message often mentions the model name.
+const NO_FALLBACK_ERR_RE = /\b(401|429|500|502|503|504)\b|rate.?limit|too many requests|overloaded|timed? ?out|timeout|fetch failed|ECONNRESET|quota|incorrect api key|invalid api key|could not reach/i;
+function isModelUnavailableError(msg){
+  msg = String(msg || '');
+  return !NO_FALLBACK_ERR_RE.test(msg) && MODEL_ERR_RE.test(msg);
+}
+// Every model switch is shown to the user (toast once per task + model pair)
+// and listed in the model plan box for the rest of the session.
+const fallbackLog = [];
+function noteFallback(task, from, to, reason){
+  const key = `${task}|${from}|${to}`;
+  const seen = fallbackLog.some(f => f.key === key);
+  if(!seen) fallbackLog.push({ key, task, from, to, reason: String(reason || '').slice(0, 160), at: new Date() });
+  console.warn(`[Generator] Model fallback for "${task}": ${from} → ${to}.`, reason);
+  if(!seen) showToast(`${task}: ${from} isn't available — used ${to} instead`);
+  try{ renderModelPlanBox(); }catch(e){}
+}
 async function callTask(task, systemPrompt, userPrompt){
   if(isPremiumOn() && readApiKey() && !modelCheck) { try{ await runModelCheck(false); }catch(e){} }
   const m = modelForTask(task);
   if(!m) return callGeneration(systemPrompt, userPrompt);
   let lastErr = null;
+  let failedId = null;
   for(const id of m.candidates){
     try{
-      return await callGeneration(systemPrompt, userPrompt, { model: id, effort: m.effort });
+      const out = await callGeneration(systemPrompt, userPrompt, { model: id, effort: m.effort });
+      if(failedId) noteFallback(task, failedId, id, lastErr && lastErr.message);
+      return out;
     }catch(e){
       lastErr = e;
-      if(!MODEL_ERR_RE.test(e.message)) throw e; // a real failure, not a model problem
+      if(!isModelUnavailableError(e.message)) throw e; // a real failure (or temporary), not a model problem
+      if(!failedId) failedId = id;
       console.warn(`[Generator] ${id} unavailable for "${task}":`, e.message);
     }
   }
-  // No GPT-6 ID worked → the picked model.
-  if(!planFallbackWarned.has(m.model)){ showToast(`${m.model} isn't available on this key — used ${getSelectedModel()} instead`); planFallbackWarned.add(m.model); }
-  console.warn('[Generator] Falling back to the picked model:', lastErr && lastErr.message);
+  // No GPT-6 ID worked → the picked model (always announced).
+  planFallbackWarned.add(m.model);
+  noteFallback(task, failedId || m.model, getSelectedModel() || 'the picked model', lastErr && lastErr.message);
   return callGeneration(systemPrompt, userPrompt);
 }
 // Kept for older call sites: "important" = story-level work.
@@ -1439,7 +1486,7 @@ async function repairJsonWithModel(rawText){
       return await callGeneration(system, String(rawText).slice(0, 120000), { model: id || undefined, effort: m.effort, noJsonRepair: true });
     }catch(e){
       console.warn('[Generator] JSON validation failed with', id, e.message);
-      if(!MODEL_ERR_RE.test(e.message)) break;
+      if(!isModelUnavailableError(e.message)) break;
     }
   }
   return null;
@@ -1448,7 +1495,11 @@ function renderModelPlanBox(){
   const box = document.getElementById('modelPlanBox');
   if(!box) return;
   box.style.display = isPremiumOn() ? '' : 'none';
-  box.innerHTML = isPremiumOn() ? renderModelPlanTable() : '';
+  box.innerHTML = isPremiumOn() ? renderModelPlanTable() + renderFallbackLog() : '';
+}
+function renderFallbackLog(){
+  if(!fallbackLog.length) return '';
+  return `<div class="hint" style="color:var(--amber);margin-top:8px;"><b>Model switches this session:</b><br>${fallbackLog.map(f => `• ${escHtml(f.task)}: ${escHtml(f.from)} → ${escHtml(f.to)}${f.reason ? ` — ${escHtml(f.reason)}` : ''}`).join('<br>')}</div>`;
 }
 function famStatus(fam){
   if(modelCheckBusy) return '<span class="mp-st mp-wait">checking…</span>';
@@ -1504,6 +1555,41 @@ function backendHelpText(st){
     ? `Your Backend URL is ${st.url} — a server on this computer that's running an OLD server.js (${st.reason}). Stop it (Ctrl+C in its terminal) and start it again with "node server.js" from the updated folder, or set the Backend URL to your Render address.`
     : `The backend at ${st.url} is running an OLD server.js (${st.reason}). Check that the latest commit is deployed on Render (Dashboard → your service → Events → "Deploy live"), or click "Manual Deploy → Deploy latest commit".`;
 }
+// Retries for TEMPORARY failures only: 429 (rate limit), 500/502/503/504
+// (server busy) and — on the backend path — a dropped connection. At most 2
+// retries (after ~2 s, then ~6 s; longer if the server sends Retry-After,
+// capped at 20 s). Never retries 400/401/403/404, and never after a reply
+// came back successfully, so it cannot duplicate a finished generation.
+const RETRY_DELAYS_MS = [2000, 6000];
+const RETRY_STATUS = new Set([429, 500, 502, 503, 504]);
+function sleepMs(ms){ return new Promise(r => setTimeout(r, ms)); }
+async function fetchWithRetry(label, doFetch, o){
+  const opt = o || {};
+  for(let attempt = 0; ; attempt++){
+    let response = null, netErr = null;
+    try{ response = await doFetch(); }catch(e){ netErr = e; }
+    const canRetry = attempt < RETRY_DELAYS_MS.length;
+    if(netErr){
+      if(!canRetry || !opt.retryNetwork || netErr.name === 'AbortError') throw netErr;
+    }else{
+      if(!RETRY_STATUS.has(response.status) || !canRetry) return response;
+      if(opt.isRetryableBody){
+        const body = await response.clone().text().catch(() => '');
+        if(!opt.isRetryableBody(body, response.status)) return response;
+      }
+    }
+    const ra = response && response.headers && response.headers.get ? (response.headers.get('retry-after') || '') : '';
+    const wait = Math.min(Math.max(/^\d+$/.test(ra.trim()) ? +ra * 1000 : 0, RETRY_DELAYS_MS[attempt]), 20000);
+    const why = netErr ? 'connection dropped' : (response.status === 429 ? 'rate limit (429)' : `server busy (${response.status})`);
+    console.warn(`[Generator] ${label}: ${why} — retry ${attempt + 1}/${RETRY_DELAYS_MS.length} in ${wait / 1000}s`);
+    showToast(`${label}: ${why} — retrying (${attempt + 1}/${RETRY_DELAYS_MS.length}) in ${Math.round(wait / 1000)}s…`);
+    await sleepMs(wait);
+  }
+}
+// "fetch failed" from the backend = an old server.js or a provider timeout:
+// it already has its own message and retrying would just wait again.
+const backendBodyRetryable = body => !/fetch failed/i.test(body);
+
 async function callGeneration(systemPrompt, userPrompt, opts){
   const openaiKey = readApiKey();
   const backendUrl = document.getElementById('backendUrl').value.trim();
@@ -1518,11 +1604,11 @@ async function callGeneration(systemPrompt, userPrompt, opts){
   if(openaiKey && backendUrl){
     let response;
     try{
-      response = await fetch(`${backendBase}/api/generate-script`, {
+      response = await fetchWithRetry('AI request', () => fetch(`${backendBase}/api/generate-script`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ openaiKey, systemPrompt, userPrompt, model: selectedModel, provider, baseUrl: PROVIDERS[provider].base, reasoningEffort: (opts && opts.effort) || null })
-      });
+      }), { retryNetwork: true, isRetryableBody: backendBodyRetryable });
     }catch(networkErr){
       throw new Error(`Could not reach your backend proxy at "${backendBase}/api/generate-script" — make sure it's running (cd backend && node server.js) and the URL is correct.`);
     }
@@ -1541,7 +1627,8 @@ async function callGeneration(systemPrompt, userPrompt, opts){
   }else if(openaiKey){
     let response;
     try{
-      response = await callChatCompletions(PROVIDERS[provider].base, openaiKey, selectedModel, systemPrompt, userPrompt, (opts && opts.effort) || null);
+      // Direct browser calls: a network error is usually CORS (permanent), so only HTTP 429/5xx are retried.
+      response = await fetchWithRetry('AI request', () => callChatCompletions(PROVIDERS[provider].base, openaiKey, selectedModel, systemPrompt, userPrompt, (opts && opts.effort) || null));
     }catch(networkErr){
       throw new Error(`Could not reach ${provider} directly from the browser — this is usually blocked by CORS. Add a backend proxy URL above (cd backend && node server.js, then use http://localhost:3000) to work around it.`);
     }
@@ -1562,7 +1649,7 @@ async function callGeneration(systemPrompt, userPrompt, opts){
   }else{
     let response;
     try{
-      response = await fetch("https://api.anthropic.com/v1/messages", {
+      response = await fetchWithRetry('AI request', () => fetch("https://api.anthropic.com/v1/messages", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -1571,7 +1658,7 @@ async function callGeneration(systemPrompt, userPrompt, opts){
           system: systemPrompt,
           messages: [{ role: "user", content: userPrompt }]
         })
-      });
+      }));
     }catch(networkErr){
       throw new Error(`Could not reach the built-in generator — this free option (no key entered) only works inside Claude.ai's own preview. If you're running this file on your own machine, enter an API key above and a backend proxy URL (cd backend && node server.js, then use http://localhost:3000), then try again.`);
     }
@@ -2170,6 +2257,7 @@ function loopGapsFor(loops, end){
 let retentionFixBusy = false;
 async function fixOpenLoopGaps(){
   if(retentionFixBusy) return;
+  if(busy.has('continue') || busy.has('generate')){ showToast('Wait for scene generation to finish first'); return; }
   const outline = getOutline(), m = getRetentionMap();
   const gaps = findLoopGaps();
   if(!outline || !m || !gaps.length){ showToast('No open-loop gaps to fix'); return; }
@@ -2429,6 +2517,7 @@ async function runPlanGate(opts){
 // Manual button in the Plan quality panel (locks rows already written).
 async function manualPlanGate(){
   if(planGateBusy) return;
+  if(busy.has('continue') || busy.has('generate')){ showToast('Wait for scene generation to finish first'); return; }
   planGateBusy = true;
   renderResults();
   try{
@@ -2707,7 +2796,14 @@ function adRiskScan(){
     if(!text) return;
     // Negative lines ("no blood, no gore") are fine — only scan the positive part.
     const positive = String(text).replace(/\[Negative\][^\n]*/gi, '').replace(/\b(?:no|not|never|without)\s+[\w-]+(?:\s*,\s*(?:no\s+)?[\w-]+)*/gi, ' ');
-    AD_RISK.forEach(r => { const m = positive.match(r.re); if(m) hits.push({ where, word: m[0], label: r.label }); });
+    AD_RISK.forEach(r => {
+      const m = positive.match(r.re);
+      if(!m) return;
+      const base = where.replace(/ (narration|dialogue|image prompt|video prompt)$/, '');
+      const same = hits.find(h => h.base === base && h.word.toLowerCase() === m[0].toLowerCase());
+      if(same){ if(!same.where.includes(where.slice(base.length).trim())) same.where += ' + ' + where.slice(base.length).trim(); }
+      else hits.push({ where, base, word: m[0], label: r.label });
+    });
   });
   return hits;
 }
@@ -2933,11 +3029,16 @@ async function generateScript(){
 
   // The GPT-6 plan needs the updated server.js — an old one fails long
   // requests after 5 minutes with "fetch failed". Check before spending tokens.
+  if(busy.has('generate')) return; // already running — ignore repeat clicks
   if(isPremiumOn() && (document.getElementById('backendUrl').value || '').trim()){
-    const st = await checkBackend(true);
+    busy.add('generate');
+    let st = null;
+    try{ st = await checkBackend(true); }catch(e){ st = null; }finally{ busy.delete('generate'); }
     if(st && !st.ok){ showError(backendHelpText(st)); return; }
   }
-
+  if(busy.has('generate')) return; // a second click arrived during the check
+  busy.add('generate');
+  let planSavedThisRun = false;
   setLoading(true);
   try{
     const totalSeconds = minuteVal ? Math.round(minuteVal * 60) : null;
@@ -2988,6 +3089,12 @@ async function generateScript(){
       job.treatment.outline = normalizeOutline(job.treatment.outline);
     }
     if(!Array.isArray(job.scenes)) job.scenes = [];
+    // Save the plan right away: the plan call is the most expensive step, so
+    // a failure or refresh during the Plan Gate or the first scenes never
+    // loses it. It is saved again after the Plan Gate below.
+    saveState = { ok: null, at: null, error: null };
+    renderSaveChip();
+    planSavedThisRun = await saveJobToStorage(true);
     let gateRan = false;
     if(gateOn && getOutline()){
       job.scenes = []; // scenes are written from the checked plan below
@@ -3030,13 +3137,16 @@ async function generateScript(){
       await continueScript();
     }
   }catch(e){
-    showError('Generation failed: ' + e.message + '. Try trimming the source text or simplifying the topic, then generate again.');
+    showError('Generation failed: ' + e.message + '. Try trimming the source text or simplifying the topic, then generate again.' + (planSavedThisRun ? ' Your story plan WAS saved — open it from "📂 Load saved job" and click "Generate next scenes" to continue without paying for the plan again.' : ''));
   }finally{
+    busy.delete('generate');
     setLoading(false);
   }
 }
 
 async function continueScript(){
+  if(busy.has('continue')){ showToast('Already generating — wait for this batch to finish'); return; }
+  if(planGateBusy || retentionFixBusy){ showToast('Wait for the plan check / fix to finish first'); return; }
   if(isStoryComplete()){
     showToast('This story already reached its planned ending — start a new job instead of generating more.');
     return;
@@ -3044,6 +3154,7 @@ async function continueScript(){
   const btn = document.getElementById('continueBtn');
   btn.disabled = true;
   btn.textContent = 'Generating next scenes…';
+  busy.add('continue');
   try{
     const lang = job.language || document.getElementById('language').value;
     const lastScene = job.scenes[job.scenes.length - 1];
@@ -3099,6 +3210,7 @@ async function continueScript(){
   }catch(e){
     showToast('Could not generate next batch: ' + e.message);
   }finally{
+    busy.delete('continue');
     renderResults();
   }
 }
@@ -3155,7 +3267,7 @@ async function loadProgress(){
   }catch(e){ doneMap = {}; }
 }
 async function saveProgress(){
-  try{ await window.storage.set(storageKey(), JSON.stringify(doneMap)); }catch(e){}
+  try{ await window.storage.set(storageKey(), JSON.stringify(doneMap)); }catch(e){ setSaveState(false, e); }
 }
 async function toggleDone(n){
   // Manual override: always resolves to fully done (green) or cleared.
@@ -3173,9 +3285,185 @@ async function markCopyProgress(n, stage){
   renderResults();
 }
 
+// ---------------------------------------------------------------------------
+// PHASE 1 — reliability & data safety helpers
+// ---------------------------------------------------------------------------
+// Busy guard: an action in this set is running; renderResults() never
+// re-enables its button, and repeat clicks are ignored. Always released in
+// a finally block.
+const busy = new Set();
+
+// Saved-job format version. Jobs saved before this have no schemaVersion
+// (= version 1). migrateJob() upgrades a job IN MEMORY when it is loaded;
+// the stored copy is only rewritten when the job is saved again.
+const SCHEMA_VERSION = 2;
+function migrateJob(j){
+  if(!j || typeof j !== 'object') return j;
+  if(!Array.isArray(j.scenes)) j.scenes = [];
+  if(!j.styleBlock || typeof j.styleBlock !== 'object') j.styleBlock = { characters: [], products: [] };
+  if(!Array.isArray(j.styleBlock.characters)) j.styleBlock.characters = [];
+  if(!Array.isArray(j.styleBlock.products)) j.styleBlock.products = [];
+  return j;
+}
+
+// Save status — reflects the real result of the last save attempt.
+let saveState = { ok: null, at: null, error: null };
+function isQuotaError(e){ return !!e && (e.name === 'QuotaExceededError' || e.code === 22 || e.code === 1014 || /quota|exceeded the|storage is full/i.test(e.message || '')); }
+function setSaveState(ok, err){
+  saveState = { ok: !!ok, at: new Date(), error: err ? (err.message || String(err)) : null };
+  renderSaveChip();
+  if(ok) hideSaveBanner();
+  else showSaveBanner(isQuotaError(err)
+    ? 'Browser storage is full. Export this project to a file now, then delete old jobs in "📂 Load saved job" to free space.'
+    : `Saving failed (${saveState.error}). Export this project to a file so nothing is lost.`);
+}
+function renderSaveChip(){
+  const el = document.getElementById('saveStatus');
+  if(!el) return;
+  el.className = 'save-chip' + (saveState.ok === true ? ' ok' : saveState.ok === false ? ' fail' : '');
+  el.textContent = saveState.ok === true
+    ? (saveState.at ? `✓ Saved ${saveState.at.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}` : '✓ Saved')
+    : saveState.ok === false ? '⚠ Save failed' : 'Not saved yet';
+  el.title = saveState.error ? `Last save failed: ${saveState.error}` : 'Auto-save status';
+}
+function showSaveBanner(msg){
+  const b = document.getElementById('saveBanner');
+  if(!b) return;
+  document.getElementById('saveBannerMsg').textContent = msg;
+  b.classList.add('show');
+}
+function hideSaveBanner(){ const b = document.getElementById('saveBanner'); if(b) b.classList.remove('show'); }
+async function retrySave(){ if(await saveJobToStorage(true)) showToast('Saved'); }
+
+// Export / Import — one .json file holds the complete job + its progress.
+const EXPORT_FORMAT = 'story-generator-project';
+function projectFileName(j){
+  const t = String((j.thumbnail && (j.thumbnail.customTitle || j.thumbnail.textOverlay)) || j.topic || 'story')
+    .replace(/[^\p{L}\p{N}]+/gu, '-').replace(/^-+|-+$/g, '').slice(0, 50) || 'story';
+  return `story-${t}-${new Date().toISOString().slice(0, 10)}.json`;
+}
+function downloadProject(j, progress){
+  const data = { format: EXPORT_FORMAT, formatVersion: 1, appSchemaVersion: SCHEMA_VERSION, exportedAt: new Date().toISOString(), job: j, progress: progress || {} };
+  const blob = new Blob([JSON.stringify(data, null, 1)], { type: 'application/json' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = projectFileName(j);
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+}
+function exportCurrentJob(){
+  if(!job || !job.jobId){ showToast('No project is open — load or generate one first (or use Export next to a saved job)'); return; }
+  downloadProject(job, doneMap);
+  showToast('Project exported — keep the .json file somewhere safe');
+}
+async function exportSavedJob(jobId){
+  try{
+    const r = await window.storage.get(`job:${jobId}`);
+    const j = JSON.parse(r.value);
+    let progress = {};
+    try{ const pr = await window.storage.get(`progress:${jobId}`); progress = JSON.parse(pr.value) || {}; }catch(e){}
+    downloadProject(j, progress);
+    showToast('Project exported');
+  }catch(e){
+    showToast('Could not export: ' + e.message);
+  }
+}
+function validateProjectJob(j){
+  if(!j || typeof j !== 'object' || Array.isArray(j)) return ['it does not contain a project'];
+  const errs = [];
+  if(!Array.isArray(j.scenes)) errs.push('the "scenes" list is missing');
+  else if(j.scenes.some(sc => !sc || typeof sc !== 'object')) errs.push('a scene is damaged');
+  if(j.styleBlock != null && typeof j.styleBlock !== 'object') errs.push('"styleBlock" is damaged');
+  if(j.treatment != null && typeof j.treatment !== 'object') errs.push('"treatment" is damaged');
+  if(!j.treatment && !(Array.isArray(j.scenes) && j.scenes.length) && !j.topic) errs.push('it has no story (no treatment, scenes or topic)');
+  return errs;
+}
+async function importProjectFile(input){
+  const file = input.files && input.files[0];
+  input.value = '';
+  if(!file) return;
+  try{
+    if(file.size > 25 * 1024 * 1024) throw new Error('the file is larger than 25 MB — not a project export');
+    let data;
+    try{ data = JSON.parse(await file.text()); }catch(e){ throw new Error('the file is not valid JSON'); }
+    let j, progress = {};
+    if(data && data.format === EXPORT_FORMAT){
+      j = data.job;
+      if(data.progress && typeof data.progress === 'object' && !Array.isArray(data.progress)) progress = data.progress;
+    }else if(data && data.jobId && Array.isArray(data.scenes)){
+      j = data; // a raw saved job
+    }else{
+      throw new Error('this is not a Story Generator project export');
+    }
+    const errs = validateProjectJob(j);
+    if(errs.length) throw new Error('the project is incomplete: ' + errs.join('; '));
+    j = migrateJob(JSON.parse(JSON.stringify(j)));
+    const title = j.topic || (j.treatment && j.treatment.logline) || 'Untitled story';
+    if(!confirm(`Import "${String(title).slice(0, 80)}" (${j.scenes.length} scenes) as a NEW saved job?\n\nYour existing jobs are not changed.`)) return;
+    const newId = 'job_' + Date.now() + '_imp';
+    j.importedFrom = { jobId: j.jobId || null, file: file.name, at: new Date().toISOString() };
+    j.jobId = newId;
+    j.schemaVersion = SCHEMA_VERSION;
+    try{
+      await window.storage.set(`job:${newId}`, JSON.stringify(j));
+      await window.storage.set(`progress:${newId}`, JSON.stringify(progress));
+      const index = (await getSavedJobsIndex()).filter(it => it.jobId !== newId);
+      index.unshift({ jobId: newId, topic: j.topic || String(title).slice(0, 80), sceneCount: j.scenes.length, savedAt: new Date().toISOString() });
+      await window.storage.set('savedJobsIndex', JSON.stringify(index));
+    }catch(e){
+      // Roll back a half-written import so nothing is left behind.
+      try{ await window.storage.delete(`job:${newId}`); }catch(_){}
+      try{ await window.storage.delete(`progress:${newId}`); }catch(_){}
+      throw new Error(isQuotaError(e) ? 'browser storage is full — delete or export old jobs first' : e.message);
+    }
+    showToast(`Imported "${String(title).slice(0, 40)}" — ${j.scenes.length} scenes`);
+    openSavedModal();
+  }catch(e){
+    showToast('Could not import: ' + e.message);
+  }
+}
+
+// Delete with Undo (10 s). The deleted job + its progress are held in memory.
+let pendingUndo = null;
+function showUndoBar(msg){
+  const b = document.getElementById('undoBar');
+  if(!b) return;
+  document.getElementById('undoMsg').textContent = msg + ' ';
+  b.classList.add('show');
+  clearTimeout(b._timer);
+  b._timer = setTimeout(clearUndo, 10000);
+}
+function clearUndo(){
+  pendingUndo = null;
+  const b = document.getElementById('undoBar');
+  if(b){ b.classList.remove('show'); clearTimeout(b._timer); }
+}
+async function undoDelete(){
+  const u = pendingUndo;
+  if(!u) return;
+  clearUndo();
+  try{
+    if(u.jobValue != null) await window.storage.set(`job:${u.jobId}`, u.jobValue);
+    if(u.progressValue != null) await window.storage.set(`progress:${u.jobId}`, u.progressValue);
+    const index = (await getSavedJobsIndex()).filter(it => it.jobId !== u.jobId);
+    index.splice(Math.max(0, Math.min(u.pos < 0 ? 0 : u.pos, index.length)), 0, u.item);
+    await window.storage.set('savedJobsIndex', JSON.stringify(index));
+    showToast('Job restored');
+    if(document.getElementById('savedModal').classList.contains('open')) openSavedModal();
+  }catch(e){
+    // Storage refused — never lose the job: hand it over as a file instead.
+    try{ if(u.jobValue) downloadProject(JSON.parse(u.jobValue), u.progressValue ? JSON.parse(u.progressValue) : {}); }catch(_){}
+    showToast('Could not restore into storage (' + e.message + ') — the job was downloaded as a .json file instead');
+  }
+}
+
 async function saveJobToStorage(silent){
+  if(!job || !job.jobId) return false;
   try{ recordStoryHistory(job); }catch(e){}
   try{
+    job.schemaVersion = SCHEMA_VERSION;
     await window.storage.set(`job:${job.jobId}`, JSON.stringify(job));
 
     let index = [];
@@ -3188,13 +3476,17 @@ async function saveJobToStorage(silent){
     index.unshift({ jobId: job.jobId, topic: job.topic, sceneCount: job.scenes.length, savedAt: new Date().toISOString() });
     await window.storage.set('savedJobsIndex', JSON.stringify(index));
 
+    setSaveState(true);
     if(!silent) showToast('Job saved — reload it anytime from "Load saved job", no credits used');
+    return true;
   }catch(e){
+    setSaveState(false, e);
     if(silent){
       console.warn('[ScriptGen] Auto-save failed:', e.message);
     }else{
       showToast('Could not save: ' + e.message);
     }
+    return false;
   }
 }
 
@@ -3219,7 +3511,8 @@ async function openSavedModal(){
         </div>
         <div class="saved-actions">
           <button onclick="loadSavedJob('${item.jobId}')">Load</button>
-          <button onclick="deleteSavedJob('${item.jobId}')">Delete</button>
+          <button onclick="exportSavedJob('${item.jobId}')" title="Download this job as a .json backup">Export</button>
+          <button onclick="deleteSavedJob('${item.jobId}')" style="color:var(--err);">Delete</button>
         </div>
       </div>
     `).join('');
@@ -3234,7 +3527,9 @@ async function loadSavedJob(jobId){
   try{
     const res = await window.storage.get(`job:${jobId}`);
     if(!res){ showToast('That saved job could not be found'); return; }
-    job = JSON.parse(res.value);
+    job = migrateJob(JSON.parse(res.value));
+    saveState = { ok: true, at: null, error: null };
+    renderSaveChip();
     accOpenState = {};
     await loadProgress();
     renderResults();
@@ -3248,10 +3543,21 @@ async function loadSavedJob(jobId){
 }
 
 async function deleteSavedJob(jobId){
+  const index = await getSavedJobsIndex();
+  const pos = index.findIndex(it => it.jobId === jobId);
+  const item = pos >= 0 ? index[pos] : { jobId, topic: jobId, sceneCount: 0, savedAt: new Date().toISOString() };
+  if(!confirm(`Delete "${String(item.topic || 'this job').slice(0, 80)}" (${item.sceneCount != null ? item.sceneCount : '?'} scenes)?\n\nYou can undo this for 10 seconds.`)) return;
   try{
+    // Keep a full copy (job + its progress) so Undo can put everything back.
+    let jobValue = null, progressValue = null;
+    try{ const r = await window.storage.get(`job:${jobId}`); jobValue = r ? r.value : null; }catch(e){}
+    try{ const r = await window.storage.get(`progress:${jobId}`); progressValue = r ? r.value : null; }catch(e){}
+    if(pendingUndo) clearUndo(); // an older delete becomes final
     await window.storage.delete(`job:${jobId}`);
-    const index = (await getSavedJobsIndex()).filter(item => item.jobId !== jobId);
-    await window.storage.set('savedJobsIndex', JSON.stringify(index));
+    try{ await window.storage.delete(`progress:${jobId}`); }catch(e){}
+    await window.storage.set('savedJobsIndex', JSON.stringify(index.filter(it => it.jobId !== jobId)));
+    pendingUndo = { jobId, jobValue, progressValue, item, pos };
+    showUndoBar(`Deleted "${String(item.topic || 'job').slice(0, 60)}".`);
     openSavedModal();
   }catch(e){
     showToast('Could not delete: ' + e.message);
@@ -4772,7 +5078,12 @@ function renderResults(){
   // Disable "Generate next scenes" once the story's already reached its ending.
   const continueBtn = document.getElementById('continueBtn');
   if(continueBtn){
-    if(isStoryComplete()){
+    if(busy.has('continue')){
+      continueBtn.disabled = true;
+      continueBtn.textContent = 'Generating next scenes…';
+      continueBtn.style.opacity = '';
+      continueBtn.style.cursor = 'wait';
+    }else if(isStoryComplete()){
       continueBtn.disabled = true;
       continueBtn.textContent = '✓ Story complete — start a new job to continue';
       continueBtn.style.opacity = '0.5';
