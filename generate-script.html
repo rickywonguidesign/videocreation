@@ -286,6 +286,31 @@
   .save-banner button.primary{background:var(--amber);color:#1a1405;border-color:var(--amber);}
   .saved-tools{display:flex;gap:8px;flex-wrap:wrap;margin:4px 0 14px;}
   .saved-tools button:hover{border-color:var(--amber-dim);}
+  /* Phase 2: stage bar, next step, cancel */
+  .stage-bar{position:sticky;top:0;z-index:40;background:var(--bg);display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:6px 0 10px;margin-bottom:12px;border-bottom:1px solid var(--line);flex-shrink:0;}
+  .stage-bar:empty{display:none;}
+  .stage-list{display:flex;align-items:center;gap:4px;flex-wrap:wrap;}
+  .stage{font-family:'IBM Plex Mono',monospace;font-size:10.5px;padding:5px 8px;border-radius:4px;border:1px solid var(--line);color:var(--text-dim);background:none;cursor:pointer;white-space:nowrap;display:inline-flex;align-items:center;gap:5px;}
+  .stage:hover{color:var(--text);border-color:var(--amber-dim);}
+  .stage:focus-visible,.next-btn:focus-visible{outline:2px solid var(--amber);outline-offset:1px;}
+  .stage .st-d{opacity:.75;}
+  .stage.st-done{color:var(--done);border-color:rgba(123,174,127,.45);}
+  .stage.st-run{color:var(--teal);border-color:var(--teal);}
+  .stage.st-run .st-ic{display:inline-block;animation:stspin 1.2s linear infinite;}
+  .stage.st-attn{color:var(--amber);border-color:var(--amber-dim);}
+  .stage.st-partial{color:var(--text);}
+  .stage.st-na{opacity:.55;}
+  @keyframes stspin{to{transform:rotate(360deg);}}
+  .stage-sep{color:var(--line);font-size:12px;}
+  .next-step{margin-left:auto;display:flex;align-items:center;gap:6px;}
+  .ns-cap{font-family:'IBM Plex Mono',monospace;font-size:10px;color:var(--text-dim);text-transform:uppercase;letter-spacing:.06em;}
+  .next-btn{font-family:'IBM Plex Mono',monospace;font-size:11px;padding:6px 11px;border-radius:4px;border:1px solid var(--amber);background:var(--amber);color:#1a1405;cursor:pointer;white-space:nowrap;}
+  .next-btn:disabled{cursor:default;background:none;color:var(--text-dim);border-color:var(--line);}
+  .next-btn.running{color:var(--teal);border-color:var(--teal);}
+  .cancel-gen{font-family:'IBM Plex Mono',monospace;cursor:pointer;background:none;border:1px solid var(--err);color:var(--err);border-radius:6px;}
+  .cancel-gen.cancel-full{width:100%;padding:9px;font-size:12px;margin:-4px 0 12px;}
+  .cancel-gen.cancel-mini{font-size:11px;padding:6px 9px;border-radius:4px;}
+  details.acc,[id^="scene-anchor-"]{scroll-margin-top:64px;}
   .modal-close{width:100%;margin-top:14px;background:none;border:1px solid var(--line);color:var(--text-dim);font-family:'IBM Plex Mono',monospace;font-size:12px;padding:9px;border-radius:5px;cursor:pointer;}
   .empty-note{font-size:12px;color:var(--text-dim);text-align:center;padding:20px 0;}
 
@@ -504,6 +529,7 @@
     <button class="generate-btn" id="genBtn" onclick="generateScript()">
       <span class="spinner"></span><span id="genLabel">Generate script</span>
     </button>
+    <button type="button" class="cancel-gen cancel-full" onclick="cancelGeneration()" style="display:none;margin-top:8px;">✕ Cancel generation</button>
     <div class="err-box" id="errBox"></div>
   </div>
 
@@ -532,11 +558,13 @@
         <button class="back-btn" onclick="saveJobToStorage()" style="margin-bottom:0;border-color:var(--done);color:var(--done);">💾 Save job</button>
       </span>
     </div>
+    <div class="stage-bar" id="stageBar" aria-label="Workflow progress"></div>
     <div class="results-grid">
       <div class="scenes-col" id="scenesCol">
         <div class="col-head"><span>Scenes</span><span class="col-head-right"><span id="sceneCount"></span></span></div>
         <div id="scenesWrap"></div>
         <button class="generate-btn" id="continueBtn" onclick="continueScript()" style="background:var(--teal);color:#08201F;margin-bottom:10px;">Generate next scenes</button>
+        <button type="button" class="cancel-gen cancel-full" onclick="cancelGeneration()" style="display:none">✕ Cancel — keep the scenes already written</button>
       </div>
       <aside class="side-col">
         <div id="charCardWrap"></div>
@@ -1254,10 +1282,11 @@ function parseModelJson(rawText){
 // response_format for models that reject JSON mode.
 // OpenAI Responses API (direct-from-browser path) — for models not served on
 // Chat Completions. Returns the reply text.
-async function callOpenAIResponses(apiKey, model, systemPrompt, userPrompt, effort){
+async function callOpenAIResponses(apiKey, model, systemPrompt, userPrompt, effort, signal){
   let useEffort = !!effort, useJson = true;
   const go = () => fetch('https://api.openai.com/v1/responses', {
     method: 'POST',
+    signal: signal || undefined,
     headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
     body: JSON.stringify(Object.assign({ model, instructions: systemPrompt, input: userPrompt },
       useJson ? { text: { format: { type: 'json_object' } } } : {},
@@ -1276,11 +1305,12 @@ async function callOpenAIResponses(apiKey, model, systemPrompt, userPrompt, effo
   if(d.output_text) return d.output_text;
   return (d.output || []).filter(x => x && x.type === 'message').flatMap(x => x.content || []).filter(c => c && typeof c.text === 'string').map(c => c.text).join('');
 }
-async function callChatCompletions(base, apiKey, model, systemPrompt, userPrompt, effort){
+async function callChatCompletions(base, apiKey, model, systemPrompt, userPrompt, effort, signal){
   const isOpenRouter = /openrouter/.test(base);
   let useEffort = !!effort;
   const doFetch = (useJsonMode) => fetch(`${base}/chat/completions`, {
     method: "POST",
+    signal: signal || undefined,
     headers: { "Content-Type": "application/json", "Authorization": `Bearer ${apiKey}` },
     body: JSON.stringify(Object.assign({
       model,
@@ -1449,19 +1479,22 @@ function noteFallback(task, from, to, reason){
   if(!seen) showToast(`${task}: ${from} isn't available — used ${to} instead`);
   try{ renderModelPlanBox(); }catch(e){}
 }
-async function callTask(task, systemPrompt, userPrompt){
+async function callTask(task, systemPrompt, userPrompt, extra){
+  const signal = (extra && extra.signal) || null;
   if(isPremiumOn() && readApiKey() && !modelCheck) { try{ await runModelCheck(false); }catch(e){} }
+  if(signal && signal.aborted) throw abortError();
   const m = modelForTask(task);
-  if(!m) return callGeneration(systemPrompt, userPrompt);
+  if(!m) return callGeneration(systemPrompt, userPrompt, signal ? { signal } : undefined);
   let lastErr = null;
   let failedId = null;
   for(const id of m.candidates){
     try{
-      const out = await callGeneration(systemPrompt, userPrompt, { model: id, effort: m.effort });
+      const out = await callGeneration(systemPrompt, userPrompt, { model: id, effort: m.effort, signal });
       if(failedId) noteFallback(task, failedId, id, lastErr && lastErr.message);
       return out;
     }catch(e){
       lastErr = e;
+      if(e && (e.name === 'AbortError' || e.truncated)) throw e;
       if(!isModelUnavailableError(e.message)) throw e; // a real failure (or temporary), not a model problem
       if(!failedId) failedId = id;
       console.warn(`[Generator] ${id} unavailable for "${task}":`, e.message);
@@ -1470,22 +1503,23 @@ async function callTask(task, systemPrompt, userPrompt){
   // No GPT-6 ID worked → the picked model (always announced).
   planFallbackWarned.add(m.model);
   noteFallback(task, failedId || m.model, getSelectedModel() || 'the picked model', lastErr && lastErr.message);
-  return callGeneration(systemPrompt, userPrompt);
+  return callGeneration(systemPrompt, userPrompt, signal ? { signal } : undefined);
 }
 // Kept for older call sites: "important" = story-level work.
 function callImportant(systemPrompt, userPrompt){ return callTask('strategy', systemPrompt, userPrompt); }
 // JSON validation step: when a reply can't be parsed, ask Luna (low
 // reasoning) to turn it into valid JSON without changing its content.
-async function repairJsonWithModel(rawText){
+async function repairJsonWithModel(rawText, signal){
   // Luna when the GPT-6 plan is on and Luna is available; otherwise the picked
   // model still gets one chance to fix the JSON before the step fails.
   const m = modelForTask('json') || { candidates: [getSelectedModel()], effort: null };
   const system = 'You fix broken JSON. Return ONLY the same data as valid JSON — same keys, same values, same order. Do not add, remove, summarise or rewrite any content. Remove any text outside the JSON.';
   for(const id of m.candidates){
     try{
-      return await callGeneration(system, String(rawText).slice(0, 120000), { model: id || undefined, effort: m.effort, noJsonRepair: true });
+      return await callGeneration(system, String(rawText).slice(0, 120000), { model: id || undefined, effort: m.effort, noJsonRepair: true, signal });
     }catch(e){
       console.warn('[Generator] JSON validation failed with', id, e.message);
+      if(e && e.name === 'AbortError') throw e;
       if(!isModelUnavailableError(e.message)) break;
     }
   }
@@ -1562,10 +1596,18 @@ function backendHelpText(st){
 // came back successfully, so it cannot duplicate a finished generation.
 const RETRY_DELAYS_MS = [2000, 6000];
 const RETRY_STATUS = new Set([429, 500, 502, 503, 504]);
-function sleepMs(ms){ return new Promise(r => setTimeout(r, ms)); }
+function sleepMs(ms, signal){
+  return new Promise((resolve, reject) => {
+    if(signal && signal.aborted) return reject(abortError());
+    const onAbort = () => { clearTimeout(t); reject(abortError()); };
+    const t = setTimeout(() => { if(signal) signal.removeEventListener('abort', onAbort); resolve(); }, ms);
+    if(signal) signal.addEventListener('abort', onAbort, { once: true });
+  });
+}
 async function fetchWithRetry(label, doFetch, o){
   const opt = o || {};
   for(let attempt = 0; ; attempt++){
+    if(opt.signal && opt.signal.aborted) throw abortError(); // cancelled: no further attempts
     let response = null, netErr = null;
     try{ response = await doFetch(); }catch(e){ netErr = e; }
     const canRetry = attempt < RETRY_DELAYS_MS.length;
@@ -1583,12 +1625,13 @@ async function fetchWithRetry(label, doFetch, o){
     const why = netErr ? 'connection dropped' : (response.status === 429 ? 'rate limit (429)' : `server busy (${response.status})`);
     console.warn(`[Generator] ${label}: ${why} — retry ${attempt + 1}/${RETRY_DELAYS_MS.length} in ${wait / 1000}s`);
     showToast(`${label}: ${why} — retrying (${attempt + 1}/${RETRY_DELAYS_MS.length}) in ${Math.round(wait / 1000)}s…`);
-    await sleepMs(wait);
+    await sleepMs(wait, opt.signal); // Cancel during the wait stops here
   }
 }
 // "fetch failed" from the backend = an old server.js or a provider timeout:
-// it already has its own message and retrying would just wait again.
-const backendBodyRetryable = body => !/fetch failed/i.test(body);
+// it already has its own message and retrying would just wait again. A reply
+// cut off before any text came back would be cut off again, so no retry either.
+const backendBodyRetryable = body => !/fetch failed|cut off|finish reason: (length|incomplete)/i.test(body);
 
 async function callGeneration(systemPrompt, userPrompt, opts){
   const openaiKey = readApiKey();
@@ -1600,16 +1643,20 @@ async function callGeneration(systemPrompt, userPrompt, opts){
   const selectedModel = (opts && opts.model) || getSelectedModel();
   if(openaiKey && !selectedModel) throw new Error('Pick a model, or type a custom model ID');
   let rawText;
+  let finishReason = null; // "stop" | "length" | "incomplete" | "max_tokens" — when the provider says
+  const signal = (opts && opts.signal) || null;
 
   if(openaiKey && backendUrl){
     let response;
     try{
       response = await fetchWithRetry('AI request', () => fetch(`${backendBase}/api/generate-script`, {
         method: "POST",
+        signal,
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ openaiKey, systemPrompt, userPrompt, model: selectedModel, provider, baseUrl: PROVIDERS[provider].base, reasoningEffort: (opts && opts.effort) || null })
-      }), { retryNetwork: true, isRetryableBody: backendBodyRetryable });
+      }), { retryNetwork: true, isRetryableBody: backendBodyRetryable, signal });
     }catch(networkErr){
+      if(networkErr && networkErr.name === 'AbortError') throw networkErr;
       throw new Error(`Could not reach your backend proxy at "${backendBase}/api/generate-script" — make sure it's running (cd backend && node server.js) and the URL is correct.`);
     }
     if(!response.ok){
@@ -1623,20 +1670,22 @@ async function callGeneration(systemPrompt, userPrompt, opts){
     }
     const data = await response.json();
     rawText = data.content;
+    finishReason = data.finishReason || null; // sent by server.js 2026-11-23.1+; older servers omit it
     if(!rawText) throw new Error("No content in backend response");
   }else if(openaiKey){
     let response;
     try{
       // Direct browser calls: a network error is usually CORS (permanent), so only HTTP 429/5xx are retried.
-      response = await fetchWithRetry('AI request', () => callChatCompletions(PROVIDERS[provider].base, openaiKey, selectedModel, systemPrompt, userPrompt, (opts && opts.effort) || null));
+      response = await fetchWithRetry('AI request', () => callChatCompletions(PROVIDERS[provider].base, openaiKey, selectedModel, systemPrompt, userPrompt, (opts && opts.effort) || null, signal), { signal });
     }catch(networkErr){
+      if(networkErr && networkErr.name === 'AbortError') throw networkErr;
       throw new Error(`Could not reach ${provider} directly from the browser — this is usually blocked by CORS. Add a backend proxy URL above (cd backend && node server.js, then use http://localhost:3000) to work around it.`);
     }
     if(!response.ok){
       const errBody = await response.text();
       // A model that's only served on OpenAI's Responses API → use it.
       if(provider === 'openai' && [400, 404].includes(response.status) && /responses api|\/v1\/responses|v1\/chat\/completions|only supported (?:in|with|on)|use the responses/i.test(errBody)){
-        rawText = await callOpenAIResponses(openaiKey, selectedModel, systemPrompt, userPrompt, (opts && opts.effort) || null);
+        rawText = await callOpenAIResponses(openaiKey, selectedModel, systemPrompt, userPrompt, (opts && opts.effort) || null, signal);
       }else{
         throw new Error(`${provider} returned ${response.status} — check your key and model ID. ${errBody.slice(0,120)}`);
       }
@@ -1644,6 +1693,7 @@ async function callGeneration(systemPrompt, userPrompt, opts){
     if(!rawText){
       const data = await response.json();
       rawText = data.choices && data.choices[0] && data.choices[0].message && data.choices[0].message.content;
+      finishReason = (data.choices && data.choices[0] && data.choices[0].finish_reason) || null;
     }
     if(!rawText) throw new Error(`No content in ${provider} response`);
   }else{
@@ -1651,6 +1701,7 @@ async function callGeneration(systemPrompt, userPrompt, opts){
     try{
       response = await fetchWithRetry('AI request', () => fetch("https://api.anthropic.com/v1/messages", {
         method: "POST",
+        signal,
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           model: "claude-sonnet-4-6",
@@ -1658,8 +1709,9 @@ async function callGeneration(systemPrompt, userPrompt, opts){
           system: systemPrompt,
           messages: [{ role: "user", content: userPrompt }]
         })
-      }));
+      }), { signal });
     }catch(networkErr){
+      if(networkErr && networkErr.name === 'AbortError') throw networkErr;
       throw new Error(`Could not reach the built-in generator — this free option (no key entered) only works inside Claude.ai's own preview. If you're running this file on your own machine, enter an API key above and a backend proxy URL (cd backend && node server.js, then use http://localhost:3000), then try again.`);
     }
     if(!response.ok) throw new Error(`API returned ${response.status}`);
@@ -1667,13 +1719,21 @@ async function callGeneration(systemPrompt, userPrompt, opts){
     const textBlock = (data.content || []).find(b => b.type === "text");
     if(!textBlock) throw new Error("No text in response");
     rawText = textBlock.text;
+    finishReason = data.stop_reason || null;
   }
 
   try{
     return parseModelJson(rawText);
   }catch(parseErr){
+    // Cut off at the length limit: report it — never let the JSON repair step
+    // quietly "complete" content that was never written.
+    if(/^(length|max_tokens|max_output_tokens|incomplete)$/i.test(String(finishReason || ''))){
+      const e = new Error(`The AI reply was cut off at its length limit (finish reason: ${finishReason}) — the incomplete part was not used.`);
+      e.truncated = true; e.rawText = rawText; e.finishReason = finishReason;
+      throw e;
+    }
     if(opts && opts.noJsonRepair) throw parseErr;
-    const fixed = await repairJsonWithModel(rawText);
+    const fixed = await repairJsonWithModel(rawText, signal);
     if(fixed) return fixed;
     throw parseErr;
   }
@@ -2428,7 +2488,7 @@ function auditPlanCandidate(cand){
 }
 function clonePlan(o){ return JSON.parse(JSON.stringify(o)); }
 // One focused repair request: the problems + the plan, nothing else.
-async function repairPlanCandidate(cand, warns, lockedUpTo){
+async function repairPlanCandidate(cand, warns, lockedUpTo, signal){
   const N = cand.outline.length;
   const t = job.treatment || {};
   const fmt = r => `${r.row}. [${r.kind} · ${r.beat}] @ ${r.location} (${r.timeOfDay}) — ${r.summary} {purpose: ${r.purpose || '—'}}`;
@@ -2455,7 +2515,7 @@ ${JSON.stringify(cand.retentionMap || {})}
 
 CURRENT PLAN (${N} rows):
 ${cand.outline.map(fmt).join('\n')}`;
-  const res = await callTask('review', system, user);
+  const res = await callTask('review', system, user, { signal });
   const outline = normalizeOutline(res && res.outline);
   if(!outline || outline.length !== N) throw new Error(`repair returned ${outline ? outline.length : 0} rows instead of ${N}`);
   if(lockedUpTo) for(let i = 0; i < lockedUpTo; i++) outline[i] = cand.outline[i];
@@ -2484,7 +2544,8 @@ async function runPlanGate(opts){
     if(!best.audit.warns.length || best.audit.score >= PLAN_GATE_GOOD_ENOUGH) break;
     say(`Repairing the plan — round ${round} (${best.audit.warns.length} problem${best.audit.warns.length > 1 ? 's' : ''})…`);
     try{
-      const cand = await repairPlanCandidate(best.cand, best.audit.warns, lockedUpTo);
+      if(o.signal && o.signal.aborted) throw abortError();
+      const cand = await repairPlanCandidate(best.cand, best.audit.warns, lockedUpTo, o.signal);
       const v = { label: `Repair ${round}`, cand, audit: auditPlanCandidate(cand) };
       versions.push(v);
       // Only a STRICTLY better plan replaces the current best; a round that
@@ -2492,6 +2553,7 @@ async function runPlanGate(opts){
       if(v.audit.score > best.audit.score) best = v;
       else break;
     }catch(e){
+      if(e && e.name === 'AbortError') throw e;
       console.warn('[Generator] Plan repair round failed:', e);
       versions.push({ label: `Repair ${round}`, failed: e.message, audit: { warns: [], score: -1 } });
     }
@@ -3039,7 +3101,11 @@ async function generateScript(){
   if(busy.has('generate')) return; // a second click arrived during the check
   busy.add('generate');
   let planSavedThisRun = false;
+  const genAbort = new AbortController();
+  activeAbort = genAbort;
+  busyLabels.generate = 'Planning the story…';
   setLoading(true);
+  updateCancelButtons();
   try{
     const totalSeconds = minuteVal ? Math.round(minuteVal * 60) : null;
     // A short source story (few concrete beats) told at one scene per beat
@@ -3061,7 +3127,8 @@ async function generateScript(){
 
     const gateOn = isPlanGateOn() && !!targetSceneCount;
     const planFirstNote = gateOn ? `\nPLAN-FIRST OVERRIDE — this wins over any instruction above to write scenes now: return "scenes": [] (an empty array) in THIS response. Put all the effort into sourceBeats, treatment.outline (every row with a real "purpose"), treatment.retentionMap, styleBlock (characters with clearly different-sounding names) and the thumbnail. The plan will be checked and then the scenes are written in a separate step.` : '';
-    const parsedRaw = sanitizeParsedScenes(await callTask('strategy', systemPrompt + planFirstNote, userPrompt));
+    const parsedRaw = sanitizeParsedScenes(await callTask('strategy', systemPrompt + planFirstNote, userPrompt, { signal: genAbort.signal }));
+    if(genAbort.signal.aborted) throw abortError();
     const nameChanges = (parsedRaw.treatment && Array.isArray(parsedRaw.treatment.nameChanges)) ? parsedRaw.treatment.nameChanges : [];
     const parsed = applyNameChanges(parsedRaw, nameChanges);
 
@@ -3100,12 +3167,15 @@ async function generateScript(){
       job.scenes = []; // scenes are written from the checked plan below
       try{
         const label = document.getElementById('genLabel');
-        await runPlanGate({ onStatus: m => { if(label) label.textContent = m; } });
+        busyLabels.generate = 'Checking the plan…';
+        await runPlanGate({ onStatus: m => { if(label) label.textContent = m; busyLabels.generate = m; }, signal: genAbort.signal });
         gateRan = true;
       }catch(e){
+        if(e && e.name === 'AbortError') throw e;
         console.warn('[Generator] Plan gate failed — continuing with the original plan:', e);
       }
     }
+    if(genAbort.signal.aborted) throw abortError();
     const openingRows = getOutline();
     if(openingRows) job.scenes = job.scenes.slice(0, BATCH_SIZE);
     job.scenes.forEach((sc, i) => {
@@ -3134,13 +3204,22 @@ async function generateScript(){
       const label = document.getElementById('genLabel');
       if(label) label.textContent = 'Writing the first scenes…';
       showToast(gateRan ? `Plan checked (${job.treatment.planGate.versions[job.treatment.planGate.picked].score}/100) — writing the first scenes…` : 'Writing the first scenes…');
+      if(activeAbort === genAbort) activeAbort = null; // the scene batch gets its own Cancel
       await continueScript();
     }
   }catch(e){
+    if(e && e.name === 'AbortError'){
+      showError('Cancelled. ' + (planSavedThisRun ? 'Your story plan WAS saved — open it from "📂 Load saved job" to continue from it.' : 'Nothing was saved.') + ' Note: the AI provider may still finish (and bill) the request it had already started.');
+      return;
+    }
     showError('Generation failed: ' + e.message + '. Try trimming the source text or simplifying the topic, then generate again.' + (planSavedThisRun ? ' Your story plan WAS saved — open it from "📂 Load saved job" and click "Generate next scenes" to continue without paying for the plan again.' : ''));
   }finally{
     busy.delete('generate');
+    busyLabels.generate = null;
+    if(activeAbort === genAbort) activeAbort = null;
     setLoading(false);
+    updateCancelButtons();
+    if(job && document.getElementById('resultsView').style.display === 'block') renderStageBar();
   }
 }
 
@@ -3155,13 +3234,28 @@ async function continueScript(){
   btn.disabled = true;
   btn.textContent = 'Generating next scenes…';
   busy.add('continue');
+  const ac = new AbortController();
+  activeAbort = ac;
+  let truncatedSeen = false;
   try{
-    const lang = job.language || document.getElementById('language').value;
-    const lastScene = job.scenes[job.scenes.length - 1];
-    const lastEndSeconds = lastScene ? parseTimeEnd(lastScene.timeRange) : 0;
     const outline = getOutline();
-    const fromRow = lastWrittenRow() + 1;
-    const rows = outline ? outline.filter(r => r.row >= fromRow).slice(0, BATCH_SIZE) : null;
+    // Rows to write: first any gap an earlier batch left, else the next batch.
+    const gapRows = missingWrittenRows();
+    const batchRows = outline
+      ? (gapRows.length ? outline.filter(r => gapRows.includes(r.row)) : outline.filter(r => r.row >= lastWrittenRow() + 1)).slice(0, BATCH_SIZE)
+      : null;
+    busyLabels.continue = batchRows && batchRows.length
+      ? (gapRows.length ? `Writing missing row${batchRows.length > 1 ? 's' : ''} ${batchRows.map(r => r.row).join(', ')}…` : `Writing scenes ${batchRows[0].row}–${batchRows[batchRows.length - 1].row}…`)
+      : 'Writing next scenes…';
+    btn.textContent = busyLabels.continue;
+    updateCancelButtons();
+    renderStageBar();
+    // Writes the given outline rows (or, for an older job without a plan, the
+    // next scenes) and returns the accepted new scenes — nothing is added to the job here.
+    const writeRows = async (rows) => {
+    const lang = job.language || document.getElementById('language').value;
+    const lastScene = previousSceneFor(rows);
+    const lastEndSeconds = lastScene ? parseTimeEnd(lastScene.timeRange) : 0;
     const isFinalBatch = outline ? (rows.length && rows[rows.length - 1].row >= outline.length) : (job.totalSeconds && job.totalSeconds - lastEndSeconds <= 60);
 
     // Only the new scenes are read back, so don't pay for regenerating the rest.
@@ -3186,31 +3280,58 @@ async function continueScript(){
 
     const userPrompt = `Source material (a premise being retold originally):\n${sourceTextForPrompt}\n\n${job.currentTopic ? `Retelling angle (secondary — a stylistic twist only): ${job.currentTopic}` : `No retelling angle given — follow the source material's own story directly.`}\nCharacter / render style: ${styleLabelFor(job.characterStyle, job.customStyle)}\nStory setting / cultural context: ${job.setting || t.setting || 'as established in the opening batch'}\nOutput language for dialogue/narration: ${lang}${nameChangesText}\n\nEstablished look — reuse exactly:\nStyle: ${job.styleBlock.description}\nWorld: ${t.environment || 'infer from earlier scenes'}\nColor grade: ${t.colorGrade || '—'}\nCharacters (do not invent new named characters):\n${job.styleBlock.characters.map(c => `- ${c.name} (${c.role}): ${c.description}${c.faceSignature ? ` FACE: ${c.faceSignature}` : ''}${c.visualTag ? ` VISUAL TAG: ${c.visualTag}` : ''}`).join('\n')}${Array.isArray(job.styleBlock.products) && job.styleBlock.products.length ? `\n\nProducts — reuse these exact descriptions:\n${job.styleBlock.products.map(p => `- ${p.name}: ${p.description}`).join('\n')}` : ''}\n\nSource beats:\n${(t.sourceBeats || []).map((b,i) => `${i+1}. ${b}`).join('\n') || '(none recorded)'}\n${outline ? `\nFULL OUTLINE (the whole video, for foreshadowing and payoff):\n${outline.map(fmtRow).join('\n')}\n\nTHIS BATCH'S ROWS — write exactly these, in order:\n${rows.map(fmtRow).join('\n')}\n` : ''}${retentionBatchNote(rows)}\nALREADY WRITTEN — never repeat any of these moments, actions, or lines:\n${writtenScenesLog() || '(none)'}\n\nThe previous scene ended at ${formatTime(lastEndSeconds)}. Its imagePrompt (your first new imagePrompt must look clearly different):\n"${lastScene ? lastScene.imagePrompt : 'opening of the video'}"\n\nIts action (continue from it if the next row stays in the same place):\n"${lastScene ? lastScene.videoAudioPrompt : 'opening of the video'}"\n${job.totalSeconds ? `\nTotal video length target: ${job.totalSeconds}s.` : ''}`;
 
-    const parsed = applyNameChanges(sanitizeParsedScenes(await callTask('script', systemPrompt, userPrompt)), nameChanges);
+    let raw;
+    try{
+      raw = await callTask('script', systemPrompt, userPrompt, { signal: ac.signal });
+    }catch(e){
+      // Cut off at the length limit: keep only the scenes that arrived COMPLETE.
+      if(!(e && e.truncated)) throw e;
+      truncatedSeen = true;
+      raw = { scenes: salvageCompleteScenes(e.rawText) };
+    }
+    if(ac.signal.aborted) throw abortError(); // a cancelled reply is never used
+    // A null / text / list entry in "scenes" would crash the clean-up below — drop it.
+    if(raw && Array.isArray(raw.scenes)) raw.scenes = raw.scenes.filter(x => x && typeof x === 'object' && !Array.isArray(x));
+    const parsed = applyNameChanges(sanitizeParsedScenes(raw), nameChanges);
     let newScenes = Array.isArray(parsed.scenes) ? parsed.scenes : [];
-    // Pin each new scene to its planned row and location even if the model
-    // forgot to echo them back.
-    if(rows){
-      newScenes = newScenes.slice(0, rows.length);
-      newScenes.forEach((sc, i) => {
-        const r = rows.find(x => x.row === +sc.outlineRow) || rows[i];
-        sc.outlineRow = r.row;
-        if(!sc.location) sc.location = r.location;
-        if(!sc.summary) sc.summary = r.summary;
-        if(!sc.beat) sc.beat = r.beat;
-      });
-    }
-    if(!newScenes.length){
+    // Pin each new scene to its planned row; drop malformed scenes, duplicate
+    // rows and rows that weren't asked for.
+    if(rows) newScenes = acceptRowScenes(newScenes, rows);
+    return newScenes;
+    };
+
+    const rows = batchRows;
+    const newScenes = await writeRows(rows);
+    if(!rows && !newScenes.length){
       showToast('Story already complete — the model found nothing left to depict.');
-      if(!rows) job.legacyComplete = true;
+      job.legacyComplete = true;
     }
-    job.scenes = renumberAndRetime(job.scenes.concat(newScenes));
-    renderResults();
-    if(newScenes.length) await saveJobToStorage(true);
+    let added = mergeNewScenes(newScenes);
+    if(added){ renderResults(); await saveJobToStorage(true); }
+    // Compare the rows asked for with the rows that came back (gaps included);
+    // ONE follow-up request asks for the missing rows only.
+    let missing = rows ? rows.filter(r => !job.scenes.some(s => +s.outlineRow === r.row)) : [];
+    if(missing.length){
+      const list = missing.map(r => r.row).join(', ');
+      busyLabels.continue = `Writing missing row${missing.length > 1 ? 's' : ''} ${list}…`;
+      btn.textContent = busyLabels.continue;
+      renderStageBar();
+      showToast(`${truncatedSeen ? 'The reply was cut off. ' : ''}Row ${list} missing — asking for ${missing.length > 1 ? 'those rows' : 'that row'} only…`);
+      const more = await writeRows(missing);
+      const added2 = mergeNewScenes(more);
+      if(added2){ added += added2; await saveJobToStorage(true); }
+      missing = rows.filter(r => !job.scenes.some(s => +s.outlineRow === r.row));
+    }
+    if(missing.length) showToast(`Still missing row${missing.length > 1 ? 's' : ''} ${missing.map(r => r.row).join(', ')} — click "Write missing row" to try again`);
+    else if(rows && rows.length && !added) showToast('The AI returned no usable scenes for this batch — try again');
   }catch(e){
-    showToast('Could not generate next batch: ' + e.message);
+    if(e && e.name === 'AbortError') showToast('Cancelled — scenes already written are kept. The AI provider may still finish (and bill) the request it had started.');
+    else showToast('Could not generate next batch: ' + e.message);
   }finally{
     busy.delete('continue');
+    busyLabels.continue = null;
+    if(activeAbort === ac) activeAbort = null;
+    updateCancelButtons();
     renderResults();
   }
 }
@@ -3234,7 +3355,7 @@ function isStoryComplete(){
   // With a plan, the video is done exactly when every planned row is written —
   // a "Payoff" label mid-plan no longer stops it early, and nothing past the
   // plan can be generated, so it can't loop back over the ending.
-  if(outline) return lastWrittenRow() >= outline.length;
+  if(outline) return lastWrittenRow() >= outline.length && !missingWrittenRows().length;
   if(job.legacyComplete) return true;
   const lastScene = job.scenes[job.scenes.length - 1];
   const beatIsEnding = /payoff|outro/i.test(lastScene.beat || '');
@@ -3283,6 +3404,266 @@ async function markCopyProgress(n, stage){
   doneMap[n] = stage;
   await saveProgress();
   renderResults();
+}
+
+// ---------------------------------------------------------------------------
+// PHASE 2 — complete batches, cancel, stage bar
+// ---------------------------------------------------------------------------
+// Cancel: the AbortController of the running Generate / Generate-next-scenes
+// operation. Cancel stops THIS PAGE waiting (and any retries); an AI request
+// the provider already received may still finish — and be billed — there.
+let activeAbort = null;
+const busyLabels = { generate: null, continue: null };
+function abortError(){ const e = new Error('Cancelled'); e.name = 'AbortError'; return e; }
+function cancelGeneration(){
+  if(!activeAbort || activeAbort.signal.aborted) return;
+  activeAbort.abort();
+  showToast('Cancelling… scenes already written are kept');
+  updateCancelButtons();
+}
+function updateCancelButtons(){
+  const on = !!(activeAbort && !activeAbort.signal.aborted);
+  document.querySelectorAll('.cancel-gen').forEach(b => { b.style.display = on ? '' : 'none'; });
+}
+
+// A reply cut off at the length limit: pull out only the scene objects that
+// arrived COMPLETE (no AI repair, nothing guessed). A scene cut in half is dropped.
+function salvageCompleteScenes(raw){
+  const s = String(raw || '');
+  const k = s.search(/"scenes"\s*:\s*\[/);
+  if(k < 0) return [];
+  let i = s.indexOf('[', k) + 1;
+  const out = [];
+  while(i < s.length){
+    while(i < s.length && /[\s,]/.test(s[i])) i++;
+    if(s[i] !== '{') break;
+    let depth = 0, inStr = false, esc = false, j = i;
+    for(; j < s.length; j++){
+      const c = s[j];
+      if(inStr){
+        if(esc) esc = false;
+        else if(c === '\\') esc = true;
+        else if(c === '"') inStr = false;
+        continue;
+      }
+      if(c === '"') inStr = true;
+      else if(c === '{') depth++;
+      else if(c === '}'){ depth--; if(depth === 0) break; }
+    }
+    if(j >= s.length) break; // this object was cut off
+    try{ out.push(JSON.parse(s.slice(i, j + 1))); }catch(e){ break; }
+    i = j + 1;
+  }
+  return out;
+}
+
+// Keeps only scenes that belong to the requested rows: drops malformed
+// scenes, duplicates of a row, and rows that weren't asked for. A scene with
+// no row number fills the next free requested row (the old behaviour).
+function acceptRowScenes(list, rows){
+  const want = new Map(rows.map(r => [r.row, r]));
+  const taken = new Set();
+  const out = [];
+  const valid = sc => sc && typeof sc === 'object' && !Array.isArray(sc) &&
+    (String(sc.imagePrompt || '').trim() || String(sc.videoAudioPrompt || '').trim());
+  (list || []).forEach(sc => {
+    if(!valid(sc)) return;
+    const r = +sc.outlineRow;
+    if(want.has(r) && !taken.has(r)){ taken.add(r); out.push(sc); }
+  });
+  (list || []).forEach(sc => {
+    if(!valid(sc) || out.includes(sc) || +sc.outlineRow) return; // has a row → already handled or not requested
+    const free = rows.find(r => !taken.has(r.row));
+    if(!free) return;
+    sc.outlineRow = free.row;
+    taken.add(free.row);
+    out.push(sc);
+  });
+  out.forEach(sc => {
+    const r = want.get(+sc.outlineRow);
+    sc.outlineRow = r.row;
+    if(!sc.location) sc.location = r.location;
+    if(!sc.summary) sc.summary = r.summary;
+    if(!sc.beat) sc.beat = r.beat;
+  });
+  return out.sort((a, b) => a.outlineRow - b.outlineRow);
+}
+
+// Planned rows at or before the last written row that have no scene (a gap).
+function missingWrittenRows(){
+  const o = getOutline();
+  if(!o || !job || !Array.isArray(job.scenes) || !job.scenes.length) return [];
+  const have = new Set(job.scenes.map(s => +s.outlineRow));
+  const last = lastWrittenRow();
+  return o.filter(r => r.row <= last && !have.has(r.row)).map(r => r.row);
+}
+// The scene just before the first requested row (continuity for the prompt).
+function previousSceneFor(rows){
+  const sc = job.scenes || [];
+  if(!rows || !rows.length) return sc[sc.length - 1];
+  const before = sc.filter(s => +s.outlineRow && +s.outlineRow < rows[0].row);
+  return before.length ? before.reduce((a, b) => (+b.outlineRow > +a.outlineRow ? b : a)) : undefined;
+}
+// Adds new scenes to the job without ever replacing a written row. When a gap
+// is filled, scenes are put back in row order and the ✓ progress marks follow
+// their scenes (they are keyed by scene number, which changes).
+function mergeNewScenes(newScenes){
+  if(!newScenes || !newScenes.length) return 0;
+  if(!getOutline()){
+    job.scenes = renumberAndRetime(job.scenes.concat(newScenes));
+    return newScenes.length;
+  }
+  const have = new Set(job.scenes.map(s => +s.outlineRow));
+  const fresh = newScenes.filter(s => !have.has(+s.outlineRow));
+  if(!fresh.length) return 0;
+  const maxRow = job.scenes.reduce((m, s) => Math.max(m, +s.outlineRow || 0), 0);
+  if(fresh.every(s => +s.outlineRow > maxRow)){
+    job.scenes = renumberAndRetime(job.scenes.concat(fresh));
+    return fresh.length;
+  }
+  const byRow = {};
+  job.scenes.forEach(s => { if(doneMap[s.sceneNumber]) byRow[s.outlineRow] = doneMap[s.sceneNumber]; });
+  const all = job.scenes.concat(fresh).sort((a, b) => (+a.outlineRow || 0) - (+b.outlineRow || 0));
+  renumberAndRetime(all);
+  const next = {};
+  all.forEach(s => { if(byRow[s.outlineRow]) next[s.sceneNumber] = byRow[s.outlineRow]; });
+  job.scenes = all;
+  doneMap = next;
+  saveProgress();
+  return fresh.length;
+}
+
+// --- Stage bar & Next step --------------------------------------------------
+// Every status is worked out from data the job already has; nothing new is saved.
+function computeStages(){
+  const outline = getOutline() || [];
+  const N = outline.length;
+  const scenes = job.scenes || [];
+  const gaps = missingWrittenRows();
+  const gen = busy.has('generate'), cont = busy.has('continue');
+  const stages = [];
+  // Plan
+  if(N) stages.push({ key: 'plan', label: 'Plan', status: 'done', detail: `${N} rows` });
+  else if(gen) stages.push({ key: 'plan', label: 'Plan', status: 'run', detail: 'planning' });
+  else stages.push({ key: 'plan', label: 'Plan', status: scenes.length ? 'na' : 'todo', detail: scenes.length ? 'older job' : '' });
+  // Plan check
+  if(!N) stages.push({ key: 'plangate', label: 'Plan check', status: scenes.length ? 'na' : 'todo', detail: '' });
+  else if(planGateBusy || retentionFixBusy) stages.push({ key: 'plangate', label: 'Plan check', status: 'run', detail: 'repairing' });
+  else{
+    const a = auditPlanCandidate({ outline, retentionMap: getRetentionMap(), characters: (job.styleBlock && job.styleBlock.characters) || [] });
+    stages.push(a.warns.length
+      ? { key: 'plangate', label: 'Plan check', status: 'attn', detail: `${a.score}/100 · ${a.warns.length} problem${a.warns.length > 1 ? 's' : ''}`, problems: a.warns.length }
+      : { key: 'plangate', label: 'Plan check', status: 'done', detail: `${a.score}/100` });
+  }
+  // Scenes
+  const covered = N ? new Set(scenes.map(s => +s.outlineRow).filter(r => r >= 1 && r <= N)).size : scenes.length;
+  const total = N || scenes.length;
+  if(cont || (gen && N)) stages.push({ key: 'scenes', label: 'Scenes', status: 'run', detail: `${covered}/${total}` });
+  else if(gaps.length) stages.push({ key: 'scenes', label: 'Scenes', status: 'attn', detail: `row ${gaps.slice(0, 3).join(', ')} missing` });
+  else if(scenes.length && isStoryComplete()) stages.push({ key: 'scenes', label: 'Scenes', status: 'done', detail: `${covered}/${total}` });
+  else stages.push({ key: 'scenes', label: 'Scenes', status: scenes.length ? 'partial' : 'todo', detail: total ? `${covered}/${total}` : '' });
+  // Videos (✓ marks on the scene cards)
+  const vDone = scenes.filter(s => doneMap[s.sceneNumber] === 'done').length;
+  const vAny = scenes.filter(s => doneMap[s.sceneNumber]).length;
+  const scenesComplete = scenes.length && isStoryComplete();
+  if(scenesComplete && vDone === scenes.length) stages.push({ key: 'videos', label: 'Videos', status: 'done', detail: `${vDone}/${scenes.length}` });
+  else stages.push({ key: 'videos', label: 'Videos', status: vAny ? 'partial' : 'todo', detail: scenes.length ? `${vDone}/${total}` : '' });
+  // Thumbnail (the prompt + title — the image itself is made outside this app)
+  const th = job.thumbnail || {};
+  if(regenBusy.has('thumb')) stages.push({ key: 'thumb', label: 'Thumbnail', status: 'run', detail: 'writing' });
+  else if(th.prompt && thumbnailTitle()) stages.push({ key: 'thumb', label: 'Thumbnail', status: 'done', detail: 'prompt ready' });
+  else stages.push({ key: 'thumb', label: 'Thumbnail', status: scenes.length ? 'attn' : 'todo', detail: th.prompt ? 'no title' : 'missing' });
+  // SEO
+  if(typeof ytBusy !== 'undefined' && ytBusy) stages.push({ key: 'seo', label: 'SEO', status: 'run', detail: 'writing' });
+  else stages.push({ key: 'seo', label: 'SEO', status: job.youtubeMeta ? 'done' : 'todo', detail: job.youtubeMeta ? 'ready' : '' });
+  // Upload — done ONLY with a recorded successful upload from this job
+  const ups = Array.isArray(job.youtubeUploads) ? job.youtubeUploads.filter(u => u && u.videoId) : [];
+  const yu = (typeof ytUpload !== 'undefined' && ytUpload) || null;
+  if(yu && yu.phase && !['done', 'error'].includes(yu.phase)) stages.push({ key: 'upload', label: 'Upload', status: 'run', detail: yu.pct != null ? `${Math.round(yu.pct)}%` : 'uploading' });
+  else if(ups.length) stages.push({ key: 'upload', label: 'Upload', status: 'done', detail: `${ups.length} uploaded` });
+  else if(yu && yu.phase === 'error') stages.push({ key: 'upload', label: 'Upload', status: 'attn', detail: 'failed' });
+  else stages.push({ key: 'upload', label: 'Upload', status: 'todo', detail: '' });
+  return stages;
+}
+
+let currentNextStep = null;
+function computeNextStep(stages){
+  const by = k => stages.find(s => s.key === k) || {};
+  if(busy.has('generate')) return { label: busyLabels.generate || 'Planning the story…', running: true };
+  if(busy.has('continue')) return { label: busyLabels.continue || 'Writing scenes…', running: true };
+  if(planGateBusy) return { label: 'Checking & repairing the plan…', running: true };
+  if(retentionFixBusy) return { label: 'Fixing open-loop gaps…', running: true };
+  const outline = getOutline() || [];
+  const scenes = job.scenes || [];
+  const pg = by('plangate');
+  if(outline.length && pg.status === 'attn' && !(job.treatment && job.treatment.planGate) && lastWrittenRow() < outline.length)
+    return { label: `Fix ${pg.problems} plan problem${pg.problems > 1 ? 's' : ''}`, run: () => manualPlanGate(), stage: 'plangate' };
+  const gaps = missingWrittenRows();
+  if(gaps.length) return { label: `Write missing row${gaps.length > 1 ? 's' : ''} ${gaps.slice(0, 5).join(', ')}`, run: () => continueScript(), stage: 'scenes' };
+  if(!scenes.length || !isStoryComplete()){
+    if(!outline.length) return scenes.length ? { label: 'Generate next scenes', run: () => continueScript(), stage: 'scenes' } : { label: 'Generate the script first', disabled: true };
+    const from = lastWrittenRow() + 1, to = Math.min(from + BATCH_SIZE - 1, outline.length);
+    return { label: `Generate next scenes (${from}–${to})`, run: () => continueScript(), stage: 'scenes' };
+  }
+  const noPrompt = scenes.findIndex(s => !String(s.imagePrompt || '').trim() || !String(s.videoAudioPrompt || '').trim());
+  if(noPrompt >= 0) return { label: `Write prompts for clip ${scenes[noPrompt].sceneNumber}`, run: () => regenerateScene(noPrompt), stage: 'scenes' };
+  if(by('thumb').status !== 'done') return { label: 'Open the thumbnail', run: () => goStage('thumb'), stage: 'thumb' };
+  if(!job.youtubeMeta) return { label: 'Generate SEO package', run: () => generateYouTubeMeta(), stage: 'seo' };
+  const nextVid = scenes.find(s => doneMap[s.sceneNumber] !== 'done');
+  if(nextVid) return { label: `Make the video for clip ${nextVid.sceneNumber}`, run: () => scrollToScene(nextVid.sceneNumber), stage: 'videos' };
+  if(by('upload').status !== 'done') return { label: 'Upload & schedule', run: () => goStage('upload'), stage: 'upload' };
+  return { label: 'All done ✓', disabled: true };
+}
+function runNextStep(){
+  const n = currentNextStep;
+  if(!n || n.running || n.disabled || !n.run) return;
+  n.run();
+}
+const STAGE_PANEL = { plan: 'plan', plangate: 'plangate', thumb: 'thumb', seo: 'ytmeta', upload: 'ytupload' };
+function openPanel(acc){
+  const d = document.querySelector(`details[data-acc="${acc}"]`);
+  if(!d){ showToast('That section is not available for this job yet'); return false; }
+  d.open = true;
+  accOpenState[acc] = true;
+  d.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  return true;
+}
+function scrollToScene(n){
+  const card = document.getElementById(`scene-anchor-${n}`);
+  if(!card) return false;
+  card.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  card.classList.add('scene-flash');
+  setTimeout(() => card.classList.remove('scene-flash'), 1600);
+  return true;
+}
+function goStage(key){
+  if(key === 'scenes'){
+    const gaps = missingWrittenRows();
+    const btn = document.getElementById('continueBtn');
+    if((gaps.length || !isStoryComplete()) && btn){ btn.scrollIntoView({ behavior: 'smooth', block: 'center' }); return; }
+    const first = (job.scenes || [])[0];
+    if(first) scrollToScene(first.sceneNumber);
+    return;
+  }
+  if(key === 'videos'){
+    const next = (job.scenes || []).find(s => doneMap[s.sceneNumber] !== 'done') || (job.scenes || [])[0];
+    if(next) scrollToScene(next.sceneNumber); else showToast('No scenes yet');
+    return;
+  }
+  if(STAGE_PANEL[key]) openPanel(STAGE_PANEL[key]);
+}
+const STAGE_ICON = { done: '✓', run: '◌', attn: '!', partial: '◐', todo: '○', na: '–' };
+function renderStageBar(){
+  const bar = document.getElementById('stageBar');
+  if(!bar) return;
+  if(!job){ bar.innerHTML = ''; return; }
+  let stages, next;
+  try{ stages = computeStages(); next = computeNextStep(stages); }
+  catch(e){ console.warn('[Generator] Stage bar:', e); bar.innerHTML = ''; return; }
+  currentNextStep = next;
+  const canCancel = !!(activeAbort && !activeAbort.signal.aborted);
+  bar.innerHTML = `<div class="stage-list" role="list">${stages.map((s, i) => `${i ? '<span class="stage-sep" aria-hidden="true">›</span>' : ''}<button type="button" role="listitem" class="stage st-${s.status}" onclick="goStage('${s.key}')" title="${escHtml(s.label)}: ${escHtml({ done: 'done', run: 'running', attn: 'needs attention', partial: 'in progress', todo: 'not started', na: 'not used for this job' }[s.status])}${s.detail ? ' — ' + escHtml(s.detail) : ''}"><span class="st-ic">${STAGE_ICON[s.status]}</span>${escHtml(s.label)}${s.detail ? `<span class="st-d">${escHtml(s.detail)}</span>` : ''}</button>`).join('')}</div>
+    <div class="next-step"><span class="ns-cap">Next</span><button type="button" class="next-btn ${next.running ? 'running' : ''}" onclick="runNextStep()" ${next.running || next.disabled ? 'disabled' : ''}>${next.running ? '⏳ ' : ''}${escHtml(next.label)}</button>${canCancel ? '<button type="button" class="cancel-gen cancel-mini" onclick="cancelGeneration()">✕ Cancel</button>' : ''}</div>`;
 }
 
 // ---------------------------------------------------------------------------
@@ -3506,8 +3887,8 @@ async function openSavedModal(){
     listEl.innerHTML = index.map(item => `
       <div class="saved-item">
         <div class="saved-info">
-          <b>${item.topic}</b>
-          ${item.sceneCount} scenes · saved ${new Date(item.savedAt).toLocaleDateString()}
+          <b>${escHtml(item.topic || 'Untitled story')}</b>
+          ${escHtml(item.sceneCount)} scenes · saved ${new Date(item.savedAt).toLocaleDateString()}
         </div>
         <div class="saved-actions">
           <button onclick="loadSavedJob('${item.jobId}')">Load</button>
@@ -4846,22 +5227,22 @@ function renderResults(){
   const rMap = getRetentionMap();
 
   side.innerHTML = `
-    ${leaks.length ? `<div class="warn-box">⚠ These character names also appear in your Source: <b>${leaks.join(', ')}</b>. The model may have reused an original name — regenerate, or edit the names before producing.</div>` : ''}
+    ${leaks.length ? `<div class="warn-box">⚠ These character names also appear in your Source: <b>${escHtml(leaks.join(', '))}</b>. The model may have reused an original name — regenerate, or edit the names before producing.</div>` : ''}
 
     ${t.logline ? `
     <details class="acc acc-treatment" data-acc="treatment" ${openAttr('treatment', true)}>
       <summary><span>🎬 Director's treatment</span></summary>
       <div class="acc-body treatment-card">
-        <p class="logline">${t.logline}</p>
+        <p class="logline">${escHtml(t.logline)}</p>
         <div class="treatment-grid">
-          <div class="treatment-item"><b>Tone</b><span>${t.tone || '—'}</span></div>
-          <div class="treatment-item"><b>Color grade</b><span>${t.colorGrade || '—'}</span></div>
-          <div class="treatment-item"><b>Setting</b><span>${t.setting || job.setting || '—'}</span></div>
-          <div class="treatment-item"><b>Environment</b><span>${t.environment || '—'}</span></div>
-          <div class="treatment-item"><b>Time of day</b><span>${t.timeOfDay || '—'}</span></div>
-          ${t.narratorVoice ? `<div class="treatment-item"><b>Narrator voice</b><span>${t.narratorVoice}</span></div>` : ''}
-          ${nameChanges.length ? `<div class="treatment-item"><b>Renamed from source</b><span>${nameChanges.map(n => `${n.original} → ${n.renamed}`).join(' · ')}</span></div>` : ''}
-          <div class="treatment-item"><b>Narrative arc</b><span>${t.narrativeArc || '—'}</span></div>
+          <div class="treatment-item"><b>Tone</b><span>${escHtml(t.tone || '—')}</span></div>
+          <div class="treatment-item"><b>Color grade</b><span>${escHtml(t.colorGrade || '—')}</span></div>
+          <div class="treatment-item"><b>Setting</b><span>${escHtml(t.setting || job.setting || '—')}</span></div>
+          <div class="treatment-item"><b>Environment</b><span>${escHtml(t.environment || '—')}</span></div>
+          <div class="treatment-item"><b>Time of day</b><span>${escHtml(t.timeOfDay || '—')}</span></div>
+          ${t.narratorVoice ? `<div class="treatment-item"><b>Narrator voice</b><span>${escHtml(t.narratorVoice)}</span></div>` : ''}
+          ${nameChanges.length ? `<div class="treatment-item"><b>Renamed from source</b><span>${nameChanges.map(n => `${escHtml(n.original)} → ${escHtml(n.renamed)}`).join(' · ')}</span></div>` : ''}
+          <div class="treatment-item"><b>Narrative arc</b><span>${escHtml(t.narrativeArc || '—')}</span></div>
           ${Number.isFinite(+t.sourceCapacitySeconds) && +t.sourceCapacitySeconds > 0 ? `<div class="treatment-item"><b>Length</b><span>Source alone supports ~${formatTime(Math.round(+t.sourceCapacitySeconds))} · plan is ${planRows.length} scenes (~${formatTime(planRows.length * 9)})${planExpansion ? ` · ${planExpansion} expanded` : ''}</span></div>` : ''}
         </div>
       </div>
@@ -4870,7 +5251,7 @@ function renderResults(){
     ${Array.isArray(t.sourceBeats) && t.sourceBeats.length ? `
     <details class="acc" data-acc="beats" ${openAttr('beats', false)}>
       <summary><span>🧭 Story beats <span class="acc-sub">${t.sourceBeats.length}</span></span></summary>
-      <div class="acc-body treatment-item"><span>${t.sourceBeats.map((b,i) => `${i+1}. ${b}`).join('<br>')}</span></div>
+      <div class="acc-body treatment-item"><span>${t.sourceBeats.map((b,i) => `${i+1}. ${escHtml(b)}`).join('<br>')}</span></div>
     </details>` : ''}
 
     ${planRows.length ? `
@@ -4878,7 +5259,7 @@ function renderResults(){
       <summary><span>🗺️ Scene plan <span class="acc-sub">${Math.min(writtenRow, planRows.length)}/${planRows.length} written · ${planLocations} locations${planExpansion ? ` · ${planExpansion} expanded` : ''}</span></span></summary>
       <div class="acc-body treatment-item">
         ${job.expandMode === 'strict' && job.totalSeconds && planRows.length * 9 < job.totalSeconds - 30 ? `<div class="warn-box">Source-only mode: the source supports ~${formatTime(planRows.length * 9)}, shorter than your ${formatTime(job.totalSeconds)} target. Choose "Expand the story" for a full-length plan.</div>` : ''}
-        ${planRows.map(r => `<div class="plan-row ${r.row <= writtenRow ? 'written' : ''}"><span class="plan-n">${r.row}</span><span class="plan-kind ${r.kind}">${r.kind === 'expansion' ? 'EXP' : r.kind === 'outro' ? 'OUT' : 'SRC'}</span><span><b>${r.location}</b> · ${r.summary}</span></div>`).join('')}
+        ${planRows.map(r => `<div class="plan-row ${r.row <= writtenRow ? 'written' : ''}"><span class="plan-n">${r.row}</span><span class="plan-kind ${r.kind}">${r.kind === 'expansion' ? 'EXP' : r.kind === 'outro' ? 'OUT' : 'SRC'}</span><span><b>${escHtml(r.location)}</b> · ${escHtml(r.summary)}</span></div>`).join('')}
         <div class="hint">SRC = from your source · EXP = planned expansion · OUT = closing outro. Written rows are dimmed.</div>
       </div>
     </details>` : ''}
@@ -4893,16 +5274,16 @@ function renderResults(){
     <details class="acc ${retention.warn.length ? 'acc-char' : 'acc-treatment'}" data-acc="retention" ${openAttr('retention', retention.warn.length > 0)}>
       <summary><span>🎯 Retention check <span class="acc-sub">${retention.warn.length ? `${retention.warn.length} to fix` : 'all good'}</span></span></summary>
       <div class="acc-body treatment-item">
-        ${rMap && rMap.mysteryA ? `<div style="margin-bottom:8px;"><b>Mystery A → B</b><span>${rMap.mysteryA} → ${rMap.mysteryB || '—'}</span></div>` : ''}
-        ${rMap && rMap.secret ? `<div style="margin-bottom:8px;"><b>Secret (hidden until row ${rMap.revealRow || '?'})</b><span>${rMap.secret}</span></div>` : ''}
-        ${rMap && Array.isArray(rMap.plants) && rMap.plants.length ? `<div style="margin-bottom:8px;"><b>Clues</b><span>${rMap.plants.map(p => `row ${p.plantRow} → ${p.payoffRow}: ${p.clue}`).join('<br>')}</span></div>` : ''}
-        ${retention.warn.map(w => `<div class="ret-line warn">⚠ ${w}</div>`).join('')}
+        ${rMap && rMap.mysteryA ? `<div style="margin-bottom:8px;"><b>Mystery A → B</b><span>${escHtml(rMap.mysteryA)} → ${escHtml(rMap.mysteryB || '—')}</span></div>` : ''}
+        ${rMap && rMap.secret ? `<div style="margin-bottom:8px;"><b>Secret (hidden until row ${rMap.revealRow || '?'})</b><span>${escHtml(rMap.secret)}</span></div>` : ''}
+        ${rMap && Array.isArray(rMap.plants) && rMap.plants.length ? `<div style="margin-bottom:8px;"><b>Clues</b><span>${rMap.plants.map(p => `row ${escHtml(p.plantRow)} → ${escHtml(p.payoffRow)}: ${escHtml(p.clue)}`).join('<br>')}</span></div>` : ''}
+        ${retention.warn.map(w => `<div class="ret-line warn">⚠ ${escHtml(w)}</div>`).join('')}
         ${findLoopGaps().length || (job.treatment && job.treatment._retentionUndo) ? `<div class="btn-row" style="margin:8px 0 10px;">
           ${findLoopGaps().length ? `<button class="btn btn-regen" title="Adds a new curiosity hook in the middle of each long gap — only for rows not written yet" onclick="fixOpenLoopGaps()" ${retentionFixBusy ? 'disabled' : ''}>${retentionFixBusy ? '⏳ Fixing…' : '✨ Fix open-loop gaps'}</button>` : ''}
           ${job.treatment && job.treatment._retentionUndo ? `<button class="btn btn-undo" onclick="undoRetentionFix()">↩ Undo</button>` : ''}
         </div>` : ''}
-        ${rMap && rMap.openLoopNotes && Object.keys(rMap.openLoopNotes).length ? `<div style="margin-bottom:8px;"><b>Added hooks</b><span>${Object.entries(rMap.openLoopNotes).map(([r, q]) => `row ${r}: ${q}`).join('<br>')}</span></div>` : ''}
-        ${retention.ok.map(o => `<div class="ret-line">✓ ${o}</div>`).join('')}
+        ${rMap && rMap.openLoopNotes && Object.keys(rMap.openLoopNotes).length ? `<div style="margin-bottom:8px;"><b>Added hooks</b><span>${Object.entries(rMap.openLoopNotes).map(([r, q]) => `row ${escHtml(r)}: ${escHtml(q)}`).join('<br>')}</span></div>` : ''}
+        ${retention.ok.map(o => `<div class="ret-line">✓ ${escHtml(o)}</div>`).join('')}
         <div class="hint">Checks the plan's structure — it can't guarantee watch time, but it catches the things that make viewers leave. If there are warnings, regenerating (or a stronger model) usually fixes them.</div>
       </div>
     </details>` : ''}
@@ -4982,15 +5363,15 @@ function renderResults(){
     ${characters.length ? `<div class="acc-group-label">Characters · ${characters.length}</div>` : ''}
     ${characters.map((c, i) => `
     <details class="acc acc-char" data-acc="char-${i}" ${openAttr('char-' + i, false)}>
-      <summary><span>👤 ${c.name}<span class="acc-sub">${c.role || ''}</span>${c.referenceId ? `<span class="ref-id-badge">🆔 ${c.referenceId}</span>` : `<span class="ref-id-badge missing">no photo ID</span>`}</span></summary>
+      <summary><span>👤 ${escHtml(c.name)}<span class="acc-sub">${escHtml(c.role || '')}</span>${c.referenceId ? `<span class="ref-id-badge">🆔 ${escHtml(c.referenceId)}</span>` : `<span class="ref-id-badge missing">no photo ID</span>`}</span></summary>
       <div class="acc-body char-card">
-        <div class="cd">${c.description}</div>
-        <div class="cd" style="margin-top:8px;"><b>Called in video prompts:</b> ${c.visualTag || fallbackVisualTag(c)}</div>
-        ${c.faceSignature ? `<div class="cd" style="margin-top:8px;"><b>Face signature:</b> ${c.faceSignature}</div>` : ''}
-        ${Array.isArray(c.actionPoses) && c.actionPoses.length ? `<div class="cd" style="margin-top:8px;"><b>Sheet poses:</b> ${c.actionPoses.join(' · ')}</div>` : ''}
+        <div class="cd">${escHtml(c.description)}</div>
+        <div class="cd" style="margin-top:8px;"><b>Called in video prompts:</b> ${escHtml(c.visualTag || fallbackVisualTag(c))}</div>
+        ${c.faceSignature ? `<div class="cd" style="margin-top:8px;"><b>Face signature:</b> ${escHtml(c.faceSignature)}</div>` : ''}
+        ${Array.isArray(c.actionPoses) && c.actionPoses.length ? `<div class="cd" style="margin-top:8px;"><b>Sheet poses:</b> ${escHtml(c.actionPoses.join(' · '))}</div>` : ''}
         <div class="ref-id-field">
           <label for="refId-${i}"><b>VideoExpress reference photo ID</b> <span>(the image's data-ident in the Reference Photo library)</span></label>
-          <input type="text" id="refId-${i}" inputmode="numeric" placeholder="e.g. 46129371" value="${c.referenceId || ''}" onchange="setCharacterReferenceId(${i}, this.value)">
+          <input type="text" id="refId-${i}" inputmode="numeric" placeholder="e.g. 46129371" value="${escHtml(c.referenceId || '')}" onchange="setCharacterReferenceId(${i}, this.value)">
         </div>
         <div class="btn-row" style="margin-top:12px;">
           <button class="btn btn-video" onclick="copyCharacter(${i})">Copy Character Sheet</button>
@@ -5030,7 +5411,7 @@ function renderResults(){
             <div class="scene-tc mono">${scene.timeRange} · ${scene.durationSeconds}s</div>
           </div>
           <div>
-            <span class="beat-pill">${scene.beat || ''}</span>
+            <span class="beat-pill">${escHtml(scene.beat || '')}</span>
             ${scene.narrationLine ? `<span class="speech-badge narration">🎙️ Narration</span>` : ''}
             ${scene.dialogue ? `<span class="speech-badge dialogue">💬 Dialogue</span>` : ''}
             ${planRows.length && (planRows.find(r => r.row === +scene.outlineRow) || {}).kind === 'expansion' ? `<span class="speech-badge narration">＋ Expansion</span>` : ''}
@@ -5038,16 +5419,16 @@ function renderResults(){
         </div>
         <div class="scene-body">
           ${repeats[scene.sceneNumber] ? `<div class="warn-box">⚠ Looks similar to scene ${repeats[scene.sceneNumber]} — consider editing or skipping it.</div>` : ''}
-          ${scene.location || scene.summary ? `<div class="scene-extra"><span class="ex-item">📍 <b>${scene.location || '—'}</b></span>${scene.summary ? `<span class="ex-item">${scene.summary}</span>` : ''}</div>` : ''}
+          ${scene.location || scene.summary ? `<div class="scene-extra"><span class="ex-item">📍 <b>${escHtml(scene.location || '—')}</b></span>${scene.summary ? `<span class="ex-item">${escHtml(scene.summary)}</span>` : ''}</div>` : ''}
           <div class="scene-extra">
             ${buildCharacterPicker(scene)}
           </div>
           <div class="scene-extra">
-            <span class="ex-item"><b>${scene.shotType}</b></span><span class="ex-sep"> · </span><span class="ex-item">${scene.cameraMovement}</span><span class="ex-sep"> · </span><span class="ex-item">${scene.lens || ''}</span><span class="ex-sep"> · </span><span class="ex-item">${scene.lighting}</span>
+            <span class="ex-item"><b>${escHtml(scene.shotType)}</b></span><span class="ex-sep"> · </span><span class="ex-item">${escHtml(scene.cameraMovement)}</span><span class="ex-sep"> · </span><span class="ex-item">${escHtml(scene.lens || '')}</span><span class="ex-sep"> · </span><span class="ex-item">${escHtml(scene.lighting)}</span>
           </div>
 
           <div class="line-label">Image Prompt (starting frame)</div>
-          <div class="prompt-box">${fullImagePrompt(scene)}</div>
+          <div class="prompt-box">${escHtml(fullImagePrompt(scene))}</div>
           <div class="btn-row" style="margin-bottom:14px;">
             <button class="btn btn-video" onclick='copyImagePrompt(job.scenes[${idx}])'>Copy Image Prompt</button>
             <button class="btn btn-regen" title="Write a different image + video prompt for this scene only" onclick="regenerateScene(${idx})" ${regenBusy.has('scene-' + scene.sceneNumber) ? 'disabled' : ''}>${regenBusy.has('scene-' + scene.sceneNumber) ? '⏳ Generating…' : '↻ Generate again'}</button>
@@ -5055,15 +5436,15 @@ function renderResults(){
           </div>
 
           <div class="line-label">Video and Audio Prompt (motion + sound)</div>
-          <div class="prompt-box">${fullVideoAudioPrompt(scene)}</div>
+          <div class="prompt-box">${escHtml(fullVideoAudioPrompt(scene))}</div>
           <div class="btn-row">
             <button class="btn btn-video" onclick='copyVideoAudioPrompt(job.scenes[${idx}])'>Copy Video/Audio Prompt</button>
           </div>
 
-          ${line ? `<div class="line-label" style="margin-top:12px;">${scene.dialogue?'Dialogue':'Narration'} (for CloneVoice) · <span style="color:var(--teal);text-transform:capitalize;">${scene.emotionStyle || 'default'}</span></div><p class="quote">"${line}"</p>` : ''}
+          ${line ? `<div class="line-label" style="margin-top:12px;">${scene.dialogue?'Dialogue':'Narration'} (for CloneVoice) · <span style="color:var(--teal);text-transform:capitalize;">${escHtml(scene.emotionStyle || 'default')}</span></div><p class="quote">"${escHtml(line)}"</p>` : ''}
           <div class="scene-extra">
-            <span class="ex-item">🎬 <b>Cut:</b> ${scene.transitionOut || '—'}</span>
-            <span class="ex-item">🔊 <b>Sound:</b> ${scene.soundCue || '—'}</span>
+            <span class="ex-item">🎬 <b>Cut:</b> ${escHtml(scene.transitionOut || '—')}</span>
+            <span class="ex-item">🔊 <b>Sound:</b> ${escHtml(scene.soundCue || '—')}</span>
           </div>
           <div class="btn-row">
             <button class="btn btn-video" onclick='copyAllForAutomation(job.scenes[${idx}])' style="background:var(--done);color:#0A1F0D;">⚡ Copy All → VideoExpress</button>
@@ -5080,7 +5461,7 @@ function renderResults(){
   if(continueBtn){
     if(busy.has('continue')){
       continueBtn.disabled = true;
-      continueBtn.textContent = 'Generating next scenes…';
+      continueBtn.textContent = busyLabels.continue || 'Generating next scenes…';
       continueBtn.style.opacity = '';
       continueBtn.style.cursor = 'wait';
     }else if(isStoryComplete()){
@@ -5091,12 +5472,17 @@ function renderResults(){
     }else{
       continueBtn.disabled = false;
       const nextFrom = writtenRow + 1;
-      continueBtn.textContent = planRows.length
+      const gapRowsNow = missingWrittenRows();
+      continueBtn.textContent = gapRowsNow.length
+        ? `Write missing row${gapRowsNow.length > 1 ? 's' : ''} ${gapRowsNow.slice(0, BATCH_SIZE).join(', ')}`
+        : planRows.length
         ? `Generate next scenes (${nextFrom}–${Math.min(nextFrom + BATCH_SIZE - 1, planRows.length)} of ${planRows.length})`
         : 'Generate next scenes';
       continueBtn.style.opacity = '';
       continueBtn.style.cursor = '';
     }
   }
+  renderStageBar();
+  updateCancelButtons();
 }
 </script>

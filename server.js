@@ -114,8 +114,9 @@ async function callChat({ provider, key, model, systemPrompt, userPrompt, effort
     if (!response.ok) return { ok: false, status: response.status, errText: await response.text(), usedEffort: useEffort };
     const data = await response.json();
     const content = data.choices?.[0]?.message?.content;
+    const finishReason = data.choices?.[0]?.finish_reason || null; // "stop" | "length" | …
     const u = data.usage || {};
-    return { ok: true, content, model: data.model || model, usage: { input: u.prompt_tokens, output: u.completion_tokens }, usedEffort: useEffort, api: 'chat' };
+    return { ok: true, content, finishReason, model: data.model || model, usage: { input: u.prompt_tokens, output: u.completion_tokens }, usedEffort: useEffort, api: 'chat' };
 }
 
 // Responses API — used when an OpenAI model (e.g. some GPT-6 models) is only
@@ -152,7 +153,9 @@ async function callResponses({ provider, key, model, systemPrompt, userPrompt, e
             .join('');
     }
     const u = data.usage || {};
-    return { ok: true, content, model: data.model || model, usage: { input: u.input_tokens, output: u.output_tokens }, usedEffort: useEffort, api: 'responses' };
+    // Responses API: status "incomplete" (+ incomplete_details.reason) = cut off.
+    const finishReason = data.status === 'incomplete' ? 'incomplete' : (data.status === 'completed' ? 'stop' : (data.status || null));
+    return { ok: true, content, finishReason, incompleteReason: data.incomplete_details?.reason || null, model: data.model || model, usage: { input: u.input_tokens, output: u.output_tokens }, usedEffort: useEffort, api: 'responses' };
 }
 
 const NEEDS_RESPONSES_RE = /responses api|\/v1\/responses|v1\/chat\/completions|not supported (?:in|with|on) (?:the )?chat|only supported (?:in|with|on)|use the responses/i;
@@ -193,14 +196,20 @@ app.post('/api/generate-script', async (req, res) => {
         if (!result.ok) {
             return res.status(result.status).json({ error: `${provider} error: ${String(result.errText || '').slice(0, 300)}` });
         }
-        if (!result.content) return res.status(502).json({ error: `No content in ${provider} response` });
+        if (!result.content) {
+            if (/^(length|incomplete)$/.test(result.finishReason || '')) {
+                return res.status(502).json({ error: `${provider} reply was cut off (finish reason: ${result.finishReason}${result.incompleteReason ? `, ${result.incompleteReason}` : ''}) before any text came back — the request is too large for this model's output limit.`, finishReason: result.finishReason });
+            }
+            return res.status(502).json({ error: `No content in ${provider} response` });
+        }
 
         // Token usage in the terminal helps compare cost between models.
         const u = result.usage || {};
         const effortNote = result.usedEffort && EFFORTS.has(reasoningEffort) ? ` (${reasoningEffort})` : '';
         console.log(`[${new Date().toISOString()}] ${provider}/${chosenModel}${effortNote} via ${result.api} ${Date.now() - started}ms · in ${u.input ?? '?'} / out ${u.output ?? '?'} tokens`);
 
-        res.json({ content: result.content, model: result.model, api: result.api, usage: u });
+        // finishReason is an extra field — older pages simply ignore it.
+        res.json({ content: result.content, model: result.model, api: result.api, usage: u, finishReason: result.finishReason || null });
     } catch (err) {
         const detail = [err.message, err.code, err.cause && (err.cause.code || err.cause.message)].filter(Boolean).join(' / ');
         console.error(`[${new Date().toISOString()}] ${provider}/${chosenModel} request failed: ${detail}`);
@@ -227,9 +236,9 @@ app.post('/api/models', async (req, res) => {
 
 // Lets the page confirm it's talking to THIS version of the server (an old
 // deploy still running is the usual reason a fix "doesn't work").
-const SERVER_VERSION = '2026-11-01.2';
+const SERVER_VERSION = '2026-11-23.1';
 app.get('/api/health', cors({ origin: '*' }), (req, res) => {
-    res.json({ ok: true, version: SERVER_VERSION, aiTimeoutMinutes: AI_TIMEOUT_MS / 60000, features: ['models', 'responses-fallback', 'reasoning-effort', 'long-timeout'] });
+    res.json({ ok: true, version: SERVER_VERSION, aiTimeoutMinutes: AI_TIMEOUT_MS / 60000, features: ['models', 'responses-fallback', 'reasoning-effort', 'long-timeout', 'finish-reason'] });
 });
 
 const PORT = process.env.PORT || 3000;
