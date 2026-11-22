@@ -1884,7 +1884,10 @@ Output ONLY raw JSON, no markdown fences, no preamble. Schema:
   },
   "thumbnail": {
     "prompt": string (a single flowing image-generation prompt for this video's YouTube thumbnail — a deliberately composed, maximally clickable STILL IMAGE, not a copy of any individual scene's imagePrompt. Center it on whichever single moment, expression, or object from across the WHOLE story (per treatment.sourceBeats, chosen after seeing the whole story, not just the Hook) would make someone stop scrolling — usually an exaggerated but genuine emotional expression on a character's face, read from a close or medium-close distance, or per SUBJECT RULE a striking object/moment if the story is genuinely non-human-centric. Pull the exact character/product description straight from styleBlock so it renders as the same character/product as the rest of the video, and keep the render style, color grade, and overall art direction consistent with styleBlock.description and treatment.colorGrade — but push contrast, saturation, and framing harder than a normal scene would, the way real high-performing thumbnails do: punchy high-contrast lighting, one clear focal point, and deliberate negative space (a relatively clean, uncluttered area, usually to one side or along the top) left open for the title banner. Do NOT write the title words yourself and do NOT say "no text" — the app appends the exact title-banner instruction using "textOverlay". Compose it as a CINEMATIC STORY MOMENT, not a portrait: a medium or medium-wide shot (waist-up, never a big-head close-up) of the single most loaded moment of the story, caught mid-action. Three layers that together TELL a story at a glance: (1) FOREGROUND — the ONE key story object, large, sharp and glowing/rim-lit (the coin, the key, the glove…); (2) MIDDLE — the main character in the act that creates the mystery (choosing, hiding, reaching, refusing), filling about a third of the frame on the right, with a specific strong emotion (sly secret smile, defiant calm, fear, shock) — not a neutral face; (3) BACKGROUND — the opposing force reacting (the king, the accuser, a laughing or gasping crowd, a looming guard), in focus enough to read. Something must look WRONG or UNEXPLAINED in the frame (he picks the smaller coin while the gold glows; everyone stares at him while he smiles) so the viewer needs the video to understand it. Real cinematic lighting with depth and atmosphere (torchlight, god rays, haze), dramatic angle, the location of the story clearly visible. The title goes top-left, so keep that area calm. Never a plain face portrait with an empty or blurred background — a thumbnail must show WHAT IS HAPPENING, WHO is against whom, and WHERE. Keep the whole prompt under about 110 words and describe the character's face ONCE (no separate face-signature restatement — the app supplies the reference image). End the prompt with ", 16:9 landscape composition, YouTube thumbnail" to lock the aspect ratio and intent.),
-    "textOverlay": string (2-5 word thumbnail title, ALL CAPS, in English regardless of the dialogue/narration language (it's a design element, not one of the LANGUAGE RULE's two exceptions). It must open a CURIOSITY GAP around the story's secret WITHOUT giving the answer — the viewer should feel "wait, why?" and only the video answers it. Use one of these proven shapes, made specific to THIS story's key object or act: a contradiction ("HE CHOSE SILVER. AGAIN."), a hidden plan ("HIS PLAN WAS GENIUS"), an unexplained number ("1 COIN. 1,000 DAYS."), a reversal of who's fooled ("WHO'S THE FOOL NOW?"), or a forbidden/secret hint ("THE KING NEVER KNEW"). Never state the twist itself, never a generic label like "AMAZING STORY", never a full sentence, no hashtags or emojis. Avoid the lazy "WHY …?" shape — a bold claim or contradiction ("HE CHOSE WRONG. ON PURPOSE.") pulls harder than a question. Must add something the image alone doesn't say.),
+    "textOverlay": string (the thumbnail TITLE, 2-5 words, English, Title Case. For moral / motivational story videos, the title that gets clicked PROMISES THE LIFE LESSON TO THE VIEWER — something they want for their own life — not a plot detail only someone who watched would understand. It must make sense to a stranger who knows nothing about the story, connect to this story's real lesson, and never spoil the twist. Use one of these proven shapes: an imperative piece of advice ("Stop Explaining Yourself", "Just Do It Alone"); "The ___ Secret" / "The Art of ___" ("The 5 AM Secret", "The Art of Silence"); a two-word transformation pair written with " / " ("Broken / Reborn", "Fear / Power"); an urgent warning to the viewer ("You Are Running Out"); a short principle ("Power in Silence"). Never a plot-only line like "He Chose Silver Again", never a plain "Why…?" question, no hashtags or emojis.),
+    "textHighlight": string (the ONE word of textOverlay that carries the meaning and is printed in a contrasting golden-yellow, e.g. "Alone", "Silence", "Secret", "Yourself"; for a " / " pair, the second word),
+    "subtitle": string (a small second line under the title, 2-5 words, e.g. "a short story…", "A Life-Changing Story", "a powerful lesson"; may be empty),
+    "titleIdeas": array of 3 objects { "text": string, "highlight": string, "subtitle": string } (three alternative titles in DIFFERENT shapes from the list above, so the user can pick or A/B test),
     "videoPrompt": string (a short image-to-video prompt that ANIMATES this exact thumbnail image as a 5-6 second eye-catching intro shot: start from the thumbnail frame exactly; the main character's ONE small, expressive motion that sells the thumbnail's emotion (a slow look-up, a widening of the eyes, a held breath, a tightening grip on the key object), a subtle light or particle movement on the key object, the background softly alive (dust motes, drifting haze, flickering torchlight — whatever fits the setting), and a slow push-in camera. The character does not speak. Name the character only by visible look, never by name. Mention that the title banner text stays perfectly still and sharp. Same render style as styleBlock.description. Concrete ambient sound only, never music.)
   },
   "scenes": [
@@ -3128,7 +3131,8 @@ async function regenerateThumbnail(){
     const setting = jobSettingText();
     const cast = thumbnailCharacters();
     const t = job.treatment || {};
-    const system = `You rewrite a YouTube thumbnail's image prompt and its animation prompt. Reply with ONLY a JSON object: {"prompt": string, "videoPrompt": string}.
+    const system = `You rewrite a YouTube thumbnail's image prompt and its animation prompt, and suggest titles. Reply with ONLY a JSON object: {"prompt": string, "videoPrompt": string, "titleIdeas": [{"text": string, "highlight": string, "subtitle": string}]}.
+titleIdeas: 3 thumbnail titles (2-5 words, Title Case) that PROMISE THE STORY'S LIFE LESSON TO THE VIEWER and make sense to a stranger — one each in different shapes: imperative advice ("Stop Explaining Yourself"), "The ___ Secret" / "The Art of ___", a " / " transformation pair ("Broken / Reborn"), an urgent warning ("You Are Running Out"), or a short principle ("Power in Silence"). Never a plot-only line, never a plain "Why…?", never spoil the twist. "highlight" = the one key word printed in gold; "subtitle" = a small 2-5 word line like "a short story…" (may be empty).
 Rules: English only. Render style: ${spec.tag} — name this medium in both.${setting ? ` Setting: ${setting}.` : ''}
 prompt: a clearly DIFFERENT, more clickable composition than the current one (never copy its wording), composed as a CINEMATIC STORY MOMENT, not a portrait: a medium or medium-wide shot (waist-up, never a big-head close-up) of the single most loaded moment of the story, caught mid-action. Three layers that together TELL a story at a glance: (1) FOREGROUND — the ONE key story object, large, sharp and glowing/rim-lit (the coin, the key, the glove…); (2) MIDDLE — the main character in the act that creates the mystery (choosing, hiding, reaching, refusing), filling about a third of the frame on the right, with a specific strong emotion (sly secret smile, defiant calm, fear, shock) — not a neutral face; (3) BACKGROUND — the opposing force reacting (the king, the accuser, a laughing or gasping crowd, a looming guard), in focus enough to read. Something must look WRONG or UNEXPLAINED in the frame (he picks the smaller coin while the gold glows; everyone stares at him while he smiles) so the viewer needs the video to understand it. Real cinematic lighting with depth and atmosphere (torchlight, god rays, haze), dramatic angle, the location of the story clearly visible. Never a plain face portrait. Punchy high-contrast light, clean empty space at the TOP-LEFT for a title. Do NOT write any title words and do not say "no text" — the app adds the title. Describe the character once, from the cast list. Under ~110 words. End with ", 16:9 landscape composition, YouTube thumbnail".
 videoPrompt: a 6-second animation of that exact image — one small expressive motion of the character, a subtle shimmer on the key object, gently moving background, slow push-in; the character does not speak; the title banner stays perfectly still; ambient sound only, no music. Never use a character's name — describe by look. Under ~90 words.`;
@@ -3145,8 +3149,9 @@ ${job.thumbnail.prompt}`;
     job.thumbnail._history = (job.thumbnail._history || []).concat([{ prompt: job.thumbnail.prompt, videoPrompt: job.thumbnail.videoPrompt || null }]).slice(-5);
     job.thumbnail.prompt = String(out.prompt).trim();
     job.thumbnail.videoPrompt = out.videoPrompt ? String(out.videoPrompt).trim() : null;
+    if(Array.isArray(out.titleIdeas)) job.thumbnail.titleIdeas = out.titleIdeas.filter(t => t && t.text).slice(0, 3).map(t => ({ text: String(t.text).trim(), highlight: String(t.highlight || '').trim(), subtitle: String(t.subtitle || '').trim() }));
     await saveJobToStorage(true);
-    showToast('New thumbnail prompt ready (your title text is kept)');
+    showToast('New thumbnail prompt ready — pick a title idea or keep yours');
   }catch(e){
     console.error('[Generator] Thumbnail generate again failed:', e);
     showToast(`Could not regenerate the thumbnail: ${e.message}`);
@@ -3467,9 +3472,23 @@ function stripNoTextPhrases(prompt){
     .replace(/\s+([,.])/g, '$1');
 }
 // The thumbnail title: the user's own edit wins over the AI suggestion.
+// Title, highlighted word and subtitle — the user's edits win over the AI's.
+// Case is kept as written: storybook Title Case ("The Art of Silence") reads
+// better on story thumbnails than shouting ALL CAPS.
 function thumbnailTitle(){
   const t = (job.thumbnail && (job.thumbnail.customTitle || job.thumbnail.textOverlay)) || '';
-  return t.trim().replace(/^["'“”]+|["'“”]+$/g, '').toUpperCase();
+  return t.trim().replace(/^["'“”]+|["'“”]+$/g, '');
+}
+function thumbnailHighlight(){
+  const th = job.thumbnail || {};
+  const title = thumbnailTitle();
+  let h = (th.customHighlight != null ? th.customHighlight : th.textHighlight) || '';
+  if(!h && title){ const parts = title.split(/\s*\/\s*/); h = parts.length > 1 ? parts[1] : title.split(/\s+/).pop(); }
+  return String(h).trim();
+}
+function thumbnailSubtitle(){
+  const th = job.thumbnail || {};
+  return String((th.customSubtitle != null ? th.customSubtitle : th.subtitle) || '').trim();
 }
 async function setThumbnailTitle(value){
   if(!job.thumbnail) return;
@@ -3477,7 +3496,23 @@ async function setThumbnailTitle(value){
   job.thumbnail.customTitle = clean || null;
   await saveJobToStorage(true);
   renderResults();
-  showToast(clean ? `Thumbnail title set to "${clean.toUpperCase()}"` : 'Thumbnail title reset to the AI suggestion');
+  showToast(clean ? `Thumbnail title set to "${clean}"` : 'Thumbnail title reset to the AI suggestion');
+}
+async function setThumbnailField(field, value){
+  if(!job.thumbnail) return;
+  job.thumbnail[field] = String(value || '').trim();
+  await saveJobToStorage(true);
+  renderResults();
+}
+async function useTitleIdea(i){
+  const idea = job.thumbnail && Array.isArray(job.thumbnail.titleIdeas) && job.thumbnail.titleIdeas[i];
+  if(!idea) return;
+  job.thumbnail.customTitle = idea.text || null;
+  job.thumbnail.customHighlight = idea.highlight || '';
+  job.thumbnail.customSubtitle = idea.subtitle || '';
+  await saveJobToStorage(true);
+  renderResults();
+  showToast(`Title set to "${idea.text}"`);
 }
 // The face is already locked by the reference image + the description; a
 // second full "face signature" copy only made the prompt longer, which
@@ -3496,7 +3531,7 @@ function fullThumbnailPrompt(){
   //    prompt and many cut long prompts off; at the very end (where it was)
   //    the title was being dropped, which is why no text appeared.
   if(title){
-    parts.push(`YouTube thumbnail with the HUGE, ULTRA-BOLD title text "${title}" across the top-left — the title is the first thing the eye sees.`);
+    parts.push(`YouTube story thumbnail with the big title text "${title}" — the title is the first thing the eye sees.`);
   }
 
   // 2. Which uploaded reference image is which character.
@@ -3520,7 +3555,15 @@ function fullThumbnailPrompt(){
 
   // 4. Title details, repeated briefly at the end as reinforcement.
   if(title){
-    parts.push(`TITLE TEXT: the words "${title}" exactly, in the heaviest possible black-weight condensed sans-serif capitals (Impact / Anton / Bebas Neue Black style), extra-thick fat strokes, very large — the title block spans about 45% of the image width and reads instantly even at phone size. Bright yellow letters (or pure white) with a very thick black outline and a strong hard drop shadow, slightly tilted for energy, on a solid dark banner strip or a soft dark glow behind it so it pops off the background. It is the highest-contrast, sharpest element in the frame, nothing overlaps or covers it, and it is never blurred by depth of field. Spelled exactly; this is the only text in the image.`);
+    const hl = thumbnailHighlight();
+    const sub = thumbnailSubtitle();
+    const pair = title.split(/\s*\/\s*/);
+    if(pair.length === 2){
+      // Transformation pair ("Broken / Reborn"): words on both sides, hero in the middle.
+      parts.push(`TITLE TEXT — two-word contrast layout: the word "${pair[0]}" huge on the LEFT side in bold red condensed capitals, the word "${pair[1]}" huge on the RIGHT side in bold golden-yellow condensed capitals, both with a thick dark outline and drop shadow, and the main character standing in the CENTER between them.${sub ? ` A small elegant italic line "${sub}" sits centered at the bottom.` : ''} Spelled exactly; no other text.`);
+    }else{
+      parts.push(`TITLE TEXT: the words "${title}" exactly, very large and bold, spanning about 60% of the image width in the calm area left free for it, never covering a face. Two-tone lettering: every word in warm cream-white${hl ? ` except the key word "${hl}", which is in bright golden-yellow` : ''}. Chunky storybook display typeface (heavy rounded serif like a classic book cover) or a bold condensed poster font, with a thick dark-brown outline, a soft drop shadow and a faint warm glow so it pops off the painting.${sub ? ` Under it, a small elegant italic line: "${sub}".` : ''} The title is the highest-contrast, sharpest element in the frame, never blurred by depth of field. Spelled exactly; no other text.`);
+    }
   }
 
   return withFaceNegative(`${parts.join(' ')}${neg ? ` ${neg}.` : ''}`);
@@ -4209,6 +4252,14 @@ function renderResults(){
         <div class="ref-id-field">
           <label for="thumbTitle"><b>Title text on the thumbnail</b> <span>(edit to change it — 2-5 words work best${job.thumbnail.textOverlay ? `; AI suggestion: "${job.thumbnail.textOverlay}"` : ''})</span></label>
           <input type="text" id="thumbTitle" maxlength="40" value="${(job.thumbnail.customTitle || job.thumbnail.textOverlay || '').replace(/"/g, '&quot;')}" onchange="setThumbnailTitle(this.value)">
+          <div class="yt-grid" style="margin-top:8px;">
+            <div><label for="thumbHl"><b>Highlighted word</b> <span>(golden)</span></label>
+              <input type="text" id="thumbHl" maxlength="20" value="${escHtml(thumbnailHighlight())}" onchange="setThumbnailField('customHighlight', this.value)"></div>
+            <div><label for="thumbSub"><b>Small subtitle</b> <span>(optional)</span></label>
+              <input type="text" id="thumbSub" maxlength="40" placeholder="a short story…" value="${escHtml(thumbnailSubtitle())}" onchange="setThumbnailField('customSubtitle', this.value)"></div>
+          </div>
+          ${Array.isArray(job.thumbnail.titleIdeas) && job.thumbnail.titleIdeas.length ? `<div class="yt-chips" style="margin-top:8px;">${job.thumbnail.titleIdeas.map((t, i) => `<span class="yt-chip" style="cursor:pointer;" title="${escHtml(t.subtitle || '')}" onclick="useTitleIdea(${i})">${escHtml(t.text)}</span>`).join('')}</div>` : ''}
+          <div class="hint" style="margin-top:6px;">Best titles promise the lesson to the viewer: <i>Stop Explaining Yourself</i> · <i>The Art of Silence</i> · <i>Broken / Reborn</i> (use " / " for a left-right pair) · <i>You Are Running Out</i>.</div>
         </div>
         <div class="cd" style="margin-top:12px;"><b>Video prompt</b> (animates the thumbnail · ${THUMBNAIL_CLIP_DURATION}s)</div>
         <div class="cd">${fullThumbnailVideoPrompt()}</div>
