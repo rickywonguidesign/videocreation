@@ -311,6 +311,31 @@
   .cancel-gen.cancel-full{width:100%;padding:9px;font-size:12px;margin:-4px 0 12px;}
   .cancel-gen.cancel-mini{font-size:11px;padding:6px 9px;border-radius:4px;}
   details.acc,[id^="scene-anchor-"]{scroll-margin-top:64px;}
+  /* Phase 3: story spine, tension curve, AI story editor */
+  .spine-card{margin-top:14px;padding-top:12px;border-top:1px solid var(--line);}
+  .spine-head,.se-head{font-family:'IBM Plex Mono',monospace;font-size:10.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--amber);margin-bottom:8px;}
+  .spine-tps{display:flex;flex-direction:column;gap:5px;margin-top:10px;}
+  .spine-tp{display:grid;grid-template-columns:52px 118px 1fr;gap:8px;font-size:12px;line-height:1.45;align-items:baseline;}
+  .spine-tp .tp-row{font-family:'IBM Plex Mono',monospace;font-size:10.5px;color:var(--text-dim);}
+  .spine-tp .tp-name{font-weight:600;color:var(--text);text-transform:capitalize;}
+  .spine-tp .tp-ev{color:var(--text-dim);}
+  @media (max-width:520px){.spine-tp{grid-template-columns:44px 1fr;}.spine-tp .tp-ev{grid-column:1 / -1;}}
+  .tension-curve{margin-top:12px;}
+  .tension-curve summary{cursor:pointer;font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--text);}
+  .tc-svg{width:100%;height:auto;display:block;margin-top:8px;}
+  .tc-key{display:flex;gap:12px;flex-wrap:wrap;font-size:10.5px;color:var(--text-dim);margin-top:4px;}
+  .tc-key i{display:inline-block;width:9px;height:9px;border-radius:2px;margin-right:4px;vertical-align:-1px;}
+  .se-box{margin-top:12px;padding:10px 12px;border:1px solid var(--line);border-radius:6px;}
+  .se-f{font-size:12px;line-height:1.5;padding:6px 0;border-top:1px solid var(--line);}
+  .se-f:first-of-type{border-top:none;}
+  .se-sev{font-family:'IBM Plex Mono',monospace;font-size:9.5px;text-transform:uppercase;padding:1px 6px;border-radius:3px;margin-right:6px;border:1px solid var(--line);}
+  .se-sev.se-high{color:var(--err);border-color:var(--err);}
+  .se-sev.se-med{color:var(--amber);border-color:var(--amber-dim);}
+  .se-sev.se-low{color:var(--text-dim);}
+  .se-fix{color:var(--text-dim);}
+  .se-issue{font-weight:600;color:var(--text);}
+  .arc-ok-btn{font-family:'IBM Plex Mono',monospace;font-size:10px;padding:2px 7px;margin-left:6px;border-radius:4px;border:1px solid var(--line);background:none;color:var(--text-dim);cursor:pointer;}
+  .arc-ok-btn:hover{color:var(--text);}
   .modal-close{width:100%;margin-top:14px;background:none;border:1px solid var(--line);color:var(--text-dim);font-family:'IBM Plex Mono',monospace;font-size:12px;padding:9px;border-radius:5px;cursor:pointer;}
   .empty-note{font-size:12px;color:var(--text-dim);text-align:center;padding:20px 0;}
 
@@ -524,6 +549,8 @@
       <div class="hint">Rebuilds the plan around what keeps people watching: a hook that's a visible puzzle, a two-stage mystery (the first answer opens a deeper question), stakes raised early, one secret held until ~70-85% of the video, clues planted early that pay off later, no recaps, "show before tell" at the reveal, the lesson stated once, and a mirror ending. Core events, ending, and moral never change. A "Retention check" panel then grades the plan before you spend credits on video.</div>
       <label class="check-label" style="margin-top:10px;"><input type="checkbox" id="planGate" checked onchange="try{localStorage.setItem('planGate', this.checked ? '1' : '0')}catch(e){}"><span>Check &amp; auto-repair the plan before writing scenes</span></label>
       <div class="hint">The plan is made first, checked (clarity, filler, clues, names, secret timing…), and any problems are sent back to the AI to fix — up to 2 rounds, keeping the best-scoring version. Costs 1-2 extra small requests; scenes are only written from the winning plan.</div>
+      <label class="check-label" style="margin-top:10px;"><input type="checkbox" id="storyEditor" checked onchange="try{localStorage.setItem('storyEditor', this.checked ? '1' : '0')}catch(e){}"><span>AI story editor — review predictability, character changes, climax &amp; ending</span></label>
+      <div class="hint">Runs once per plan, inside the plan check. Free when the check already found problems (it rides along in the first repair request); 1 extra review request when the plan was already clean. It only fixes real high/medium problems and never rewrites a strong story.</div>
     </div>
 
     <button class="generate-btn" id="genBtn" onclick="generateScript()">
@@ -715,6 +742,8 @@ function getSelectedModel(){
     if(savedRetention !== null) document.getElementById('retentionMode').checked = savedRetention === '1';
     if(localStorage.getItem('premiumPlan') === '1' && document.getElementById('premiumPlan')) document.getElementById('premiumPlan').checked = true;
     setTimeout(renderModelPlanBox, 0);
+    const savedEditor = localStorage.getItem('storyEditor');
+    if(savedEditor !== null && document.getElementById('storyEditor')) document.getElementById('storyEditor').checked = savedEditor === '1';
     const savedGate = localStorage.getItem('planGate');
     if(savedGate !== null && document.getElementById('planGate')) document.getElementById('planGate').checked = savedGate === '1';
     const savedSimple = localStorage.getItem('simpleEnglish');
@@ -2149,7 +2178,11 @@ function normalizeOutline(raw){
     location: r.location || '',
     timeOfDay: r.timeOfDay || '',
     summary: r.summary || '',
-    purpose: r.purpose || ''
+    purpose: r.purpose || '',
+    // Phase 3 arc fields — only kept when the planner sent them.
+    ...(Number.isFinite(+r.tension) && +r.tension >= 1 ? { tension: Math.max(1, Math.min(5, Math.round(+r.tension))) } : {}),
+    ...(r.emotion ? { emotion: String(r.emotion).trim().toLowerCase().slice(0, 24) } : {}),
+    ...(r.breather === true || r.breather === 'true' || /^\s*breather\b/i.test(r.purpose || '') ? { breather: true } : {})
   }));
   return rows.length ? rows : null;
 }
@@ -2403,7 +2436,7 @@ function planHygieneWarnings(outline, roster){
     if(noPurpose.length) warn.push(`${noPurpose.length} added row(s) have no story purpose (rows ${noPurpose.map(r => r.row).join(', ')}) — likely filler.`);
     else ok.push('Every added row has a story purpose.');
   }
-  const filler = outline.filter(r => r.kind === 'expansion' && /^\s*(mood|atmosphere|transition|filler|reaction|waiting|establishing)\b/i.test(String(r.purpose || '')));
+  const filler = outline.filter(r => r.kind === 'expansion' && !r.breather && /^\s*(mood|atmosphere|transition|filler|reaction|waiting|establishing)\b/i.test(String(r.purpose || '')));
   if(filler.length) warn.push(`Rows ${filler.map(r => r.row).join(', ')} are only mood / reaction / waiting — replace them with new information.`);
   const sig = t => new Set(String(t || '').toLowerCase().replace(/[^a-z0-9\s]/g, ' ').split(/\s+/).filter(w => w.length > 3));
   const dupes = [];
@@ -2428,7 +2461,7 @@ function planHygieneWarnings(outline, roster){
   }
   if(longRuns.length) warn.push(`Too long in one place: ${longRuns.join(', ')} — max 4 rows in a row; cut waiting rows or intercut with new information elsewhere.`);
   // Runs of "tension"/"reaction" rows = the same silence stretched out.
-  const isStall = r => r.kind === 'expansion' && /^\s*(tension|reaction|silence|waiting|suspense|pressure)\b/i.test(String(r.purpose || ''));
+  const isStall = r => r.kind === 'expansion' && !r.breather && /^\s*(tension|reaction|silence|waiting|suspense|pressure)\b/i.test(String(r.purpose || ''));
   const stalls = [];
   for(let i = 0; i < outline.length;){
     if(!isStall(outline[i])){ i++; continue; }
@@ -2460,10 +2493,10 @@ function planHygieneWarnings(outline, roster){
   return { warn, ok };
 }
 // High-impact problems cost more points.
-const PLAN_HIGH_RE = /Open-loop gaps|Stalling|Too long in one place|too late|too early|never clearly introduced|No row shows the incident|no hero introduction|no planned use|look alike|filler|no story purpose|only mood|hint the secret|No reveal row|didn't return a retention map/i;
+const PLAN_HIGH_RE = /Story arc — CRITICAL|Open-loop gaps|Stalling|Too long in one place|too late|too early|never clearly introduced|No row shows the incident|no hero introduction|no planned use|look alike|filler|no story purpose|only mood|hint the secret|No reveal row|didn't return a retention map/i;
 function scorePlanWarnings(warns){
   let score = 100;
-  (warns || []).forEach(w => { score -= PLAN_HIGH_RE.test(w) ? 9 : 4; });
+  (warns || []).forEach(w => { score -= PLAN_HIGH_RE.test(w) ? 9 : isArcNote(w) ? 2 : 4; });
   return Math.max(0, score);
 }
 // Runs every check against a candidate plan without touching the live job.
@@ -2480,6 +2513,7 @@ function auditPlanCandidate(cand){
       if(job.retentionMode && !cand.retentionMap) warns.push("The model didn't return a retention map.");
     }
     if(storyOptsFromJob().monetizeSafe) warns = warns.concat(uniquenessPlanWarnings(cand.characters));
+    warns = warns.concat(arcWarnings(cand.outline, cand.spine !== undefined ? cand.spine : getSpine()));
     return { warns, score: scorePlanWarnings(warns) };
   }finally{
     job.treatment = saved.t;
@@ -2488,12 +2522,15 @@ function auditPlanCandidate(cand){
 }
 function clonePlan(o){ return JSON.parse(JSON.stringify(o)); }
 // One focused repair request: the problems + the plan, nothing else.
-async function repairPlanCandidate(cand, warns, lockedUpTo, signal){
+async function repairPlanCandidate(cand, warns, lockedUpTo, signal, ropts){
   const N = cand.outline.length;
   const t = job.treatment || {};
-  const fmt = r => `${r.row}. [${r.kind} · ${r.beat}] @ ${r.location} (${r.timeOfDay}) — ${r.summary} {purpose: ${r.purpose || '—'}}`;
+  const editor = !!(ropts && ropts.editor);
+  const hasArc = !!(cand.spine || cand.outline.some(r => r.tension || r.emotion || r.breather) || job.spineExpected);
+  const fmt = r => `${r.row}. [${r.kind} · ${r.beat}] @ ${r.location} (${r.timeOfDay}) — ${r.summary} {purpose: ${r.purpose || '—'}}${hasArc ? ` {tension: ${r.tension || '?'} · emotion: ${r.emotion || '?'}${r.breather ? ' · breather' : ''}}` : ''}`;
+  const required = warns.filter(w => !isArcNote(w)), optional = warns.filter(isArcNote);
   const system = `You are a senior story editor repairing a video's scene plan so a first-time viewer can follow it and stays to the end. Reply with ONLY JSON:
-{"outline": [{"row": number, "beat": string, "kind": "source"|"expansion"|"outro", "sourceBeat": number|null, "location": string, "timeOfDay": string, "summary": string, "purpose": string}], "retentionMap": object, "renames": [{"from": string, "to": string}], "changes": [string]}
+{"outline": [{"row": number, "beat": string, "kind": "source"|"expansion"|"outro", "sourceBeat": number|null, "location": string, "timeOfDay": string, "summary": string, "purpose": string${hasArc ? ', "tension": number, "emotion": string, "breather": boolean' : ''}}], "retentionMap": object${hasArc ? ', "storySpine": object' : ''}, "renames": [{"from": string, "to": string}], "changes": [string]${editor ? ', "editorFindings": [object], "editorVerdict": string' : ''}}
 HARD RULES:
 - Fix EVERY problem in the list. Change as little else as possible.
 - Keep EXACTLY ${N} rows, numbered 1-${N}.${lockedUpTo ? ` Rows 1-${lockedUpTo} are already filmed — return them UNCHANGED.` : ''}
@@ -2503,15 +2540,22 @@ HARD RULES:
 - Every clue in retentionMap.plants has a later payoffRow and a "payoff" saying how it is USED to change the outcome; add any new clue you introduce.
 - If two character names look alike, rename the less important one in "renames" (and use the new name everywhere).
 - Keep retentionMap complete and its row numbers consistent with the new outline (incidentRow, heroIntroRow, heroIntro, mysteryAAnsweredRow, revealRow, stakesRow, plants, openLoopRows, flashbackRows, mirrorEnding, secret, hookQuestion, mysteryA, mysteryB, stakes).
-- English only. Each summary one sentence, max 22 words. "changes" = short list of what you changed.`;
+- English only. Each summary one sentence, max 22 words. "changes" = short list of what you changed.${hasArc ? `
+- Keep the story spine: return "storySpine" (protagonist, want, need, flaw, outerConflict, innerConflict, stakes, resolution, takeaway, and the five turningPoints — inciting incident, point of no return, midpoint, dark moment, climax — each {name, row, event, note}) with row numbers matching the new outline, and give every row "tension" (1-5), "emotion" (one word) and "breather" (true only for a deliberate quiet scene). Story-arc NOTES are optional: change something for a note only if it clearly helps this story.` : ''}${editor ? storyEditorBlock() : ''}`;
   const user = `Story: ${t.logline || job.topic || ''}
 Characters: ${(cand.characters || []).map(c => `${c.name} (${c.role || ''})`).join(', ')}
 
 PROBLEMS TO FIX:
-${warns.map((w, i) => `${i + 1}. ${w}`).join('\n')}
+${required.length ? required.map((w, i) => `${i + 1}. ${w}`).join('\n') : '(none from the automatic checks)'}${optional.length ? `
+
+OPTIONAL NOTES (change only if it clearly helps the story):
+${optional.map((w, i) => `${i + 1}. ${w}`).join('\n')}` : ''}
 
 CURRENT retentionMap:
-${JSON.stringify(cand.retentionMap || {})}
+${JSON.stringify(cand.retentionMap || {})}${hasArc ? `
+
+CURRENT storySpine:
+${JSON.stringify(cand.spine || {})}` : ''}
 
 CURRENT PLAN (${N} rows):
 ${cand.outline.map(fmt).join('\n')}`;
@@ -2519,12 +2563,19 @@ ${cand.outline.map(fmt).join('\n')}`;
   const outline = normalizeOutline(res && res.outline);
   if(!outline || outline.length !== N) throw new Error(`repair returned ${outline ? outline.length : 0} rows instead of ${N}`);
   if(lockedUpTo) for(let i = 0; i < lockedUpTo; i++) outline[i] = cand.outline[i];
-  let next = { outline, retentionMap: (res.retentionMap && typeof res.retentionMap === 'object') ? res.retentionMap : cand.retentionMap, characters: clonePlan(cand.characters || []), renames: (cand.renames || []).slice(), changes: Array.isArray(res.changes) ? res.changes.slice(0, 12) : [] };
+  // A repair that dropped the arc fields keeps the old ones row by row.
+  if(hasArc && !outline.some(r => r.tension)) outline.forEach((r, i) => { const o = cand.outline[i] || {}; ['tension', 'emotion', 'breather'].forEach(k => { if(o[k] != null && r[k] == null) r[k] = o[k]; }); });
+  const spineOut = hasArc ? (normalizeSpine(res.storySpine, N) || cand.spine || null) : (cand.spine || null);
+  let next = { outline, retentionMap: (res.retentionMap && typeof res.retentionMap === 'object') ? res.retentionMap : cand.retentionMap, spine: spineOut, characters: clonePlan(cand.characters || []), renames: (cand.renames || []).slice(), changes: Array.isArray(res.changes) ? res.changes.slice(0, 12) : [] };
+  if(editor){
+    next.editorFindings = sanitizeEditorFindings(res.editorFindings, N);
+    next.editorVerdict = String(res.editorVerdict || '').trim().slice(0, 400);
+  }
   const renames = (Array.isArray(res.renames) ? res.renames : []).filter(r => r && r.from && r.to && r.from !== r.to);
   if(renames.length){
     const pairs = renames.map(r => ({ original: String(r.from).trim(), renamed: String(r.to).trim() }));
     const changes = next.changes; // keep the change log as written ("Renamed X to Y")
-    const renamed = applyNameChanges({ outline: next.outline, retentionMap: next.retentionMap, characters: next.characters }, pairs);
+    const renamed = applyNameChanges({ outline: next.outline, retentionMap: next.retentionMap, characters: next.characters, spine: next.spine }, pairs);
     next = Object.assign(next, renamed, { changes, renames: (cand.renames || []).concat(pairs) });
   }
   return next;
@@ -2537,21 +2588,35 @@ async function runPlanGate(opts){
   if(!job || !getOutline()) return null;
   const say = msg => { if(o.onStatus) o.onStatus(msg); };
   const lockedUpTo = lastWrittenRow();
-  const base = { outline: clonePlan(getOutline()), retentionMap: clonePlan(getRetentionMap() || null), characters: clonePlan((job.styleBlock && job.styleBlock.characters) || []), renames: [], changes: [] };
+  const base = { outline: clonePlan(getOutline()), retentionMap: clonePlan(getRetentionMap() || null), spine: clonePlan(getSpine()), characters: clonePlan((job.styleBlock && job.styleBlock.characters) || []), renames: [], changes: [] };
   const versions = [{ label: 'Original plan', cand: base, audit: auditPlanCandidate(base) }];
   let best = versions[0];
+  // AI story editor: ONCE per plan (or when asked again), inside round 1.
+  let editorPending = isStoryEditorOn() && (o.forceEditor || !(job.treatment && job.treatment.storyEditor));
+  let editorResult = null;
+  const actionable = a => a.warns.filter(w => !isArcNote(w)).length; // arc notes alone never trigger a paid round
   for(let round = 1; round <= (o.rounds || PLAN_GATE_ROUNDS); round++){
-    if(!best.audit.warns.length || best.audit.score >= PLAN_GATE_GOOD_ENOUGH) break;
-    say(`Repairing the plan — round ${round} (${best.audit.warns.length} problem${best.audit.warns.length > 1 ? 's' : ''})…`);
+    const withEditor = editorPending;
+    if(!withEditor && (!actionable(best.audit) || best.audit.score >= PLAN_GATE_GOOD_ENOUGH)) break;
+    say(withEditor && !actionable(best.audit) ? 'AI story editor is reviewing the plan…' : `Repairing the plan — round ${round} (${best.audit.warns.length} problem${best.audit.warns.length > 1 ? 's' : ''})${withEditor ? ' + story editor' : ''}…`);
+    editorPending = false;
     try{
       if(o.signal && o.signal.aborted) throw abortError();
-      const cand = await repairPlanCandidate(best.cand, best.audit.warns, lockedUpTo, o.signal);
-      const v = { label: `Repair ${round}`, cand, audit: auditPlanCandidate(cand) };
+      const cand = await repairPlanCandidate(best.cand, best.audit.warns, lockedUpTo, o.signal, { editor: withEditor });
+      const label = withEditor && !actionable(best.audit) ? 'Story editor' : `Repair ${round}`;
+      const v = { label, cand, audit: auditPlanCandidate(cand) };
       versions.push(v);
-      // Only a STRICTLY better plan replaces the current best; a round that
-      // doesn't improve anything ends the loop (no point paying for more).
-      if(v.audit.score > best.audit.score) best = v;
-      else break;
+      const findings = withEditor ? (cand.editorFindings || []) : [];
+      if(withEditor) editorResult = { at: Date.now(), model: ((modelForTask('review') || {}).model) || getSelectedModel(), findings, verdict: cand.editorVerdict || '', withRepair: actionable(best.audit) > 0, applied: null };
+      const changed = JSON.stringify(cand.outline) !== JSON.stringify(best.cand.outline) || JSON.stringify(cand.spine || null) !== JSON.stringify(best.cand.spine || null);
+      // A STRICTLY better plan replaces the current best. When the story editor
+      // found real problems, a version that fixes them and scores AT LEAST as
+      // well is kept too. Anything else ends the loop (no point paying for more).
+      const editorFix = findings.some(f => f.severity !== 'low') && changed && v.audit.score >= best.audit.score;
+      if(v.audit.score > best.audit.score || editorFix){
+        best = v;
+        if(editorResult && findings.length && changed) editorResult.applied = label;
+      }else break;
     }catch(e){
       if(e && e.name === 'AbortError') throw e;
       console.warn('[Generator] Plan repair round failed:', e);
@@ -2562,6 +2627,8 @@ async function runPlanGate(opts){
   const win = best.cand;
   job.treatment.outline = win.outline;
   if(win.retentionMap) job.treatment.retentionMap = win.retentionMap;
+  if(win.spine) job.treatment.storySpine = win.spine;
+  if(editorResult) job.treatment.storyEditor = editorResult;
   if(job.styleBlock) job.styleBlock.characters = win.characters;
   if(win.renames && win.renames.length){
     job.thumbnail = applyNameChanges(job.thumbnail, win.renames);
@@ -2577,13 +2644,13 @@ async function runPlanGate(opts){
   return job.treatment.planGate;
 }
 // Manual button in the Plan quality panel (locks rows already written).
-async function manualPlanGate(){
+async function manualPlanGate(mopts){
   if(planGateBusy) return;
   if(busy.has('continue') || busy.has('generate')){ showToast('Wait for scene generation to finish first'); return; }
   planGateBusy = true;
   renderResults();
   try{
-    const g = await runPlanGate({ onStatus: m => showToast(m) });
+    const g = await runPlanGate({ onStatus: m => showToast(m), forceEditor: !!(mopts && mopts.forceEditor) });
     await saveJobToStorage(true);
     if(g) showToast(`Plan quality ${g.versions[g.picked].score}/100 — kept "${g.versions[g.picked].label}"`);
   }catch(e){
@@ -2601,11 +2668,13 @@ function renderPlanGate(){
   const btn = `<button class="btn btn-regen" onclick="manualPlanGate()" ${planGateBusy ? 'disabled' : ''}>${planGateBusy ? '⏳ Checking & repairing…' : '🔧 Check & repair plan'}</button>`;
   const cls = live.score >= 90 ? 'good' : live.score >= 70 ? 'mid' : 'bad';
   return `
-    <div class="pg-score ${cls}"><span class="pg-num">${live.score}</span><span class="pg-of">/100</span><span class="pg-cap">${live.warns.length ? `${live.warns.length} problem${live.warns.length > 1 ? 's' : ''} left` : 'all checks passed'}</span></div>
+    <div class="pg-score ${cls}"><span class="pg-num">${live.score}</span><span class="pg-of">/100</span><span class="pg-cap">${(() => { const real = live.warns.filter(w => !isArcNote(w)).length, notes = live.warns.length - real; return real || notes ? `${real ? `${real} problem${real > 1 ? 's' : ''} left` : 'no problems'}${notes ? ` · ${notes} note${notes > 1 ? 's' : ''}` : ''}` : 'all checks passed'; })()}</span></div>
     ${g && g.model ? `<div class="cd" style="margin-bottom:8px;">Planned &amp; checked with <b>${escHtml(g.model)}</b></div>` : ''}
     ${g ? `<div class="pg-versions">${g.versions.map((v, i) => `<div class="pg-v ${i === g.picked ? 'picked' : ''}"><span>${escHtml(v.label)}</span><b>${v.failed ? 'failed' : v.score}</b>${i === g.picked ? '<em>kept ✓</em>' : ''}</div>`).join('')}</div>` : ''}
     ${g && g.versions[g.picked] && g.versions[g.picked].changes.length ? `<div class="cd" style="margin:8px 0;"><b>What the repair changed</b><br>${g.versions[g.picked].changes.map(c => '• ' + escHtml(c)).join('<br>')}</div>` : ''}
-    ${live.warns.length ? live.warns.map(w => `<div class="ret-line warn">⚠ ${escHtml(w)}</div>`).join('') : ''}
+    ${live.warns.length ? live.warns.map(w => `<div class="ret-line warn">${isArcNote(w) ? '•' : '⚠'} ${escHtml(w)}${arcWarnKeys[w] ? `<button class="arc-ok-btn" title="Keep it — this is an intentional creative choice" onclick="acceptArcWarning('${escHtml(arcWarnKeys[w])}')">Intentional</button>` : ''}</div>`).join('') : ''}
+    ${(job.treatment.spineAccepted || []).length ? `<div class="cd" style="margin-top:6px;">${job.treatment.spineAccepted.length} arc check(s) marked intentional · <a href="#" onclick="resetArcAccepted(); return false;" style="color:var(--amber);">show again</a></div>` : ''}
+    ${renderStoryEditor()}
     <div class="btn-row" style="margin-top:10px;">${btn}</div>
     <div class="hint">Every new plan is checked automatically; problems are sent back to the AI to fix (up to ${PLAN_GATE_ROUNDS} rounds) and the best-scoring version is kept. Rows already written as scenes are never changed.</div>`;
 }
@@ -3120,7 +3189,7 @@ async function generateScript(){
     const outroOn = !!(document.getElementById('outroCta') && document.getElementById('outroCta').checked);
     const retentionOn = isRetentionFormOn();
     const storyHist = await loadStoryHistory();
-    const planNote = planningRule(targetSceneCount, expandMode, outroOn) + (retentionOn ? retentionPlanRule() : '');
+    const planNote = planningRule(targetSceneCount, expandMode, outroOn) + (retentionOn ? retentionPlanRule() : '') + storySpineRule();
     const systemPrompt = baseSystemPrompt() + `\nRules: styleBlock.description must reflect the requested character style per RENDER STYLE LOCK below. This is the OPENING batch of a longer video — cover only roughly the first 40-50 seconds as consecutive 8-10 second scenes, starting at 0:00, and make sure this batch covers the "Hook" and the start of "Build". Work in this order: (1) per SOURCE BEAT EXTRACTION, list treatment.sourceBeats as concrete, specific moments from the source material (as retold per ORIGINAL RETELLING below); (2) per PLANNING & EXPANSION RULE below, build treatment.locations and the FULL treatment.outline for the whole video; (3) only then write scenes — for outline rows 1-${BATCH_SIZE} ONLY (fewer if the outline is shorter), one scene per row, each with "outlineRow" set and depicting exactly that row.${planNote} Per HOOK & RETENTION: since this batch includes the Hook, open the very first scene already inside concrete action or an unresolved question pulled from sourceBeats — never a quiet establishing or waking-up moment — and write its logline/narration/dialogue to match: specific, active, no throat-clearing openers. If this is an ad/commercial piece, per ADS / COMMERCIAL STORYBOARD STRUCTURE this batch should open on ORDINARY WORLD with no product visible yet, saving PRODUCT INTRODUCTION for shortly after — otherwise ignore this sentence entirely. Vary shot size and camera movement scene to scene — never repeat the same combination twice in a row. Per VISUAL VARIETY: each scene's imagePrompt must show a visibly different pose/action/framing AND a visibly different specific background/set-dressing detail (a different spot within the one locked location, not the same patch of backdrop repeated) than the scene before it, even with environment and lighting locked — before finalizing, compare each imagePrompt to the one before it and rewrite either if they'd render as near-identical images, backgrounds included. Per ACTION CONTINUITY: each scene's opening action must visibly pick up from exactly where the previous scene's action ended — same body position, same object in hand, same emotional beat continuing — not a jump to an unrelated moment; check this against the previous scene before finalizing each one. Per CROWD & SCENE POPULATION RULE: if this batch's setting inherently implies other people (a city, a competition, a school, a market, a crowd of any kind), populate the imagery with concrete background people, not just the named cast alone in an empty-looking space — and make sure each of those background people is a visually distinct, randomly-generated look, never the named character's own description reused or reworded for someone else in the crowd. Per CHARACTER FACE VISIBILITY RULE: whenever a named character appears in this batch's scenes, keep their face clearly visible and unobstructed in imagePrompt and restate their faceSignature — no back-of-head, silhouette, or face-hidden framing — so the reference-image animation workflow has a consistent face to lock onto. Per EXTENDED SINGLE-ACTION PACING RULE: if this batch depicts one continuous ongoing event (a race, chase, competition, struggle), do not let it sit unchanged for more than 3-4 scenes without a concrete development — introduce one, or compress toward the event's resolution instead of padding it. Keep imagePrompt and videoAudioPrompt concise enough that the whole response fits in the token budget — but this does NOT apply to "dialogue" or "narrationLine": those must always hit their full 20-25 word / 8-10 second length regardless, even if it means fewer scenes in this batch. Never shorten a spoken line just to save tokens. Per LANGUAGE RULE: every field must be in English except "dialogue" and "narrationLine" — even if the source material below is itself written in ${document.getElementById('language').value}, describe it in English; only the spoken lines follow ${document.getElementById('language').value}.` + jobRulesTail(currentStyle, customStyle, setting, retentionOn, Object.assign(storyOptsFromForm(), { history: storyHist }));
 
     const userPrompt = `Source material (a premise to retell originally — rename every character):\n${source}\n\n${totalSeconds ? `Total video length: ${minuteVal} minutes (${totalSeconds}s)` : "Length not specified — treat as a short clip"}\n${topic ? `Retelling angle (secondary — a stylistic twist only, must never override or replace the source material's actual content above): ${topic}` : `No retelling angle given — follow the source material's own story directly, with no reframing.`}\nCharacter / render style: ${styleLabelFor(currentStyle, customStyle)}\nStory setting / cultural context: ${setting || 'Auto — infer one setting from the source and lock it'}\nOutput language for dialogue/narration: ${document.getElementById('language').value}\nScene plan: ${targetSceneCount ? (expandMode === 'strict' ? `source only — up to ~${targetSceneCount} scenes, fewer if the source is thinner` : `exactly ${targetSceneCount} outline rows — expand faithfully if the source is shorter`) : 'as many rows as the source supports'}${retentionOn ? '\nStory doctor: ON — restructure for retention per STORY DOCTOR and return treatment.retentionMap' : ''}`;
@@ -3154,6 +3223,9 @@ async function generateScript(){
     };
     if(job.treatment){
       job.treatment.outline = normalizeOutline(job.treatment.outline);
+      // Phase 3: plans made with the spine rule are checked for it.
+      job.spineExpected = !!job.treatment.outline;
+      job.treatment.storySpine = normalizeSpine(job.treatment.storySpine, job.treatment.outline ? job.treatment.outline.length : 0);
     }
     if(!Array.isArray(job.scenes)) job.scenes = [];
     // Save the plan right away: the plan call is the most expensive step, so
@@ -3278,7 +3350,7 @@ async function continueScript(){
     const fmtRow = r => `${r.row}. [${r.kind}${r.sourceBeat ? ` · source beat ${r.sourceBeat}` : ''} · ${r.beat}] @ ${r.location} (${r.timeOfDay}) — ${r.summary}${r.purpose ? ` {purpose: ${r.purpose}}` : ''}`;
     const t = job.treatment || {};
 
-    const userPrompt = `Source material (a premise being retold originally):\n${sourceTextForPrompt}\n\n${job.currentTopic ? `Retelling angle (secondary — a stylistic twist only): ${job.currentTopic}` : `No retelling angle given — follow the source material's own story directly.`}\nCharacter / render style: ${styleLabelFor(job.characterStyle, job.customStyle)}\nStory setting / cultural context: ${job.setting || t.setting || 'as established in the opening batch'}\nOutput language for dialogue/narration: ${lang}${nameChangesText}\n\nEstablished look — reuse exactly:\nStyle: ${job.styleBlock.description}\nWorld: ${t.environment || 'infer from earlier scenes'}\nColor grade: ${t.colorGrade || '—'}\nCharacters (do not invent new named characters):\n${job.styleBlock.characters.map(c => `- ${c.name} (${c.role}): ${c.description}${c.faceSignature ? ` FACE: ${c.faceSignature}` : ''}${c.visualTag ? ` VISUAL TAG: ${c.visualTag}` : ''}`).join('\n')}${Array.isArray(job.styleBlock.products) && job.styleBlock.products.length ? `\n\nProducts — reuse these exact descriptions:\n${job.styleBlock.products.map(p => `- ${p.name}: ${p.description}`).join('\n')}` : ''}\n\nSource beats:\n${(t.sourceBeats || []).map((b,i) => `${i+1}. ${b}`).join('\n') || '(none recorded)'}\n${outline ? `\nFULL OUTLINE (the whole video, for foreshadowing and payoff):\n${outline.map(fmtRow).join('\n')}\n\nTHIS BATCH'S ROWS — write exactly these, in order:\n${rows.map(fmtRow).join('\n')}\n` : ''}${retentionBatchNote(rows)}\nALREADY WRITTEN — never repeat any of these moments, actions, or lines:\n${writtenScenesLog() || '(none)'}\n\nThe previous scene ended at ${formatTime(lastEndSeconds)}. Its imagePrompt (your first new imagePrompt must look clearly different):\n"${lastScene ? lastScene.imagePrompt : 'opening of the video'}"\n\nIts action (continue from it if the next row stays in the same place):\n"${lastScene ? lastScene.videoAudioPrompt : 'opening of the video'}"\n${job.totalSeconds ? `\nTotal video length target: ${job.totalSeconds}s.` : ''}`;
+    const userPrompt = `Source material (a premise being retold originally):\n${sourceTextForPrompt}\n\n${job.currentTopic ? `Retelling angle (secondary — a stylistic twist only): ${job.currentTopic}` : `No retelling angle given — follow the source material's own story directly.`}\nCharacter / render style: ${styleLabelFor(job.characterStyle, job.customStyle)}\nStory setting / cultural context: ${job.setting || t.setting || 'as established in the opening batch'}\nOutput language for dialogue/narration: ${lang}${nameChangesText}\n\nEstablished look — reuse exactly:\nStyle: ${job.styleBlock.description}\nWorld: ${t.environment || 'infer from earlier scenes'}\nColor grade: ${t.colorGrade || '—'}\nCharacters (do not invent new named characters):\n${job.styleBlock.characters.map(c => `- ${c.name} (${c.role}): ${c.description}${c.faceSignature ? ` FACE: ${c.faceSignature}` : ''}${c.visualTag ? ` VISUAL TAG: ${c.visualTag}` : ''}`).join('\n')}${Array.isArray(job.styleBlock.products) && job.styleBlock.products.length ? `\n\nProducts — reuse these exact descriptions:\n${job.styleBlock.products.map(p => `- ${p.name}: ${p.description}`).join('\n')}` : ''}\n\nSource beats:\n${(t.sourceBeats || []).map((b,i) => `${i+1}. ${b}`).join('\n') || '(none recorded)'}\n${outline ? `\nFULL OUTLINE (the whole video, for foreshadowing and payoff):\n${outline.map(fmtRow).join('\n')}\n\nTHIS BATCH'S ROWS — write exactly these, in order:\n${rows.map(r => fmtRow(r) + arcRowSuffix(r)).join('\n')}\n` : ''}${retentionBatchNote(rows)}${arcBatchNote(rows, outline)}\nALREADY WRITTEN — never repeat any of these moments, actions, or lines:\n${writtenScenesLog() || '(none)'}\n\nThe previous scene ended at ${formatTime(lastEndSeconds)}. Its imagePrompt (your first new imagePrompt must look clearly different):\n"${lastScene ? lastScene.imagePrompt : 'opening of the video'}"\n\nIts action (continue from it if the next row stays in the same place):\n"${lastScene ? lastScene.videoAudioPrompt : 'opening of the video'}"\n${job.totalSeconds ? `\nTotal video length target: ${job.totalSeconds}s.` : ''}`;
 
     let raw;
     try{
@@ -3404,6 +3476,262 @@ async function markCopyProgress(n, stage){
   doneMap[n] = stage;
   await saveProgress();
   renderResults();
+}
+
+// ---------------------------------------------------------------------------
+// PHASE 3 — STORY SPINE, ARC CHECKS, AI STORY EDITOR
+// treatment.storySpine = { protagonist, want, need, flaw, outerConflict,
+//   innerConflict, stakes, resolution, takeaway,
+//   turningPoints: [{ name, row, event, note }] }   (5 turning points)
+// outline rows may carry: tension (1-5), emotion (one word), breather (true).
+// All optional: plans made before Phase 3 have none of this and get no new
+// warnings (job.spineExpected marks plans made with the spine rule).
+// ---------------------------------------------------------------------------
+const TP_NAMES = ['inciting incident', 'point of no return', 'midpoint', 'dark moment', 'climax'];
+const SPINE_FIELDS = [
+  ['protagonist', 'Protagonist'], ['want', 'Want'], ['need', 'Need'], ['flaw', 'Flaw'],
+  ['outerConflict', 'Outer conflict'], ['innerConflict', 'Inner conflict'], ['stakes', 'Stakes'],
+  ['resolution', 'Resolution'], ['takeaway', 'Takeaway']
+];
+function canonicalTpName(n){
+  const s = String(n || '').toLowerCase();
+  if(/incit|catalyst|call to/.test(s)) return 'inciting incident';
+  if(/no return|threshold|commit/.test(s)) return 'point of no return';
+  if(/mid/.test(s)) return 'midpoint';
+  if(/dark|all is lost|lowest|crisis/.test(s)) return 'dark moment';
+  if(/climax|final (battle|confrontation|choice)/.test(s)) return 'climax';
+  return null;
+}
+function normalizeSpine(raw, rowCount){
+  if(!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
+  const out = {};
+  SPINE_FIELDS.forEach(([k]) => { if(raw[k] != null && String(raw[k]).trim()) out[k] = String(raw[k]).trim().slice(0, 400); });
+  const seen = new Set();
+  out.turningPoints = (Array.isArray(raw.turningPoints) ? raw.turningPoints : [])
+    .map(tp => tp && typeof tp === 'object' ? { name: canonicalTpName(tp.name), row: Math.round(+tp.row), event: String(tp.event || tp.what || '').trim().slice(0, 300), note: tp.note ? String(tp.note).trim().slice(0, 200) : null } : null)
+    .filter(tp => tp && tp.name && Number.isFinite(tp.row) && tp.row >= 1 && (!rowCount || tp.row <= rowCount) && !seen.has(tp.name) && seen.add(tp.name))
+    .sort((a, b) => TP_NAMES.indexOf(a.name) - TP_NAMES.indexOf(b.name));
+  return out;
+}
+function getSpine(){ return (job && job.treatment && job.treatment.storySpine) || null; }
+function isStoryEditorOn(){ const el = document.getElementById('storyEditor'); return el ? !!el.checked : true; }
+
+function storySpineRule(){
+  return `\nSTORY SPINE & ARC — storytelling GUIDELINES that serve this particular story. They refine PLANNING & EXPANSION and work ALONGSIDE the STORY DOCTOR / retention rules (never replacing them); the requested length and row count stay exactly as specified above.
+Also add to the treatment object: "storySpine": { "protagonist": string (name + who they are, one line), "want": string (the outer goal they chase), "need": string (what they truly need to learn or become), "flaw": string (the inner weakness that holds them back), "outerConflict": string (who or what stands in the way), "innerConflict": string (the struggle inside them), "stakes": string (what is concretely lost if they fail), "resolution": string (how it ends), "takeaway": string (the lesson the viewer leaves with, one plain sentence), "turningPoints": [{ "name": "inciting incident" | "point of no return" | "midpoint" | "dark moment" | "climax", "row": number, "event": string (the concrete event in that row that changes the hero's situation or choices — a real turn, not a label stuck on an ordinary scene), "note": string or null (only when the placement is unusual on purpose: say why) }] — all five, in story order }.
+Add to EVERY outline row: "tension": number 1-5 (how tense the moment feels), "emotion": string (the one main emotion the viewer should feel, one word — e.g. dread, hope, shame, relief, wonder, anger), "breather": boolean (true only for a deliberate quiet scene).
+How to use them: (a) typical placement — adjust to this story's length, genre, pacing and logic, never damage the story to hit a number: inciting incident in the first ~15-20% of rows, point of no return ~25-35%, midpoint ~45-55%, dark moment ~70-85%, climax ~80-92%, before any outro rows; (b) tension rises overall toward the climax in natural waves — a small dip after a big turn is good, a perfectly straight line is not; the highest tension sits at or near the climax; (c) vary the emotions — not the same emotion more than 2 rows in a row unless that sustained feeling is the point; (d) the climax is caused by the hero's own meaningful choice that shows whether they overcame their flaw — never luck, coincidence or a rescue; (e) the resolution SHOWS the takeaway through what happens (no preaching); (f) breathers — reflection, atmosphere, anticipation, a character moment, emotional contrast — are welcome when they serve the story: about one per 8 rows at most, usually right after a big turn, and each still reveals something about a character; a breather row has "breather": true and its purpose starts with "breather:".`;
+}
+
+// --- Local arc checks (no AI call) ------------------------------------------
+// Three levels, all readable sentences naming the rows and a suggested fix:
+//   "Story arc — CRITICAL: …"  structural failure (missing spine / turning point) — costs 9 points
+//   "Story arc: …"             a likely problem — costs 4 points
+//   "Story arc note: …"        a possible weakness; never triggers an automatic
+//                              repair round on its own — costs 2 points
+// The user can mark any arc warning as intentional (treatment.spineAccepted).
+const isArcNote = w => /^Story arc note:/.test(w);
+let arcWarnKeys = {}; // warning text → key (for the "Intentional" button)
+function arcChecks(outline, spine){
+  const items = [];
+  const add = (level, key, text) => items.push({ level, key, text: (level === 'critical' ? 'Story arc — CRITICAL: ' : level === 'warn' ? 'Story arc: ' : 'Story arc note: ') + text });
+  if(!outline || !outline.length) return items;
+  const hasRowArc = outline.some(r => r.tension || r.emotion || r.breather);
+  if(!spine && !hasRowArc){
+    if(job && job.spineExpected) add('critical', 'no-spine', 'no story spine was returned — the plan has no protagonist arc or turning points. Fix: add storySpine (want, need, flaw, stakes…) and the five turning points.');
+    return items;
+  }
+  const story = outline.filter(r => r.kind !== 'outro');
+  const N = story.length || outline.length;
+  const pos = row => Math.round((story.findIndex(r => r.row === row) + 1) / N * 100);
+  if(spine){
+    const missingF = SPINE_FIELDS.filter(([k]) => !spine[k]).map(([, l]) => l.toLowerCase());
+    if(missingF.length >= 3) add('critical', 'spine-fields', `the story spine is missing ${missingF.join(', ')}. Fix: state them so every scene knows what the hero wants and risks.`);
+    else if(missingF.length) add('warn', 'spine-fields', `the story spine has no ${missingF.join(' or ')}. Fix: add ${missingF.length > 1 ? 'them' : 'it'} in one line.`);
+    const tps = spine.turningPoints || [];
+    const byName = n => tps.find(tp => tp.name === n);
+    const missingTp = TP_NAMES.filter(n => !byName(n));
+    if(missingTp.length) add('critical', 'tp-missing', `missing turning point${missingTp.length > 1 ? 's' : ''}: ${missingTp.join(', ')}. Fix: pick the row where that real change happens (or add it) and record it in storySpine.turningPoints.`);
+    const present = TP_NAMES.map(byName).filter(Boolean);
+    for(let i = 1; i < present.length; i++){
+      if(present[i].row < present[i - 1].row){ add('warn', 'tp-order', `turning points are out of order — the ${present[i].name} (row ${present[i].row}) comes before the ${present[i - 1].name} (row ${present[i - 1].row}). Fix: reorder the events or correct the rows.`); break; }
+    }
+    // Wide windows — a turning point outside them is questionable, not wrong;
+    // a "note" from the planner explaining the placement silences it.
+    const WIN = { 'inciting incident': [0, 25], 'point of no return': [15, 45], 'midpoint': [35, 65], 'dark moment': [55, 90], 'climax': [70, 98] };
+    present.forEach(tp => {
+      const p = pos(tp.row), w = WIN[tp.name];
+      if(p < 0) return;
+      if(tp.note) return;
+      if(p < w[0] || p > w[1]){
+        const far = tp.name === 'climax' ? p < 50 : tp.name === 'inciting incident' ? p > 40 : (p < w[0] - 20 || p > w[1] + 20);
+        add(far ? 'warn' : 'note', `tp-place:${tp.name}`, `the ${tp.name} sits at row ${tp.row} (${p}% through the story; usually ${w[0]}–${w[1]}%). Fix: move the event, or keep it and add a note saying why this placement serves the story.`);
+      }
+    });
+    const dark = byName('dark moment'), climax = byName('climax');
+    if(dark && climax && climax.row - dark.row < 2 && climax.row >= dark.row){
+      add('warn', 'too-quick', `the conflict resolves too quickly — the dark moment (row ${dark.row}) and the climax (row ${climax.row}) are ${climax.row - dark.row === 0 ? 'the same row' : 'back to back'}. Fix: give the hero at least one row to struggle, decide, or pay a price before the climax.`);
+    }
+  }
+  // Tension & emotion
+  const withT = story.filter(r => Number.isFinite(+r.tension) && +r.tension > 0);
+  if(job && job.spineExpected && withT.length < story.length * 0.6){
+    add('warn', 'no-tension', `${story.length - withT.length} of ${story.length} rows have no tension level. Fix: give every row "tension" (1-5) and "emotion".`);
+  }else if(withT.length >= 4){
+    const maxT = Math.max(...withT.map(r => +r.tension));
+    const peakRows = withT.filter(r => +r.tension === maxT);
+    const lastPeak = peakRows[peakRows.length - 1];
+    const climax = spine && (spine.turningPoints || []).find(tp => tp.name === 'climax');
+    const peakNearClimax = climax ? peakRows.some(r => Math.abs(r.row - climax.row) <= 2) : pos(lastPeak.row) >= 65;
+    if(!peakNearClimax){
+      add('warn', 'peak', `no tension peak near the climax — the highest tension (${maxT}/5) is at row ${peakRows.map(r => r.row).slice(0, 3).join(', ')}${climax ? `, but the climax is row ${climax.row}` : ` (${pos(lastPeak.row)}% through)`}. Fix: raise the stakes into the climax or lower the earlier peak.`);
+    }
+    if(climax){
+      const ct = (story.find(r => r.row === climax.row) || {}).tension;
+      if(ct && +ct <= 2) add('warn', 'climax-flat', `the climax row ${climax.row} is marked tension ${ct}/5. Fix: make the climax the moment of highest pressure.`);
+    }
+    // Long flat stretch: 5+ consecutive non-breather rows at one tension level.
+    for(let i = 0; i < story.length;){
+      const t = +story[i].tension;
+      if(!t || story[i].breather){ i++; continue; }
+      let j = i;
+      while(j + 1 < story.length && +story[j + 1].tension === t && !story[j + 1].breather) j++;
+      if(j - i + 1 >= 5) add('note', `flat:${story[i].row}`, `rows ${story[i].row}–${story[j].row} all sit at tension ${t}/5 (${j - i + 1} rows). Fix: add a small rise or release so the stretch has a wave.`);
+      i = j + 1;
+    }
+  }
+  for(let i = 0; i < story.length;){
+    const e = String(story[i].emotion || '').toLowerCase().trim();
+    if(!e){ i++; continue; }
+    let j = i;
+    while(j + 1 < story.length && String(story[j + 1].emotion || '').toLowerCase().trim() === e) j++;
+    if(j - i + 1 >= 3) add('note', `emotion:${story[i].row}`, `the same emotion ("${e}") runs for ${j - i + 1} rows (${story[i].row}–${story[j].row}). Fix: vary the feeling, unless that sustained ${e} is the point — then mark it intentional.`);
+    i = j + 1;
+  }
+  const breathers = story.filter(r => r.breather);
+  const allowed = Math.max(1, Math.round(N / 8));
+  if(breathers.length > allowed){
+    add(breathers.length > allowed * 2 ? 'warn' : 'note', 'breathers', `${breathers.length} breather rows (${breathers.map(r => r.row).join(', ')}) — about ${allowed} suit ${N} rows. Fix: keep the breathers that follow a big turn; give the others new information.`);
+  }
+  for(let i = 1; i < story.length; i++){
+    if(story[i].breather && story[i - 1].breather){ add('note', `breather-pair:${story[i - 1].row}`, `rows ${story[i - 1].row} and ${story[i].row} are back-to-back breathers. Fix: keep one.`); break; }
+  }
+  return items;
+}
+function arcWarnings(outline, spine){
+  const accepted = new Set((job && job.treatment && job.treatment.spineAccepted) || []);
+  arcWarnKeys = {};
+  return arcChecks(outline, spine).filter(it => !accepted.has(it.key)).map(it => { arcWarnKeys[it.text] = it.key; return it.text; });
+}
+async function acceptArcWarning(key){
+  if(!job || !job.treatment || !key) return;
+  job.treatment.spineAccepted = Array.from(new Set((job.treatment.spineAccepted || []).concat([key])));
+  await saveJobToStorage(true);
+  showToast('Marked as intentional — this check is ignored for this plan');
+  renderResults();
+}
+async function resetArcAccepted(){
+  if(!job || !job.treatment) return;
+  job.treatment.spineAccepted = [];
+  await saveJobToStorage(true);
+  renderResults();
+}
+
+// --- AI story editor (runs inside the Plan Gate's first repair request) -----
+const STORY_EDITOR_ISSUES = ['predictability', 'character-change', 'exposition', 'transition', 'climax', 'ending', 'motivation', 'emotion', 'preachy', 'coherence'];
+function storyEditorBlock(){
+  return `
+AI STORY EDITOR — ALSO DO THIS. Critique THIS story on its own terms — its genre, tone and the emotional experience it is going for. Do not push it toward a formula or make it resemble other stories. Look for: predictability (the twist or ending is obvious too early), sudden or unearned character changes, unnecessary exposition, weak transitions between rows, an unearned climax (not caused by the hero's own meaningful choice), a weak or unsatisfying ending, inconsistent character motivation, flat emotional impact, a lesson that is preached instead of shown, and anything incoherent.
+Report ONLY real problems (0-6, most serious first) in "editorFindings": [{"issue": "predictability"|"character-change"|"exposition"|"transition"|"climax"|"ending"|"motivation"|"emotion"|"preachy"|"coherence", "rows": [row numbers], "severity": "high"|"medium"|"low", "why": string (one sentence, specific to this story), "fix": string (one sentence)}], and "editorVerdict": one sentence on what already works and what matters most.
+Then fix the high and medium findings in the plan with the smallest possible changes; leave low ones as notes. If the plan is already strong, return it UNCHANGED with an empty editorFindings list — never rewrite a story just to change it.`;
+}
+function sanitizeEditorFindings(list, rowCount){
+  return (Array.isArray(list) ? list : []).filter(f => f && typeof f === 'object').slice(0, 6).map(f => ({
+    issue: STORY_EDITOR_ISSUES.includes(String(f.issue || '').toLowerCase()) ? String(f.issue).toLowerCase() : 'coherence',
+    rows: (Array.isArray(f.rows) ? f.rows : [f.rows]).map(n => Math.round(+n)).filter(n => Number.isFinite(n) && n >= 1 && (!rowCount || n <= rowCount)).slice(0, 8),
+    severity: /high/i.test(f.severity) ? 'high' : /low/i.test(f.severity) ? 'low' : 'medium',
+    why: String(f.why || '').trim().slice(0, 300),
+    fix: String(f.fix || '').trim().slice(0, 300)
+  })).filter(f => f.why);
+}
+async function rerunStoryEditor(){
+  if(!job || !job.treatment) return;
+  await manualPlanGate({ forceEditor: true });
+}
+
+// --- Arc context for scene batches (compact; the full outline is already sent) ---
+function arcRowSuffix(r){
+  const sp = getSpine();
+  const tp = sp && (sp.turningPoints || []).find(t => t.row === r.row);
+  return `${r.tension ? ` · tension ${r.tension}/5` : ''}${r.emotion ? ` · feel: ${r.emotion}` : ''}${r.breather ? ' · BREATHER (quiet, but reveals character)' : ''}${tp ? ` · TURNING POINT: ${tp.name.toUpperCase()}` : ''}`;
+}
+function arcBatchNote(rows, outline){
+  const sp = getSpine();
+  if(!sp || !rows || !rows.length || !outline) return '';
+  const story = outline.filter(r => r.kind !== 'outro');
+  const N = story.length || outline.length;
+  const pct = row => Math.min(100, Math.round(row / N * 100));
+  const tps = (sp.turningPoints || []).slice().sort((a, b) => a.row - b.row);
+  const first = rows[0].row, last = rows[rows.length - 1].row;
+  const inBatch = tps.filter(tp => rows.some(r => r.row === tp.row));
+  const upcoming = tps.filter(tp => tp.row > last).slice(0, 2);
+  return `
+STORY ARC — keep every scene in this batch on this arc:
+Hero: ${sp.protagonist || '—'} · wants: ${sp.want || '—'} · needs: ${sp.need || '—'} · flaw: ${sp.flaw || '—'}
+Conflict — outer: ${sp.outerConflict || '—'}; inner: ${sp.innerConflict || '—'} · Stakes: ${sp.stakes || '—'}
+Turning points: ${tps.map(tp => `row ${tp.row} ${tp.name}`).join(' · ') || '—'}
+This batch: rows ${first}–${last} of ${N} (${pct(first)}–${pct(last)}% through the story).${inBatch.length ? ` It CONTAINS ${inBatch.map(tp => `the ${tp.name} at row ${tp.row} (${tp.event || 'see outline'})`).join('; ')} — make that event land clearly and visibly on screen.` : ''}
+Heading toward: ${upcoming.length ? upcoming.map(tp => `the ${tp.name} at row ${tp.row}`).join(', ') : `the resolution — ${sp.resolution || 'as planned'}`}. Show the takeaway through events, never preach it: ${sp.takeaway || '—'}
+Each row below lists its tension (1-5), the emotion to feel and any breather or turning point: match the scene's pacing, camera energy, sound and spoken line to them.
+`;
+}
+
+// --- Display ----------------------------------------------------------------
+function renderSpineCard(){
+  const sp = getSpine();
+  const outline = getOutline() || [];
+  if(!sp){
+    return job && job.spineExpected ? `<div class="spine-card"><div class="spine-head">Story spine</div><div class="hint">The planner returned no story spine for this plan — see Plan quality.</div></div>` : '';
+  }
+  const tps = sp.turningPoints || [];
+  return `<div class="spine-card">
+    <div class="spine-head">Story spine</div>
+    <div class="treatment-grid">${SPINE_FIELDS.filter(([k]) => sp[k]).map(([k, l]) => `<div class="treatment-item"><b>${l}</b><span>${escHtml(sp[k])}</span></div>`).join('')}</div>
+    ${tps.length ? `<div class="spine-tps">${tps.map(tp => `<div class="spine-tp"><span class="tp-row">row ${escHtml(tp.row)}</span><span class="tp-name">${escHtml(tp.name)}</span><span class="tp-ev">${escHtml(tp.event || '')}${tp.note ? ` <em>(${escHtml(tp.note)})</em>` : ''}</span></div>`).join('')}</div>` : ''}
+    ${outline.some(r => r.tension) ? `<details class="tension-curve" data-acc="tension" ${accOpenState.tension ? 'open' : ''} ontoggle="accOpenState.tension = this.open"><summary>Tension curve <span class="acc-sub">diagnostic, not a formula</span></summary>${tensionCurveSvg(outline, tps)}</details>` : ''}
+  </div>`;
+}
+function tensionCurveSvg(outline, tps){
+  const n = outline.length, W = 380, H = 116, top = 18, base = 92, left = 6, right = 6;
+  const bw = (W - left - right) / n;
+  const tpAt = row => tps.find(tp => tp.row === row);
+  const LETTER = { 'inciting incident': 'I', 'point of no return': 'P', 'midpoint': 'M', 'dark moment': 'D', 'climax': 'C' };
+  const bars = outline.map((r, i) => {
+    const t = Math.max(0, Math.min(5, +r.tension || 0));
+    const h = t ? (base - top) * t / 5 : 2;
+    const x = left + i * bw;
+    const fill = r.kind === 'outro' ? 'var(--line)' : r.breather ? 'var(--teal)' : 'var(--amber)';
+    const tp = tpAt(r.row);
+    return `<g><title>Row ${r.row}: tension ${t || '—'}/5${r.emotion ? ' · ' + escHtml(r.emotion) : ''}${r.breather ? ' · breather' : ''}${tp ? ' · ' + escHtml(tp.name) : ''}</title><rect x="${(x + bw * 0.12).toFixed(1)}" y="${(base - h).toFixed(1)}" width="${Math.max(1, bw * 0.76).toFixed(1)}" height="${h.toFixed(1)}" rx="1.5" fill="${fill}" opacity="${tp ? 1 : 0.7}"/>${tp ? `<text x="${(x + bw / 2).toFixed(1)}" y="${(base - h - 4).toFixed(1)}" text-anchor="middle" font-size="9" font-weight="600" fill="var(--text)">${LETTER[tp.name]}</text>` : ''}</g>`;
+  }).join('');
+  const ticks = outline.filter((r, i) => i === 0 || r.row % 5 === 0 || i === n - 1).map(r => {
+    const i = outline.indexOf(r);
+    return `<text x="${(left + i * bw + bw / 2).toFixed(1)}" y="${base + 13}" text-anchor="middle" font-size="8.5" fill="var(--text-dim)">${r.row}</text>`;
+  }).join('');
+  return `<svg class="tc-svg" viewBox="0 0 ${W} ${H}" role="img" aria-label="Planned tension per row">${bars}<line x1="${left}" y1="${base}" x2="${W - right}" y2="${base}" stroke="var(--line)"/>${ticks}</svg>
+    <div class="tc-key"><span><i style="background:var(--amber)"></i>tension per row</span><span><i style="background:var(--teal)"></i>breather</span><span>I · P · M · D · C = turning points</span></div>`;
+}
+function renderStoryEditor(){
+  const ed = job && job.treatment && job.treatment.storyEditor;
+  if(!ed) return isStoryEditorOn() && getOutline() ? `<div class="se-box"><div class="se-head">🖋 AI story editor</div><div class="hint">Not run for this plan yet — it runs once inside the next plan check.</div></div>` : '';
+  const sev = { high: 'se-high', medium: 'se-med', low: 'se-low' };
+  return `<div class="se-box">
+    <div class="se-head">🖋 AI story editor <span class="acc-sub">${escHtml(ed.model || '')}${ed.withRepair ? ' · inside repair round 1' : ' · 1 review request'}</span></div>
+    ${ed.verdict ? `<div class="cd" style="margin-bottom:6px;">${escHtml(ed.verdict)}</div>` : ''}
+    ${ed.findings && ed.findings.length ? ed.findings.map(f => `<div class="se-f"><span class="se-sev ${sev[f.severity]}">${f.severity}</span><span class="se-issue">${escHtml(f.issue)}</span>${f.rows.length ? ` <span class="acc-sub">row ${f.rows.join(', ')}</span>` : ''}<div>${escHtml(f.why)}</div>${f.fix ? `<div class="se-fix">Fix: ${escHtml(f.fix)}</div>` : ''}</div>`).join('') : '<div class="ret-line">✓ No real problems found — plan kept as it was.</div>'}
+    <div class="cd" style="margin-top:6px;">${ed.applied ? `High/medium findings were fixed in <span class="se-issue">${escHtml(ed.applied)}</span>.` : (ed.findings && ed.findings.length ? 'Shown as notes — the editor\'s version was not kept (it did not score at least as well).' : '')}</div>
+    <div class="btn-row" style="margin-top:8px;"><button class="btn btn-regen" onclick="rerunStoryEditor()" ${planGateBusy ? 'disabled' : ''}>↻ Ask the story editor again</button></div>
+  </div>`;
 }
 
 // ---------------------------------------------------------------------------
@@ -3551,9 +3879,10 @@ function computeStages(){
   else if(planGateBusy || retentionFixBusy) stages.push({ key: 'plangate', label: 'Plan check', status: 'run', detail: 'repairing' });
   else{
     const a = auditPlanCandidate({ outline, retentionMap: getRetentionMap(), characters: (job.styleBlock && job.styleBlock.characters) || [] });
-    stages.push(a.warns.length
-      ? { key: 'plangate', label: 'Plan check', status: 'attn', detail: `${a.score}/100 · ${a.warns.length} problem${a.warns.length > 1 ? 's' : ''}`, problems: a.warns.length }
-      : { key: 'plangate', label: 'Plan check', status: 'done', detail: `${a.score}/100` });
+    const real = a.warns.filter(w => !isArcNote(w)).length, notes = a.warns.length - real;
+    stages.push(real
+      ? { key: 'plangate', label: 'Plan check', status: 'attn', detail: `${a.score}/100 · ${real} problem${real > 1 ? 's' : ''}`, problems: real }
+      : { key: 'plangate', label: 'Plan check', status: 'done', detail: `${a.score}/100${notes ? ` · ${notes} note${notes > 1 ? 's' : ''}` : ''}` });
   }
   // Scenes
   const covered = N ? new Set(scenes.map(s => +s.outlineRow).filter(r => r >= 1 && r <= N)).size : scenes.length;
@@ -5245,6 +5574,7 @@ function renderResults(){
           <div class="treatment-item"><b>Narrative arc</b><span>${escHtml(t.narrativeArc || '—')}</span></div>
           ${Number.isFinite(+t.sourceCapacitySeconds) && +t.sourceCapacitySeconds > 0 ? `<div class="treatment-item"><b>Length</b><span>Source alone supports ~${formatTime(Math.round(+t.sourceCapacitySeconds))} · plan is ${planRows.length} scenes (~${formatTime(planRows.length * 9)})${planExpansion ? ` · ${planExpansion} expanded` : ''}</span></div>` : ''}
         </div>
+        ${renderSpineCard()}
       </div>
     </details>` : ''}
 
