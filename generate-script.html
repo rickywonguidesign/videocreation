@@ -374,6 +374,29 @@
   .stage.q-sum.q-fail{color:var(--err);border-color:var(--err);}
   .stage.q-sum.q-warn{color:var(--amber);border-color:var(--amber-dim);}
   .stage.q-sum.q-pass{color:var(--done);border-color:rgba(123,174,127,.45);}
+  /* Phase 5: storage health, backups, versions */
+  .storage-health{border:1px solid var(--line);border-radius:6px;padding:10px 12px;margin-bottom:14px;font-size:12px;line-height:1.55;}
+  .sh-line{margin:3px 0;color:var(--text-dim);}
+  .sh-line b{color:var(--text);font-weight:600;}
+  .sh-dim{color:var(--text-dim);font-size:11px;}
+  .sh-box{margin:8px 0;padding:8px 10px;border:1px solid var(--amber-dim);border-radius:6px;color:var(--text-dim);}
+  .sh-box b{color:var(--amber);}
+  .sh-steps{display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-top:6px;}
+  .sh-btn{font-family:'IBM Plex Mono',monospace;font-size:10.5px;padding:4px 8px;border-radius:4px;border:1px solid var(--line);background:none;color:var(--text);cursor:pointer;}
+  .sh-btn.primary{background:var(--amber);color:#1a1405;border-color:var(--amber);}
+  .sh-btn:disabled{opacity:.6;cursor:default;}
+  .sh-done{color:var(--done);} .sh-failed{color:var(--err);} .sh-copying,.sh-verifying{color:var(--teal);}
+  .v-item{border-top:1px solid var(--line);padding:8px 0;font-size:12px;}
+  .v-item:first-child{border-top:none;}
+  .v-top{display:flex;gap:8px;align-items:baseline;}
+  .v-time{font-family:'IBM Plex Mono',monospace;font-size:10.5px;color:var(--text-dim);}
+  .v-op{font-weight:600;color:var(--text);}
+  .v-desc{color:var(--text-dim);margin:2px 0 4px;}
+  .v-diff{margin-top:8px;padding:8px 10px;border:1px solid var(--line);border-radius:6px;display:flex;flex-direction:column;gap:6px;}
+  .vd{font-size:11.5px;color:var(--text-dim);padding-left:8px;}
+  .vd-old{color:var(--err);opacity:.85;} .vd-new{color:var(--done);}
+  .vd-warn{color:var(--amber);font-size:11.5px;}
+  .vd-check{font-size:11.5px;color:var(--text);display:flex;gap:6px;align-items:flex-start;}
   .modal-close{width:100%;margin-top:14px;background:none;border:1px solid var(--line);color:var(--text-dim);font-family:'IBM Plex Mono',monospace;font-size:12px;padding:9px;border-radius:5px;cursor:pointer;}
   .empty-note{font-size:12px;color:var(--text-dim);text-align:center;padding:20px 0;}
 
@@ -644,6 +667,7 @@
 <div class="save-banner undo" id="undoBar" role="status"><span id="undoMsg"></span>
   <div class="sb-actions"><button class="primary" onclick="undoDelete()">↩ Undo</button></div></div>
 <input type="file" id="importFile" accept=".json,application/json" style="display:none" onchange="importProjectFile(this)">
+<input type="file" id="importBackupFile" accept=".json,application/json" style="display:none" onchange="importBackupFile(this)">
 
 <div class="modal-overlay" id="savedModal">
   <div class="modal-panel">
@@ -652,6 +676,7 @@
       <button onclick="document.getElementById('importFile').click()" title="Add a project from an exported .json file as a NEW job — existing jobs are never changed">⬆ Import project</button>
       <button onclick="exportCurrentJob()" title="Download the project that is open now (everything, including progress) as a .json backup">⬇ Export current project</button>
     </div>
+    <div id="storageHealth" class="storage-health"></div>
     <div id="savedList"></div>
     <button class="modal-close" onclick="closeSavedModal()">Close</button>
   </div>
@@ -660,8 +685,9 @@
 <script>
 // window.storage only exists inside Claude.ai's artifact sandbox — this page now runs
 // standalone on your own server, so we back the same API with localStorage instead.
+let lsStore = null; // the original localStorage-backed store (Phase 5 keeps it as the fallback)
 if(!window.storage){
-  window.storage = {
+  window.storage = lsStore = {
     async get(key){
       const val = localStorage.getItem(key);
       if(val === null) throw new Error('key not found');
@@ -2421,6 +2447,7 @@ ${g.rows.map(fmt).join('\n')}`).join('\n\n')}`;
     if(!good.length) throw new Error('The AI returned no usable fixes');
 
     // Keep the previous plan for ↩ Undo.
+    if(!(await snapshotOrAsk('Open-loop fix', `Before adding curiosity hooks at row ${good.map(f => f.row).join(', ')}`, { plan: true }))) throw new Error('stopped — no version could be saved');
     job.treatment._retentionUndo = JSON.stringify({ outline, retentionMap: m });
     good.forEach(f => {
       const row = outline.find(r => +r.row === +f.row);
@@ -2664,6 +2691,11 @@ async function runPlanGate(opts){
     }
   }
   // Apply the winner to the live job.
+  // Version before the plan check replaces the plan (only when it does).
+  if(best !== versions[0] && !(await snapshotOrAsk('Plan repair', `Before the plan check applied "${best.label}" (score ${versions[0].audit.score} → ${best.audit.score})`, { plan: true }))){
+    best = versions[0];
+    if(editorResult) editorResult.applied = null;
+  }
   const win = best.cand;
   applyPlanWinner(win);
   if(editorResult) job.treatment.storyEditor = editorResult;
@@ -3029,6 +3061,8 @@ Rules: keep the exact meaning, names, story facts, tension and emotion. Use ever
     const user = JSON.stringify(flagged.map(f => ({ sceneNumber: f.sc.sceneNumber, narrationLine: f.sc.narrationLine || null, dialogue: f.sc.dialogue || null })), null, 1);
     const res = await callTask('json', system, user);
     const lines = (res && Array.isArray(res.lines)) ? res.lines : [];
+    const touchedClips = lines.map(l => +l.sceneNumber).filter(n => (job.scenes || []).some(sc => +sc.sceneNumber === n));
+    if(touchedClips.length && !(await snapshotOrAsk('Simplify', `Before simplifying clip${touchedClips.length > 1 ? 's' : ''} ${touchedClips.slice(0, 8).join(', ')}`, { clips: touchedClips }))) throw new Error('stopped — no version could be saved');
     let changed = 0;
     lines.forEach(l => {
       const sc = (job.scenes || []).find(s => +s.sceneNumber === +l.sceneNumber);
@@ -3511,6 +3545,453 @@ async function markCopyProgress(n, stage){
 }
 
 // ---------------------------------------------------------------------------
+// PHASE 5 — STORAGE UPGRADE (IndexedDB), BACKUPS, VERSION HISTORY
+// Everything still goes through window.storage (get / set / delete / list).
+//   'local' mode  — the original localStorage store (default; nothing moves
+//                   until the user clicks "Upgrade storage")
+//   'idb' mode    — jobs, progress, the job list and versions live in
+//                   IndexedDB; small settings stay in localStorage. Reads fall
+//                   back to the pre-upgrade localStorage copy if IndexedDB
+//                   misses a key or fails; writes never fall back (a failed
+//                   save shows the Phase 1 "Save failed" chip instead, so an
+//                   older copy can never shadow newer work).
+//   'host' mode   — inside claude.ai the host's own window.storage is used.
+// ---------------------------------------------------------------------------
+const IDB_NAME = 'storyGenerator', IDB_OBJ = 'kv';
+let idbPromise = null;
+function idbOpen(){
+  if(idbPromise) return idbPromise;
+  idbPromise = new Promise((resolve, reject) => {
+    if(!window.indexedDB) return reject(new Error('IndexedDB is not available in this browser'));
+    let req;
+    try{ req = indexedDB.open(IDB_NAME, 1); }catch(e){ return reject(e); }
+    req.onupgradeneeded = () => { const db = req.result; if(!db.objectStoreNames.contains(IDB_OBJ)) db.createObjectStore(IDB_OBJ); };
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error || new Error('IndexedDB could not be opened'));
+    req.onblocked = () => reject(new Error('IndexedDB is blocked by another tab'));
+  });
+  idbPromise.catch(() => { idbPromise = null; });
+  return idbPromise;
+}
+function idbRun(mode, fn){
+  return idbOpen().then(db => new Promise((resolve, reject) => {
+    let tx;
+    try{ tx = db.transaction(IDB_OBJ, mode); }catch(e){ return reject(e); }
+    let r, result;
+    try{ r = fn(tx.objectStore(IDB_OBJ)); }catch(e){ return reject(e); }
+    if(r) r.onsuccess = () => { result = r.result; };
+    tx.oncomplete = () => resolve(result);
+    tx.onerror = () => reject(tx.error || (r && r.error) || new Error('IndexedDB error'));
+    tx.onabort = () => reject(tx.error || new Error('IndexedDB write was aborted'));
+  }));
+}
+const idbStore = {
+  async get(key){ const v = await idbRun('readonly', st => st.get(key)); if(v === undefined) throw new Error('key not found'); return { key, value: v, shared: false }; },
+  async set(key, value){ await idbRun('readwrite', st => st.put(String(value), key)); return { key, value, shared: false }; },
+  async delete(key){ await idbRun('readwrite', st => st.delete(key)); return { key, deleted: true, shared: false }; },
+  async list(prefix){ const keys = await idbRun('readonly', st => st.getAllKeys()); return { keys: (keys || []).map(String).filter(k => !prefix || k.startsWith(prefix)), prefix, shared: false }; }
+};
+const isMovedKey = k => k === 'savedJobsIndex' || /^(job|progress|snap):/.test(k);
+let storageNotices = new Set();
+function notifyStorageOnce(id, msg){
+  // Once per browser for the same notice (not on every page load).
+  try{ if(localStorage.getItem('storageNotice:' + id) === msg) return; localStorage.setItem('storageNotice:' + id, msg); }catch(e){ if(storageNotices.has(id)) return; }
+  storageNotices.add(id);
+  showToast(msg);
+  console.warn('[Storage]', msg);
+}
+function makeHybridStore(){
+  return {
+    async get(key){
+      if(!isMovedKey(key)) return lsStore.get(key);
+      try{ return await idbStore.get(key); }
+      catch(e){
+        // Pre-upgrade copy (kept until "Remove old copies") — read-only fallback.
+        const old = localStorage.getItem(key);
+        if(old !== null){
+          if(!/key not found/.test(e.message)) notifyStorageOnce('readfallback', `Upgraded storage couldn't be read (${e.message}) — showing the copy saved before the upgrade.`);
+          return { key, value: old, shared: false, fromOldCopy: true };
+        }
+        throw e;
+      }
+    },
+    async set(key, value){ return isMovedKey(key) ? idbStore.set(key, value) : lsStore.set(key, value); },
+    async delete(key){
+      if(!isMovedKey(key)) return lsStore.delete(key);
+      const r = await idbStore.delete(key);
+      try{ localStorage.removeItem(key); }catch(e){} // a deleted job must not come back from its old copy
+      return r;
+    },
+    async list(prefix){
+      const a = (await idbStore.list(prefix)).keys;
+      const b = Object.keys(localStorage).filter(k => (!prefix || k.startsWith(prefix)) && !isMovedKey(k));
+      return { keys: [...new Set(a.concat(b))], prefix, shared: false };
+    }
+  };
+}
+const storageState = { mode: lsStore ? 'local' : 'host', idbOk: null, idbError: null, migratedAt: +localStorage.getItem('storageMigratedAt') || null };
+(function initStorageMode(){
+  if(!lsStore) return; // claude.ai host storage
+  if(localStorage.getItem('storageMode') === 'idb'){
+    // Installed synchronously so no early save can go to the old store.
+    window.storage = makeHybridStore();
+    storageState.mode = 'idb';
+  }
+  idbOpen().then(() => { storageState.idbOk = true; }).catch(e => {
+    storageState.idbOk = false; storageState.idbError = e.message;
+    if(storageState.mode === 'idb') notifyStorageOnce('idb-down', `Upgraded storage can't be opened right now (${e.message}). Jobs saved before the upgrade can still be read; new saves will fail visibly until it works again — use Export to keep a copy.`);
+  });
+})();
+
+// --- One-time, user-started migration ----------------------------------------
+let migration = null; // { phase, done, total, msg }
+async function upgradeStorage(){
+  if(!lsStore){ showToast('This page uses the Claude preview\'s own storage — nothing to upgrade'); return; }
+  if(localStorage.getItem('storageMode') === 'idb'){ showToast('Storage is already upgraded'); return; }
+  if(busy.has('generate') || busy.has('continue') || planGateBusy || qualityBusy){ showToast('Wait for the running generation or fix to finish first'); return; }
+  if(busy.has('migrate')) return;
+  busy.add('migrate');
+  migration = { phase: 'copying', done: 0, total: 0, msg: 'Opening upgraded storage…' };
+  renderStorageHealth();
+  try{
+    await idbOpen();
+    try{ if(navigator.storage && navigator.storage.persist) await navigator.storage.persist(); }catch(e){}
+    const keys = Object.keys(localStorage).filter(isMovedKey);
+    migration.total = keys.length;
+    // 1) Copy (idempotent: re-running overwrites the same keys — no duplicates).
+    for(const k of keys){
+      await idbStore.set(k, localStorage.getItem(k));
+      migration.done++; migration.msg = `Copying ${migration.done} of ${keys.length}…`;
+      if(migration.done % 5 === 0 || migration.done === keys.length) renderStorageHealth();
+    }
+    // 2) Read every copy back and compare with the original.
+    migration.phase = 'verifying'; migration.msg = 'Checking every copy…'; renderStorageHealth();
+    const verify = async () => { const bad = []; for(const k of keys){ let v = null; try{ v = (await idbStore.get(k)).value; }catch(e){} if(v !== localStorage.getItem(k)) bad.push(k); } return bad; };
+    let bad = await verify();
+    if(bad.length){ // a key may have been saved while copying — copy those once more
+      for(const k of bad){ try{ await idbStore.set(k, localStorage.getItem(k)); }catch(e){} }
+      bad = await verify();
+    }
+    // 3) Every job in the job list must have its record copied.
+    let idx = [];
+    try{ idx = JSON.parse(localStorage.getItem('savedJobsIndex') || '[]'); }catch(e){}
+    const missing = idx.filter(it => it && localStorage.getItem('job:' + it.jobId) !== null && !keys.includes('job:' + it.jobId));
+    if(bad.length || missing.length) throw new Error(`${bad.length + missing.length} record(s) did not copy correctly (${bad.concat(missing.map(m => 'job:' + m.jobId)).slice(0, 4).join(', ')}) — nothing was switched; your data is unchanged in browser storage`);
+    // 4) Only now switch.
+    localStorage.setItem('storageMode', 'idb');
+    localStorage.setItem('storageMigratedAt', String(Date.now()));
+    window.storage = makeHybridStore();
+    storageState.mode = 'idb'; storageState.idbOk = true; storageState.migratedAt = Date.now();
+    migration = { phase: 'done', done: keys.length, total: keys.length, msg: `Upgraded ✓ — ${idx.length} job(s) and ${keys.length} record(s) copied and verified. Old copies are kept until you remove them.` };
+    showToast('Storage upgraded ✓');
+  }catch(e){
+    migration = { phase: 'failed', done: migration ? migration.done : 0, total: migration ? migration.total : 0, msg: `Upgrade stopped: ${e.message}. Still using browser storage — nothing was lost. You can try again.` };
+    showToast('Upgrade stopped — still using browser storage');
+  }finally{
+    busy.delete('migrate');
+    renderStorageHealth();
+  }
+}
+function oldCopyKeys(){ return Object.keys(localStorage).filter(isMovedKey); }
+async function removeOldCopies(){
+  if(storageState.mode !== 'idb'){ showToast('Upgrade storage first'); return; }
+  const keys = oldCopyKeys();
+  if(!keys.length){ showToast('No old copies left'); return; }
+  if(!confirm(`Remove ${keys.length} old cop${keys.length > 1 ? 'ies' : 'y'} from browser storage?\n\nEach one is removed only if the upgraded storage has it. This frees space and can't be undone — export a backup first if unsure.`)) return;
+  let removed = 0, kept = 0;
+  for(const k of keys){
+    let has = false;
+    try{ await idbStore.get(k); has = true; }catch(e){}
+    if(has){ localStorage.removeItem(k); removed++; } else kept++;
+  }
+  showToast(`Removed ${removed} old cop${removed === 1 ? 'y' : 'ies'}${kept ? ` · kept ${kept} that the upgraded storage doesn't have` : ''}`);
+  renderStorageHealth();
+}
+async function requestPersistence(){
+  try{
+    if(!(navigator.storage && navigator.storage.persist)){ showToast('This browser doesn\'t support persistent storage'); return; }
+    const ok = await navigator.storage.persist();
+    showToast(ok ? 'The browser will keep your projects even when disk space is low' : 'The browser declined (it decides based on how you use the site) — keep exporting backups');
+  }catch(e){ showToast('Could not ask: ' + e.message); }
+  renderStorageHealth();
+}
+const fmtBytes = n => n >= 1e9 ? `${(n / 1e9).toFixed(1)} GB` : n >= 1e6 ? `${(n / 1e6).toFixed(1)} MB` : `${Math.max(1, Math.round(n / 1e3))} KB`;
+function localStorageBytes(keys){ let n = 0; (keys || Object.keys(localStorage)).forEach(k => { const v = localStorage.getItem(k); n += (k.length + (v ? v.length : 0)) * 2; }); return n; }
+async function renderStorageHealth(){
+  const el = document.getElementById('storageHealth');
+  if(!el) return;
+  let est = null, persisted = null;
+  try{ if(navigator.storage && navigator.storage.estimate) est = await navigator.storage.estimate(); }catch(e){}
+  try{ if(navigator.storage && navigator.storage.persisted) persisted = await navigator.storage.persisted(); }catch(e){}
+  const mode = storageState.mode;
+  const modeLine = mode === 'host' ? 'Claude preview storage (managed by Claude)'
+    : mode === 'idb' ? `Upgraded storage (IndexedDB)${storageState.migratedAt ? ` since ${new Date(storageState.migratedAt).toLocaleDateString()}` : ''}${storageState.idbOk === false ? ` — <span style="color:var(--err)">can't be opened right now: ${escHtml(storageState.idbError || '')}</span>` : ''}`
+    : `Browser storage (localStorage)${storageState.idbOk === false ? ` — upgrade not available here: ${escHtml(storageState.idbError || 'IndexedDB unavailable')}` : ''}`;
+  const usage = est && Number.isFinite(est.usage) && Number.isFinite(est.quota) && est.quota > 0
+    ? `${fmtBytes(est.usage)} used of approximately ${fmtBytes(est.quota)} (reported by the browser)` : 'This browser doesn\'t report storage usage.';
+  const lsJobs = lsStore ? localStorageBytes(oldCopyKeys()) : 0;
+  const old = mode === 'idb' ? oldCopyKeys() : [];
+  const m = migration;
+  el.innerHTML = `
+    <div class="sh-line"><b>Storage:</b> ${modeLine}</div>
+    <div class="sh-line"><b>Usage:</b> ${escHtml(usage)}${mode === 'local' && lsStore ? ` · projects here take ${fmtBytes(lsJobs)} (browsers usually allow about 5 MB for this storage)` : ''}</div>
+    <div class="sh-line"><b>Persistent storage:</b> ${persisted === null ? 'not supported by this browser' : persisted ? 'on ✓' : `off <button class="sh-btn" onclick="requestPersistence()">Ask the browser to keep my data</button>`} <span class="sh-dim">— lowers the chance the browser clears projects; it is not a backup.</span></div>
+    ${mode === 'local' && lsStore && storageState.idbOk !== false ? `<div class="sh-box"><b>Upgrade storage</b> — move projects to IndexedDB for much more room. Originals stay untouched until you remove them.
+      <div class="sh-steps"><span>1.</span> <button class="sh-btn" onclick="exportAllJobs()">⬇ Export all (recommended first)</button> <span>2.</span> <button class="sh-btn primary" onclick="upgradeStorage()" ${busy.has('migrate') ? 'disabled' : ''}>${busy.has('migrate') ? '⏳ Upgrading…' : 'Upgrade storage'}</button></div></div>` : ''}
+    ${m ? `<div class="sh-line sh-${m.phase}">${escHtml(m.msg)}${m.total && m.phase !== 'done' ? ` (${m.done}/${m.total})` : ''}</div>` : ''}
+    ${mode === 'idb' && old.length ? `<div class="sh-line"><b>Old copies:</b> ${old.length} item(s), ${fmtBytes(localStorageBytes(old))} in browser storage from before the upgrade (kept as a fallback). <button class="sh-btn" onclick="removeOldCopies()">Remove old copies</button></div>` : ''}
+    <div class="sh-line sh-backup"><b>Backup:</b> <button class="sh-btn" onclick="exportAllJobs()">⬇ Export all</button> <button class="sh-btn" onclick="document.getElementById('importBackupFile').click()">⬆ Import backup</button> <label class="sh-dim"><input type="checkbox" id="exportVersions"> include version history in exports</label></div>
+    <div id="backupResult" class="sh-line">${escHtml(lastBackupMsg)}</div>`;
+}
+let lastBackupMsg = ''; // survives the panel being redrawn
+function setBackupMsg(msg){ lastBackupMsg = msg; const out = document.getElementById('backupResult'); if(out) out.textContent = msg; }
+function exportWithVersions(){ const el = document.getElementById('exportVersions'); return !!(el && el.checked); }
+
+// --- Versions (snapshots) -----------------------------------------------------
+const VERSION_LIMIT = 10;
+let versionsCache = { jobId: null, list: [] };
+let lastSnapshotError = '';
+async function loadVersions(jobId){
+  try{ const r = await window.storage.get(`snap:${jobId}`); const a = JSON.parse(r.value); return Array.isArray(a) ? a : []; }catch(e){ return []; }
+}
+async function refreshVersions(){
+  if(!job || !job.jobId) return;
+  versionsCache = { jobId: job.jobId, list: await loadVersions(job.jobId) };
+}
+function snapshotParts(scope){
+  const parts = {};
+  const t = job.treatment || {};
+  if(scope.plan){
+    parts.plan = clonePlan({ outline: t.outline || null, retentionMap: t.retentionMap || null, storySpine: t.storySpine || null, nameChanges: t.nameChanges || [], spineAccepted: t.spineAccepted || [], logline: t.logline || null, sourceBeats: t.sourceBeats || null, narratorVoice: t.narratorVoice || null });
+    parts.characters = clonePlan((job.styleBlock && job.styleBlock.characters) || []);
+    parts.thumbnail = clonePlan(job.thumbnail || null);
+  }
+  if(scope.allClips){ parts.scenes = clonePlan(job.scenes || []); parts.allClips = true; }
+  else if(scope.clips && scope.clips.length) parts.scenes = clonePlan((job.scenes || []).filter(s => scope.clips.includes(+s.sceneNumber)));
+  return parts;
+}
+// Saves a version BEFORE a change. Returns true on success.
+async function takeSnapshot(op, desc, scope){
+  if(!job || !job.jobId) return false;
+  try{
+    const parts = snapshotParts(scope || {});
+    if(!parts.plan && !parts.scenes) return true; // nothing that this change can touch
+    const list = await loadVersions(job.jobId);
+    list.unshift({ id: 'v' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6), at: Date.now(), op, desc: String(desc || '').slice(0, 200), parts });
+    while(list.length > VERSION_LIMIT) list.pop(); // oldest goes first; the job itself is never touched
+    await window.storage.set(`snap:${job.jobId}`, JSON.stringify(list));
+    versionsCache = { jobId: job.jobId, list };
+    return true;
+  }catch(e){
+    lastSnapshotError = e.message;
+    console.warn('[Versions] snapshot failed', e);
+    return false;
+  }
+}
+// Never continue a destructive change silently when its version couldn't be saved.
+async function snapshotOrAsk(op, desc, scope){
+  if(await takeSnapshot(op, desc, scope)) return true;
+  return confirm(`A restorable version couldn't be saved before "${op}" (${lastSnapshotError}).\n\nContinue WITHOUT a version? Cancel stops the change — you can export the project first.`);
+}
+function versionDiff(v){
+  const d = { plan: [], spine: [], other: [], characters: [], clips: [], rowsVsWritten: [] };
+  const P = v.parts || {};
+  if(P.plan){
+    const cur = (job.treatment && job.treatment.outline) || [], old = P.plan.outline || [];
+    for(let i = 0; i < Math.max(cur.length, old.length); i++){
+      const a = old[i], b = cur[i];
+      if(!a || !b){ d.plan.push({ row: i + 1, fields: [a ? 'removed now' : 'added now'], from: a ? a.summary : '—', to: b ? b.summary : '—' }); continue; }
+      const f = ['summary', 'location', 'purpose', 'beat', 'tension', 'emotion', 'breather'].filter(k => String(a[k] == null ? '' : a[k]) !== String(b[k] == null ? '' : b[k]));
+      if(f.length) d.plan.push({ row: a.row, fields: f, from: a.summary, to: b.summary });
+    }
+    const os = P.plan.storySpine || {}, cs = (job.treatment && job.treatment.storySpine) || {};
+    SPINE_FIELDS.forEach(([k, l]) => { if(String(os[k] || '') !== String(cs[k] || '')) d.spine.push(l); });
+    if(JSON.stringify(os.turningPoints || []) !== JSON.stringify(cs.turningPoints || [])) d.spine.push('turning points');
+    if(JSON.stringify(P.plan.retentionMap || null) !== JSON.stringify((job.treatment && job.treatment.retentionMap) || null)) d.other.push('retention map');
+    if(String(P.plan.logline || '') !== String((job.treatment && job.treatment.logline) || '') && P.plan.logline) d.other.push('logline');
+    if(JSON.stringify(P.thumbnail || null) !== JSON.stringify(job.thumbnail || null)) d.other.push('thumbnail');
+    const oc = P.characters || [], cc = (job.styleBlock && job.styleBlock.characters) || [];
+    for(let i = 0; i < Math.max(oc.length, cc.length); i++){
+      const a = oc[i], b = cc[i];
+      if(!a || !b) d.characters.push(a ? `${a.name} (not in the cast now)` : `${b.name} (new since then)`);
+      else if(a.name !== b.name) d.characters.push(`${b.name} was ${a.name}`);
+      else if(JSON.stringify(a) !== JSON.stringify(b)) d.characters.push(`${a.name} (details differ)`);
+    }
+    const written = new Set((job.scenes || []).map(s => +s.outlineRow));
+    d.rowsVsWritten = d.plan.filter(x => written.has(+x.row)).map(x => +x.row);
+  }
+  (P.scenes || []).forEach(o => {
+    const c = (job.scenes || []).find(s => o.outlineRow ? +s.outlineRow === +o.outlineRow : +s.sceneNumber === +o.sceneNumber);
+    if(!c){ d.clips.push({ clip: o.sceneNumber, fields: ['clip no longer exists'] }); return; }
+    const f = [['narrationLine', 'narration'], ['dialogue', 'dialogue'], ['imagePrompt', 'image prompt'], ['videoAudioPrompt', 'video prompt'], ['charactersInScene', 'characters']].filter(([k]) => JSON.stringify(o[k] || '') !== JSON.stringify(c[k] || '')).map(([, l]) => l);
+    if(f.length) d.clips.push({ clip: c.sceneNumber, fields: f });
+  });
+  return d;
+}
+let versionsUi = { open: null };
+function toggleVersionCompare(id){ versionsUi.open = versionsUi.open === id ? null : id; renderResults(); }
+async function restoreVersion(id){
+  const v = (versionsCache.list || []).find(x => x.id === id);
+  if(!v){ showToast('That version is no longer available'); return; }
+  if(busy.has('generate') || busy.has('continue') || planGateBusy || qualityBusy){ showToast('Wait for the running generation or fix to finish first'); return; }
+  const d = versionDiff(v);
+  const P = v.parts || {};
+  const box = document.getElementById(`vclips-${id}`);
+  const withClips = !!(P.scenes && P.scenes.length && box && box.checked);
+  if(!P.plan && !withClips){ showToast('Tick "also restore clip content" — this version only holds clips'); return; }
+  const summary = [P.plan ? `Plan: ${d.plan.length} row(s) differ${d.spine.length ? `, story spine (${d.spine.join(', ')})` : ''}${d.characters.length ? `, characters (${d.characters.length})` : ''}${d.other.length ? `, ${d.other.join(', ')}` : ''}` : '', withClips ? `Clips: ${d.clips.length} clip(s) will be overwritten (${d.clips.map(c => c.clip).slice(0, 8).join(', ')})` : (P.scenes && P.scenes.length ? 'Clips: kept as they are' : '')].filter(Boolean).join('\n');
+  const writtenNote = P.plan && d.rowsVsWritten.length && !withClips ? `\n\nRows ${d.rowsVsWritten.join(', ')} are already written as clips — those clips are KEPT and will no longer match the restored plan text.` : '';
+  if(!confirm(`Restore "${v.desc || v.op}" from ${new Date(v.at).toLocaleString()}?\n\n${summary}${writtenNote}\n\nThe current state is saved as a version first, so this can be undone.`)) return;
+  if(withClips && !confirm(`This overwrites the current text and prompts of ${d.clips.length} clip(s). Continue?`)) return;
+  const scope = { plan: !!P.plan, allClips: withClips && P.allClips, clips: withClips && !P.allClips ? (P.scenes || []).map(o => { const c = (job.scenes || []).find(s => o.outlineRow ? +s.outlineRow === +o.outlineRow : +s.sceneNumber === +o.sceneNumber); return c ? +c.sceneNumber : null; }).filter(Boolean) : [] };
+  if(!(await snapshotOrAsk('Restore', `Before restoring "${(v.desc || v.op).slice(0, 80)}"`, scope))) return;
+  if(P.plan){
+    const t = job.treatment;
+    const pl = clonePlan(P.plan);
+    t.outline = pl.outline; t.retentionMap = pl.retentionMap; t.storySpine = pl.storySpine; t.nameChanges = pl.nameChanges || []; t.spineAccepted = pl.spineAccepted || [];
+    ['logline', 'sourceBeats', 'narratorVoice'].forEach(k => { if(pl[k] != null) t[k] = pl[k]; });
+    if(job.styleBlock && P.characters) job.styleBlock.characters = clonePlan(P.characters);
+    if(P.thumbnail) job.thumbnail = clonePlan(P.thumbnail);
+  }
+  if(withClips){
+    (P.scenes || []).forEach(o => {
+      const c = (job.scenes || []).find(s => o.outlineRow ? +s.outlineRow === +o.outlineRow : +s.sceneNumber === +o.sceneNumber);
+      if(c) Object.assign(c, clonePlan(o), { sceneNumber: c.sceneNumber, timeRange: c.timeRange, durationSeconds: c.durationSeconds });
+    });
+  }
+  await saveJobToStorage(true);
+  versionsUi.open = null;
+  renderResults();
+  showToast(`Restored ✓ — undo it with the "Before restoring" version${writtenNote ? ` · rows ${d.rowsVsWritten.join(', ')} kept their written clips` : ''}`);
+}
+function renderVersionsPanel(openAttr){
+  if(!job || !job.jobId) return '';
+  if(versionsCache.jobId !== job.jobId){ refreshVersions().then(() => { if(versionsCache.list.length) renderResults(); }); }
+  const list = versionsCache.jobId === job.jobId ? versionsCache.list : [];
+  const diffHtml = v => {
+    const d = versionDiff(v), P = v.parts || {};
+    const items = [];
+    if(P.plan){
+      items.push(d.plan.length ? `<div><b>Plan rows that differ (${d.plan.length})</b>${d.plan.slice(0, 12).map(x => `<div class="vd">row ${x.row} · ${escHtml(x.fields.join(', '))}: <span class="vd-old">${escHtml(x.from || '')}</span> → <span class="vd-new">${escHtml(x.to || '')}</span></div>`).join('')}${d.plan.length > 12 ? `<div class="vd">…and ${d.plan.length - 12} more</div>` : ''}</div>` : '<div>Plan rows: same as now</div>');
+      if(d.spine.length) items.push(`<div><b>Story spine:</b> ${escHtml(d.spine.join(', '))}</div>`);
+      if(d.characters.length) items.push(`<div><b>Characters:</b> ${escHtml(d.characters.join(' · '))}</div>`);
+      if(d.other.length) items.push(`<div><b>Also differs:</b> ${escHtml(d.other.join(', '))}</div>`);
+      if(d.rowsVsWritten.length) items.push(`<div class="vd-warn">Rows ${d.rowsVsWritten.join(', ')} are written as clips — restoring the plan keeps those clips as they are.</div>`);
+    }
+    if(P.scenes && P.scenes.length){
+      items.push(d.clips.length ? `<div><b>Clips that differ (${d.clips.length})</b>${d.clips.slice(0, 12).map(c => `<div class="vd">clip ${c.clip}: ${escHtml(c.fields.join(', '))}</div>`).join('')}</div>` : '<div>Clips: same as now</div>');
+      items.push(`<label class="vd-check"><input type="checkbox" id="vclips-${v.id}"> also restore clip content (${P.scenes.length} clip${P.scenes.length > 1 ? 's' : ''}) — overwrites the current clip text and prompts</label>`);
+    }
+    return `<div class="v-diff">${items.join('')}<div class="btn-row" style="margin-top:8px;"><button class="btn btn-regen" onclick="restoreVersion('${v.id}')">↩ Restore this version</button></div></div>`;
+  };
+  return `
+    <details class="acc" data-acc="versions" ${openAttr('versions', false)}>
+      <summary><span>🕘 Versions <span class="acc-sub">${list.length ? `${list.length} saved` : 'none yet'}</span></span></summary>
+      <div class="acc-body treatment-item">
+        ${list.length ? list.map(v => `<div class="v-item">
+          <div class="v-top"><span class="v-time">${new Date(v.at).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}</span><span class="v-op">${escHtml(v.op)}</span></div>
+          <div class="v-desc">${escHtml(v.desc || '')} <span class="acc-sub">${v.parts && v.parts.plan ? 'plan' : ''}${v.parts && v.parts.plan && v.parts.scenes ? ' + ' : ''}${v.parts && v.parts.scenes ? `${v.parts.allClips ? 'all' : v.parts.scenes.length} clip(s)` : ''}</span></div>
+          <button class="arc-ok-btn" onclick="toggleVersionCompare('${v.id}')">${versionsUi.open === v.id ? 'Hide' : 'Compare with now'}</button>
+          ${versionsUi.open === v.id ? diffHtml(v) : ''}
+        </div>`).join('') : '<div class="hint">A version is saved automatically before every plan repair, Fix in plan, rename, open-loop fix, Simplify and clip rewrite.</div>'}
+        <div class="hint">Last ${VERSION_LIMIT} per job; the oldest is removed first. Restoring saves the current state as a version first, so it can be undone. Written clips are never changed unless you tick "also restore clip content".</div>
+      </div>
+    </details>`;
+}
+
+// --- Export all / Import backup ----------------------------------------------
+const BACKUP_FORMAT = 'story-generator-backup';
+async function exportAllJobs(){
+  const withV = exportWithVersions();
+  const idx = await getSavedJobsIndex();
+  const jobs = [], skipped = [];
+  for(const it of idx){
+    try{
+      const r = await window.storage.get(`job:${it.jobId}`);
+      const j = JSON.parse(r.value);
+      const errs = validateProjectJob(j);
+      if(errs.length){ skipped.push(`${it.topic || it.jobId} (${errs[0]})`); continue; }
+      let progress = {};
+      try{ progress = JSON.parse((await window.storage.get(`progress:${it.jobId}`)).value) || {}; }catch(e){}
+      const entry = { job: j, progress };
+      if(withV) entry.versions = await loadVersions(it.jobId);
+      jobs.push(entry);
+    }catch(e){ skipped.push(`${it.topic || it.jobId} (${e.message})`); }
+  }
+  if(!jobs.length){ showToast(skipped.length ? `Nothing exported — ${skipped.length} job(s) could not be read` : 'No saved jobs to export'); return; }
+  const data = { format: BACKUP_FORMAT, formatVersion: 1, appSchemaVersion: SCHEMA_VERSION, exportedAt: new Date().toISOString(), jobCount: jobs.length, includesVersions: withV, jobs };
+  const blob = new Blob([JSON.stringify(data)], { type: 'application/json' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = `story-backup-${new Date().toISOString().slice(0, 10)}-${jobs.length}-jobs.json`;
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+  try{ localStorage.setItem('lastBackupAt', String(Date.now())); }catch(e){}
+  const msg = `Exported ${jobs.length} job(s)${withV ? ' with version history' : ''}${skipped.length ? ` · skipped ${skipped.length}: ${skipped.slice(0, 3).join('; ')}` : ''}`;
+  showToast(msg);
+  setBackupMsg(msg);
+}
+function sanitizeVersions(list){
+  return (Array.isArray(list) ? list : []).filter(v => v && typeof v === 'object' && v.parts && typeof v.parts === 'object' && (v.parts.plan || Array.isArray(v.parts.scenes))).slice(0, VERSION_LIMIT)
+    .map(v => ({ id: String(v.id || 'v' + Math.random().toString(36).slice(2, 8)), at: +v.at || Date.now(), op: String(v.op || 'Version').slice(0, 60), desc: String(v.desc || '').slice(0, 200), parts: v.parts }));
+}
+async function importBackupFile(input){
+  const file = input.files && input.files[0];
+  input.value = '';
+  if(!file) return;
+  const out = document.getElementById('backupResult');
+  try{
+    if(file.size > 300 * 1024 * 1024) throw new Error('the file is larger than 300 MB');
+    let data;
+    try{ data = JSON.parse(await file.text()); }catch(e){ throw new Error('the file is not valid JSON'); }
+    let entries;
+    if(data && data.format === BACKUP_FORMAT && Array.isArray(data.jobs)) entries = data.jobs;
+    else if(data && data.format === EXPORT_FORMAT) entries = [{ job: data.job, progress: data.progress, versions: data.versions }];
+    else throw new Error('this is not a Story Generator backup');
+    const valid = [], invalid = [];
+    entries.forEach((e, i) => { const errs = e && e.job ? validateProjectJob(e.job) : ['no job']; if(errs.length) invalid.push(`#${i + 1} (${errs[0]})`); else valid.push(e); });
+    if(!valid.length) throw new Error(`none of the ${entries.length} job(s) is usable: ${invalid.slice(0, 3).join('; ')}`);
+    const withV = valid.filter(e => Array.isArray(e.versions) && e.versions.length).length;
+    const names = valid.slice(0, 6).map(e => `• ${String(e.job.topic || (e.job.treatment && e.job.treatment.logline) || 'Untitled').slice(0, 60)} (${(e.job.scenes || []).length} scenes)`).join('\n');
+    if(!confirm(`Import ${valid.length} job(s) from this backup${data.exportedAt ? ` (made ${new Date(data.exportedAt).toLocaleString()})` : ''}?\n\n${names}${valid.length > 6 ? `\n…and ${valid.length - 6} more` : ''}${withV ? `\n\n${withV} job(s) include version history.` : ''}${invalid.length ? `\n\n${invalid.length} damaged job(s) will be skipped.` : ''}\n\nAll are added as NEW jobs — nothing existing is changed.`)) return;
+    const existing = new Set((await getSavedJobsIndex()).map(it => String(it.topic || '').toLowerCase()));
+    let imported = 0; const failed = [];
+    for(let i = 0; i < valid.length; i++){
+      const e = valid[i];
+      const j = migrateJob(JSON.parse(JSON.stringify(e.job)));
+      const newId = `job_${Date.now()}_${i}_imp`;
+      let topic = j.topic || String((j.treatment && j.treatment.logline) || 'Untitled story').slice(0, 80);
+      if(existing.has(topic.toLowerCase())){ let n = 1; while(existing.has(`${topic} (imported${n > 1 ? ' ' + n : ''})`.toLowerCase())) n++; topic = `${topic} (imported${n > 1 ? ' ' + n : ''})`; }
+      existing.add(topic.toLowerCase());
+      j.importedFrom = { jobId: j.jobId || null, file: file.name, at: new Date().toISOString() };
+      j.jobId = newId; j.topic = topic; j.schemaVersion = SCHEMA_VERSION;
+      const progress = e.progress && typeof e.progress === 'object' && !Array.isArray(e.progress) ? e.progress : {};
+      const versions = sanitizeVersions(e.versions);
+      try{
+        await window.storage.set(`job:${newId}`, JSON.stringify(j));
+        await window.storage.set(`progress:${newId}`, JSON.stringify(progress));
+        if(versions.length) await window.storage.set(`snap:${newId}`, JSON.stringify(versions));
+        const index = (await getSavedJobsIndex()).filter(it => it.jobId !== newId);
+        index.unshift({ jobId: newId, topic, sceneCount: (j.scenes || []).length, savedAt: new Date().toISOString() });
+        await window.storage.set('savedJobsIndex', JSON.stringify(index));
+        imported++;
+      }catch(err){
+        for(const k of [`job:${newId}`, `progress:${newId}`, `snap:${newId}`]){ try{ await window.storage.delete(k); }catch(_){} }
+        failed.push(`${topic} (${isQuotaError(err) ? 'storage full' : err.message})`);
+      }
+    }
+    const msg = `Imported ${imported} job(s)${invalid.length ? ` · skipped ${invalid.length} damaged` : ''}${failed.length ? ` · failed ${failed.length}: ${failed.slice(0, 2).join('; ')}` : ''}`;
+    showToast(msg);
+    setBackupMsg(msg);
+    await openSavedModal();
+  }catch(e){
+    const msg = 'Could not import backup: ' + e.message;
+    showToast(msg);
+    setBackupMsg(msg);
+  }
+}
+
+// ---------------------------------------------------------------------------
 // PHASE 4 — UNIFIED STORY QUALITY REPORT
 // Everything here is DERIVED from the existing checks on every render; the
 // only saved data are job.qualityIntentional (marks + reasons) and
@@ -3816,6 +4297,7 @@ async function rewriteClipLines(sceneNumber, instruction, mustContain, onlyField
   const lang = job.language || 'English';
   const system = `You edit ONE clip of a story video. Reply with ONLY a JSON object with exactly these keys: ${fields.map(k => `"${k}"`).join(', ')}. ${instruction} Change as little as possible: keep the meaning, names, story facts, length and format (spoken lines in ${lang}; prompts in English). If "dialogue" starts with a speaker lead-in, keep that format. If "videoAudioPrompt" quotes the dialogue, the quote must match the new dialogue exactly.`;
   const res = await callTask('json', system, JSON.stringify(payload, null, 1));
+  if(!(await snapshotOrAsk('Rewrite clip', `Before rewriting clip ${sceneNumber}: ${instruction.split('.')[0].slice(0, 90)}`, { clips: [+sceneNumber] }))) return { error: 'stopped — no version could be saved' };
   let changed = 0;
   const oldLine = sc.dialogue ? splitSpokenLine(sc.dialogue).line : null;
   fields.forEach(k => { if(res && typeof res[k] === 'string' && res[k].trim() && res[k].trim() !== sc[k]){ sc[k] = res[k].trim(); changed++; } });
@@ -3848,6 +4330,7 @@ async function fixOnePlanProblem(f){
   const pairs = cand.renames || [];
   const touched = pairs.length ? (job.scenes || []).filter(s => pairs.some(p => JSON.stringify(s).includes(p.original))).length : 0;
   if(touched && !confirm(`This renames ${pairs.map(p => `${p.original} → ${p.renamed}`).join(', ')}.\n\nAlso rename in the ${touched} clip(s) already written? (Cancel keeps the old plan.)`)) return { rejected: true, detail: 'rename cancelled — the plan was not changed' };
+  if(!(await snapshotOrAsk(f.action && f.action.label === 'Rename' ? 'Rename' : 'Fix in plan', `Before fixing: ${String(f.text).slice(0, 120)}`, { plan: true, allClips: touched > 0 }))) return { rejected: true, detail: 'stopped — no version could be saved' };
   applyPlanWinner(cand);
   if(touched) job.scenes = applyNameChanges({ s: job.scenes }, pairs).s;
   await saveJobToStorage(true);
@@ -4505,8 +4988,9 @@ function projectFileName(j){
     .replace(/[^\p{L}\p{N}]+/gu, '-').replace(/^-+|-+$/g, '').slice(0, 50) || 'story';
   return `story-${t}-${new Date().toISOString().slice(0, 10)}.json`;
 }
-function downloadProject(j, progress){
+function downloadProject(j, progress, versions){
   const data = { format: EXPORT_FORMAT, formatVersion: 1, appSchemaVersion: SCHEMA_VERSION, exportedAt: new Date().toISOString(), job: j, progress: progress || {} };
+  if(Array.isArray(versions)) data.versions = versions;
   const blob = new Blob([JSON.stringify(data, null, 1)], { type: 'application/json' });
   const a = document.createElement('a');
   a.href = URL.createObjectURL(blob);
@@ -4516,9 +5000,9 @@ function downloadProject(j, progress){
   a.remove();
   setTimeout(() => URL.revokeObjectURL(a.href), 5000);
 }
-function exportCurrentJob(){
+async function exportCurrentJob(){
   if(!job || !job.jobId){ showToast('No project is open — load or generate one first (or use Export next to a saved job)'); return; }
-  downloadProject(job, doneMap);
+  downloadProject(job, doneMap, exportWithVersions() ? await loadVersions(job.jobId) : undefined);
   showToast('Project exported — keep the .json file somewhere safe');
 }
 async function exportSavedJob(jobId){
@@ -4527,7 +5011,7 @@ async function exportSavedJob(jobId){
     const j = JSON.parse(r.value);
     let progress = {};
     try{ const pr = await window.storage.get(`progress:${jobId}`); progress = JSON.parse(pr.value) || {}; }catch(e){}
-    downloadProject(j, progress);
+    downloadProject(j, progress, exportWithVersions() ? await loadVersions(jobId) : undefined);
     showToast('Project exported');
   }catch(e){
     showToast('Could not export: ' + e.message);
@@ -4572,6 +5056,8 @@ async function importProjectFile(input){
     try{
       await window.storage.set(`job:${newId}`, JSON.stringify(j));
       await window.storage.set(`progress:${newId}`, JSON.stringify(progress));
+      const vers = sanitizeVersions(data && data.versions);
+      if(vers.length) await window.storage.set(`snap:${newId}`, JSON.stringify(vers));
       const index = (await getSavedJobsIndex()).filter(it => it.jobId !== newId);
       index.unshift({ jobId: newId, topic: j.topic || String(title).slice(0, 80), sceneCount: j.scenes.length, savedAt: new Date().toISOString() });
       await window.storage.set('savedJobsIndex', JSON.stringify(index));
@@ -4579,6 +5065,7 @@ async function importProjectFile(input){
       // Roll back a half-written import so nothing is left behind.
       try{ await window.storage.delete(`job:${newId}`); }catch(_){}
       try{ await window.storage.delete(`progress:${newId}`); }catch(_){}
+      try{ await window.storage.delete(`snap:${newId}`); }catch(_){}
       throw new Error(isQuotaError(e) ? 'browser storage is full — delete or export old jobs first' : e.message);
     }
     showToast(`Imported "${String(title).slice(0, 40)}" — ${j.scenes.length} scenes`);
@@ -4610,6 +5097,7 @@ async function undoDelete(){
   try{
     if(u.jobValue != null) await window.storage.set(`job:${u.jobId}`, u.jobValue);
     if(u.progressValue != null) await window.storage.set(`progress:${u.jobId}`, u.progressValue);
+    if(u.snapValue != null) await window.storage.set(`snap:${u.jobId}`, u.snapValue);
     const index = (await getSavedJobsIndex()).filter(it => it.jobId !== u.jobId);
     index.splice(Math.max(0, Math.min(u.pos < 0 ? 0 : u.pos, index.length)), 0, u.item);
     await window.storage.set('savedJobsIndex', JSON.stringify(index));
@@ -4681,6 +5169,7 @@ async function openSavedModal(){
     `).join('');
   }
   document.getElementById('savedModal').classList.add('open');
+  renderStorageHealth();
 }
 function closeSavedModal(){
   document.getElementById('savedModal').classList.remove('open');
@@ -4715,11 +5204,14 @@ async function deleteSavedJob(jobId){
     let jobValue = null, progressValue = null;
     try{ const r = await window.storage.get(`job:${jobId}`); jobValue = r ? r.value : null; }catch(e){}
     try{ const r = await window.storage.get(`progress:${jobId}`); progressValue = r ? r.value : null; }catch(e){}
+    let snapValue = null;
+    try{ const r = await window.storage.get(`snap:${jobId}`); snapValue = r ? r.value : null; }catch(e){}
     if(pendingUndo) clearUndo(); // an older delete becomes final
     await window.storage.delete(`job:${jobId}`);
     try{ await window.storage.delete(`progress:${jobId}`); }catch(e){}
+    try{ await window.storage.delete(`snap:${jobId}`); }catch(e){}
     await window.storage.set('savedJobsIndex', JSON.stringify(index.filter(it => it.jobId !== jobId)));
-    pendingUndo = { jobId, jobValue, progressValue, item, pos };
+    pendingUndo = { jobId, jobValue, progressValue, snapValue, item, pos };
     showUndoBar(`Deleted "${String(item.topic || 'job').slice(0, 60)}".`);
     openSavedModal();
   }catch(e){
@@ -6072,6 +6564,7 @@ function renderResults(){
       </div>
     </details>` : ''}
 
+    ${renderVersionsPanel(openAttr)}
     ${renderStoryQualityPanels(openAttr)}
 
     ${voiceList ? `
