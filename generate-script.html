@@ -336,6 +336,44 @@
   .se-issue{font-weight:600;color:var(--text);}
   .arc-ok-btn{font-family:'IBM Plex Mono',monospace;font-size:10px;padding:2px 7px;margin-left:6px;border-radius:4px;border:1px solid var(--line);background:none;color:var(--text-dim);cursor:pointer;}
   .arc-ok-btn:hover{color:var(--text);}
+  /* Phase 4: unified story quality report */
+  .acc-quality > summary{border-left:3px solid var(--amber);}
+  .q-cat{border-top:1px solid var(--line);padding:8px 0;}
+  .q-cat:first-of-type{border-top:none;}
+  .q-cat > summary{cursor:pointer;display:flex;align-items:center;gap:8px;flex-wrap:wrap;list-style:none;}
+  .q-cat > summary::-webkit-details-marker{display:none;}
+  .q-cat-name{font-size:12.5px;font-weight:600;color:var(--text);}
+  .q-pill{font-family:'IBM Plex Mono',monospace;font-size:9.5px;padding:2px 7px;border-radius:3px;border:1px solid var(--line);color:var(--text-dim);min-width:38px;text-align:center;}
+  .q-pill.q-pass{color:var(--done);border-color:rgba(123,174,127,.45);}
+  .q-pill.q-warn{color:var(--amber);border-color:var(--amber-dim);}
+  .q-pill.q-fail{color:var(--err);border-color:var(--err);}
+  .q-list{margin-top:8px;display:flex;flex-direction:column;gap:8px;}
+  .q-f{border:1px solid var(--line);border-left:3px solid var(--line);border-radius:6px;padding:8px 10px;font-size:12px;line-height:1.5;}
+  .q-f.q-fail{border-left-color:var(--err);}
+  .q-f.q-warn{border-left-color:var(--amber);}
+  .q-f.q-int{opacity:.6;}
+  .q-top{display:flex;gap:8px;align-items:baseline;}
+  .q-lvl{font-family:'IBM Plex Mono',monospace;font-size:9.5px;flex-shrink:0;color:var(--text-dim);}
+  .q-lvl.q-fail{color:var(--err);} .q-lvl.q-warn{color:var(--amber);}
+  .q-text{color:var(--text);}
+  .q-meta{font-size:11px;color:var(--text-dim);margin:3px 0;}
+  .q-ref{color:var(--amber);text-decoration:none;font-family:'IBM Plex Mono',monospace;font-size:10.5px;}
+  .q-ref:hover{text-decoration:underline;}
+  .q-why{color:var(--text-dim);}
+  .q-why b{color:var(--text);font-weight:600;}
+  .q-rc{font-size:11px;margin-top:4px;color:var(--text-dim);}
+  .q-rc.q-fixed{color:var(--done);} .q-rc.q-still,.q-rc.q-error{color:var(--err);} .q-rc.q-rejected,.q-rc.q-unverified{color:var(--amber);}
+  .q-intent{font-size:11px;color:var(--text-dim);margin-top:4px;display:flex;gap:6px;align-items:center;flex-wrap:wrap;}
+  .q-reason{flex:1;min-width:140px;font-size:11px;padding:3px 6px;background:var(--bg);border:1px solid var(--line);border-radius:4px;color:var(--text);}
+  .q-actions{display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-top:6px;}
+  .q-btn{font-size:11px;padding:5px 9px;}
+  .q-cost{font-size:9.5px;margin-left:6px;opacity:.75;font-family:'IBM Plex Mono',monospace;}
+  .q-fixed{margin-top:10px;font-size:12px;color:var(--text-dim);}
+  .q-fixed b{color:var(--done);}
+  .stage.q-sum{margin-left:6px;}
+  .stage.q-sum.q-fail{color:var(--err);border-color:var(--err);}
+  .stage.q-sum.q-warn{color:var(--amber);border-color:var(--amber-dim);}
+  .stage.q-sum.q-pass{color:var(--done);border-color:rgba(123,174,127,.45);}
   .modal-close{width:100%;margin-top:14px;background:none;border:1px solid var(--line);color:var(--text-dim);font-family:'IBM Plex Mono',monospace;font-size:12px;padding:9px;border-radius:5px;cursor:pointer;}
   .empty-note{font-size:12px;color:var(--text-dim);text-align:center;padding:20px 0;}
 
@@ -2514,7 +2552,8 @@ function auditPlanCandidate(cand){
     }
     if(storyOptsFromJob().monetizeSafe) warns = warns.concat(uniquenessPlanWarnings(cand.characters));
     warns = warns.concat(arcWarnings(cand.outline, cand.spine !== undefined ? cand.spine : getSpine()));
-    return { warns, score: scorePlanWarnings(warns) };
+    if(!cand.keepIntentional) warns = warns.filter(w => !isIntentionalPlanWarning(w));
+    return { warns, score: scorePlanWarnings(warns.filter(w => !isIntentionalPlanWarning(w))) };
   }finally{
     job.treatment = saved.t;
     if(job.styleBlock) job.styleBlock.characters = saved.chars;
@@ -2541,7 +2580,8 @@ HARD RULES:
 - If two character names look alike, rename the less important one in "renames" (and use the new name everywhere).
 - Keep retentionMap complete and its row numbers consistent with the new outline (incidentRow, heroIntroRow, heroIntro, mysteryAAnsweredRow, revealRow, stakesRow, plants, openLoopRows, flashbackRows, mirrorEnding, secret, hookQuestion, mysteryA, mysteryB, stakes).
 - English only. Each summary one sentence, max 22 words. "changes" = short list of what you changed.${hasArc ? `
-- Keep the story spine: return "storySpine" (protagonist, want, need, flaw, outerConflict, innerConflict, stakes, resolution, takeaway, and the five turningPoints — inciting incident, point of no return, midpoint, dark moment, climax — each {name, row, event, note}) with row numbers matching the new outline, and give every row "tension" (1-5), "emotion" (one word) and "breather" (true only for a deliberate quiet scene). Story-arc NOTES are optional: change something for a note only if it clearly helps this story.` : ''}${editor ? storyEditorBlock() : ''}`;
+- Keep the story spine: return "storySpine" (protagonist, want, need, flaw, outerConflict, innerConflict, stakes, resolution, takeaway, and the five turningPoints — inciting incident, point of no return, midpoint, dark moment, climax — each {name, row, event, note}) with row numbers matching the new outline, and give every row "tension" (1-5), "emotion" (one word) and "breather" (true only for a deliberate quiet scene). Story-arc NOTES are optional: change something for a note only if it clearly helps this story.` : ''}${editor ? storyEditorBlock() : ''}${ropts && ropts.single ? `
+THIS IS A SINGLE-PROBLEM FIX: change ONLY what the one listed problem needs. Keep the premise, every character, the outcome and every other row exactly as they are.` : ''}`;
   const user = `Story: ${t.logline || job.topic || ''}
 Characters: ${(cand.characters || []).map(c => `${c.name} (${c.role || ''})`).join(', ')}
 
@@ -2625,16 +2665,8 @@ async function runPlanGate(opts){
   }
   // Apply the winner to the live job.
   const win = best.cand;
-  job.treatment.outline = win.outline;
-  if(win.retentionMap) job.treatment.retentionMap = win.retentionMap;
-  if(win.spine) job.treatment.storySpine = win.spine;
+  applyPlanWinner(win);
   if(editorResult) job.treatment.storyEditor = editorResult;
-  if(job.styleBlock) job.styleBlock.characters = win.characters;
-  if(win.renames && win.renames.length){
-    job.thumbnail = applyNameChanges(job.thumbnail, win.renames);
-    ['logline', 'sourceBeats', 'narratorVoice'].forEach(k => { if(job.treatment[k] != null) job.treatment[k] = applyNameChanges({ v: job.treatment[k] }, win.renames).v; });
-    job.treatment.nameChanges = (job.treatment.nameChanges || []).concat(win.renames);
-  }
   job.treatment.planGate = {
     at: Date.now(),
     model: ((modelForTask('review') || {}).model) || getSelectedModel(),
@@ -2984,9 +3016,9 @@ function simpleEnglishScan(){
 }
 
 let simplifyBusy = false;
-async function simplifyHardLines(){
+async function simplifyHardLines(onlyScene){
   if(simplifyBusy) return;
-  const flagged = simpleEnglishScan().flagged.slice(0, 25);
+  const flagged = simpleEnglishScan().flagged.filter(f => !onlyScene || +f.sc.sceneNumber === +onlyScene).slice(0, 25);
   if(!flagged.length) return;
   simplifyBusy = true;
   renderResults();
@@ -3078,7 +3110,7 @@ function renderStoryQualityPanels(openAttr){
     const se = simpleEnglishScan();
     const level = se.avg <= 12 && !se.longCount ? 'easy' : se.avg <= 15 ? 'mostly easy' : 'hard';
     html += `
-    <details class="acc ${se.flagged.length ? 'acc-char' : 'acc-treatment'}" data-acc="simpleeng" ${openAttr('simpleeng', se.flagged.length > 0)}>
+    <details class="acc ${se.flagged.length ? 'acc-char' : 'acc-treatment'}" data-acc="simpleeng" ${openAttr('simpleeng', false)}>
       <summary><span>📖 Simple English check <span class="acc-sub">${se.flagged.length ? `${se.flagged.length} clip(s) to fix` : 'all easy'}</span></span></summary>
       <div class="acc-body treatment-item">
         <div style="margin-bottom:8px;"><b>Reading level</b><span>${level} · ${se.avg.toFixed(1)} words per sentence on average · ${se.longCount} sentence(s) over 18 words</span></div>
@@ -3092,7 +3124,7 @@ function renderStoryQualityPanels(openAttr){
   if(o.monetizeSafe){
     const mc = monetizeCheck();
     html += `
-    <details class="acc ${mc.warn.length ? 'acc-char' : 'acc-treatment'}" data-acc="monetize" ${openAttr('monetize', mc.warn.length > 0)}>
+    <details class="acc ${mc.warn.length ? 'acc-char' : 'acc-treatment'}" data-acc="monetize" ${openAttr('monetize', false)}>
       <summary><span>💰 Monetization check <span class="acc-sub">${mc.warn.length ? `${mc.warn.length} to fix` : 'all good'}</span></span></summary>
       <div class="acc-body treatment-item">
         ${mc.warn.map(w => `<div class="ret-line warn">⚠ ${escHtml(w)}</div>`).join('')}
@@ -3476,6 +3508,424 @@ async function markCopyProgress(n, stage){
   doneMap[n] = stage;
   await saveProgress();
   renderResults();
+}
+
+// ---------------------------------------------------------------------------
+// PHASE 4 — UNIFIED STORY QUALITY REPORT
+// Everything here is DERIVED from the existing checks on every render; the
+// only saved data are job.qualityIntentional (marks + reasons) and
+// job.qualityLog (what each fix did). No new score.
+// ---------------------------------------------------------------------------
+const Q_CATS = [
+  ['structure', 'Story structure'], ['emotion', 'Emotional engagement'], ['retention', 'Retention'],
+  ['originality', 'Originality'], ['character', 'Character consistency'], ['narration', 'Narration quality'],
+  ['production', 'Production readiness'], ['other', 'Other']
+];
+const Q_LEVEL_LABEL = { fail: 'FAIL', warn: 'WARN', note: 'NOTE' };
+function qHash(s){ let h = 5381; s = String(s); for(let i = 0; i < s.length; i++) h = ((h << 5) + h + s.charCodeAt(i)) | 0; return (h >>> 0).toString(36); }
+const qSig = t => String(t || '').replace(/"[^"]*"/g, '"…"').replace(/\d+/g, '#').toLowerCase();
+function qRowsIn(text){
+  const out = new Set();
+  // "Rows that look almost the same: 8/9, 3/4"
+  const pairs = String(text).match(/look almost the same:\s*([\d\/,\s…]+)/i);
+  if(pairs) pairs[1].replace(/\d+/g, n => { out.add(+n); return n; });
+  String(text).replace(/\brows?\s+(\d+(?:\s*(?:[–\-\/,]|and)\s*\d+)*)/gi, (m, g) => {
+    g.replace(/(\d+)\s*[–-]\s*(\d+)/g, (x, a, b) => { for(let i = +a; i <= +b && i - a < 40; i++) out.add(i); return ' '; })
+     .replace(/\d+/g, n => { out.add(+n); return n; });
+    return m;
+  });
+  return [...out].sort((a, b) => a - b);
+}
+const qClipsIn = text => { const m = String(text).match(/\b(?:clip|scene)\s+(\d+)/gi) || []; return [...new Set(m.map(x => +x.replace(/\D+/g, '')))]; };
+
+// Message → category, level, why it matters, suggested fix, fix action.
+// Order matters (first match wins). Anything unmatched goes to "Other".
+const Q_RULES = [
+  { re: /^No scene plan saved/, cat: 'structure', level: 'note', why: 'Older jobs without a plan can only be checked clip by clip.', fix: 'Nothing to fix — new jobs are planned first.' },
+  { re: /^The model didn't return a retention map/, cat: 'retention', level: 'fail', why: 'Without the retention map the hook, secret and clue timing can\'t be checked or kept.', fix: 'Run the plan check again (or regenerate the plan with a stronger model).', action: 'plancheck' },
+  { re: /^Open-loop gaps/, cat: 'retention', level: 'warn', why: 'Long stretches without an open question are where viewers click away.', fix: 'Add a new curiosity hook in the middle of each gap.', action: 'openloops' },
+  { re: /line may hint the secret early/, cat: 'retention', level: 'warn', why: 'If viewers can guess the secret early, they have no reason to stay to the end.', fix: 'Rewrite that clip\'s spoken line so it no longer points at the secret.', action: 'hintclip' },
+  { re: /^No hook question|^Mystery A|^No midpoint answer row|^Secret revealed|^No reveal row|rows after the reveal|^Stakes raised|^No stakes row|clue\(s\) have no|^No mirror ending|^No open-loop rows/, cat: 'retention', level: 'warn', why: 'This is part of the retention structure (hook → mystery → secret → payoff) that keeps people watching to the end.', fix: 'Repair this one point in the plan.', action: 'planfix' },
+  { re: /^What happened is shown|^No row shows the incident/, cat: 'structure', level: 'fail', failIf: /^No row shows/, why: 'Viewers who don\'t understand what happened in the first rows leave.', fix: 'Show the incident clearly within the first 3 rows.', action: 'planfix' },
+  { re: /^Hero introduced at row|^The main character is never clearly introduced|^No hero introduction line/, cat: 'character', level: 'warn', failIf: /never clearly introduced/, why: 'People follow a person, not a plot — they need to know who the hero is right away.', fix: 'Say the hero\'s name, role and one trait within the first 3 rows.', action: 'planfix' },
+  { re: /Character names look alike/, cat: 'character', level: 'warn', why: 'Similar names make viewers mix characters up, especially when only heard.', fix: 'Rename the less important character.', action: 'planfix', label: 'Rename' },
+  { re: /^Name reused from a past story/, cat: 'originality', level: 'warn', why: 'Reusing names across videos makes the channel look templated (YouTube\'s "inauthentic content" rule).', fix: 'Give this character a brand-new name.', action: 'planfix', label: 'Rename' },
+  { re: /^Story is very similar to/, cat: 'originality', level: 'warn', why: 'Near-identical stories make the channel look mass-produced, which risks monetization.', fix: 'Change the hero\'s situation, the hook or the twist for this video.', action: 'planfix' },
+  { re: /^Thumbnail title .* is almost the same/, cat: 'originality', level: 'warn', why: 'A repeated title confuses returning viewers and looks templated.', fix: 'Pick another title idea.', action: 'thumb' },
+  { re: /^The first line starts the same way|^Stock opener/, cat: 'originality', level: 'warn', why: 'Templated openings are a strong "mass-produced" signal and a weak hook.', fix: 'Rewrite clip 1\'s opening line to start inside the action.', action: 'openerclip' },
+  { re: /^Under 8 minutes/, cat: 'production', level: 'warn', why: 'YouTube allows mid-roll ads only on videos of 8 minutes or more.', fix: 'Set the length to 8+ minutes on the form for the next job (this job\'s length is fixed).' },
+  { re: /^AI disclosure is OFF/, cat: 'production', level: 'warn', why: 'YouTube requires disclosure of realistic AI content.', fix: 'Turn the disclosure back on.', action: 'aiToggle' },
+  { re: /filler|no story purpose|only mood/i, cat: 'structure', level: 'warn', why: 'Rows that add no new information make the middle drag.', fix: 'Replace them with new information — evidence, an obstacle, a turn.', action: 'planfix' },
+  { re: /^Rows that look almost the same/, cat: 'structure', level: 'warn', why: 'Repeated beats feel like padding.', fix: 'Make each of those rows show something new.', action: 'planfix' },
+  { re: /^Too long in one place/, cat: 'structure', level: 'warn', why: 'Too many rows in one location look static on screen.', fix: 'Cut waiting rows or intercut with another place.', action: 'planfix' },
+  { re: /^Stalling/, cat: 'structure', level: 'warn', why: 'Back-to-back reaction rows feel like the story stopped.', fix: 'Keep at most 2 and replace the rest with a turn or new evidence.', action: 'planfix' }
+];
+const ARC_CAT = { 'no-spine': 'structure', 'spine-fields': 'structure', 'tp-missing': 'structure', 'tp-order': 'structure', 'tp-place': 'structure', 'too-quick': 'structure', 'peak': 'structure', 'climax-flat': 'structure', 'flat': 'emotion', 'emotion': 'emotion', 'no-tension': 'emotion', 'breathers': 'structure', 'breather-pair': 'structure' };
+const ARC_WHY = {
+  structure: 'The protagonist\'s arc and turning points are what make the story feel like it is going somewhere.',
+  emotion: 'Varied, rising feeling keeps viewers emotionally invested; a flat stretch feels long.'
+};
+const EDITOR_CAT = { predictability: 'retention', transition: 'retention', climax: 'structure', ending: 'structure', coherence: 'structure', exposition: 'structure', emotion: 'emotion', preachy: 'emotion', motivation: 'character', 'character-change': 'character' };
+const EDITOR_WHY = {
+  predictability: 'If viewers can predict the ending, they stop watching before it.',
+  transition: 'Weak transitions break the flow and lose attention.',
+  climax: 'An unearned climax makes the whole story feel empty.',
+  ending: 'The ending is what people remember and share.',
+  coherence: 'If the story doesn\'t add up, viewers lose trust in it.',
+  exposition: 'Explaining instead of showing slows the story down.',
+  emotion: 'Flat emotional moments are where viewers drift away.',
+  preachy: 'A preached lesson feels like a lecture; a shown one sticks.',
+  motivation: 'Characters who act against their own motives break belief.',
+  'character-change': 'A change without a cause feels fake.'
+};
+
+// --- Build the report -------------------------------------------------------
+let lastQualityReport = null;
+function qIntentional(){ return (job && job.qualityIntentional) || {}; }
+function qualityFindings(){
+  const list = [];
+  const byKey = new Map();
+  const add = f => {
+    // Consolidate: same underlying problem reported by two checks → one finding, both sources.
+    const ck = f.ckey || f.key;
+    if(byKey.has(ck)){ const g = byKey.get(ck); f.sources.forEach(s => { if(!g.sources.includes(s)) g.sources.push(s); }); return; }
+    byKey.set(ck, f); list.push(f);
+  };
+  if(!job) return { findings: [], cats: [] };
+  const outline = getOutline();
+  const scenes = job.scenes || [];
+  const characters = (job.styleBlock && job.styleBlock.characters) || [];
+  const fromRule = (text, source, panel, keyPrefix) => {
+    const r = Q_RULES.find(x => x.re.test(text));
+    const level = r ? (r.failIf && r.failIf.test(text) ? 'fail' : r.level) : 'warn';
+    const clips = qClipsIn(text).filter(n => /clip|scene/i.test(text));
+    add({ key: `${keyPrefix}:${qHash(text)}`, ckey: 'txt:' + qHash(text), category: r ? r.cat : 'other', level, text, rows: /clip|scene \d/i.test(text) ? [] : qRowsIn(text), clips, sources: [source], panel,
+      why: r ? r.why : 'Reported by a check that has no explanation in this report yet.', fix: r ? r.fix : 'Open the source panel for details.', action: r && r.action ? { type: r.action, label: r.label } : null });
+  };
+  // 1) Plan check (hygiene + Story Doctor + uniqueness) — arc items are added structured below.
+  if(outline){
+    // keepIntentional: intentional warnings stay in the report (shown, not counted)
+    const audit = auditPlanCandidate({ outline, retentionMap: getRetentionMap(), characters, keepIntentional: true });
+    audit.warns.filter(w => !/^Story arc/.test(w)).forEach(w => fromRule(w, job.retentionMode ? 'Plan check · Story Doctor' : 'Plan check', 'plangate', 'plan'));
+    // 2) Arc checks (structured)
+    const accepted = new Set((job.treatment && job.treatment.spineAccepted) || []);
+    arcChecks(outline, getSpine()).forEach(it => {
+      const type = it.key.split(':')[0];
+      const cat = ARC_CAT[type] || 'structure';
+      const [title, fix] = it.text.split(/ Fix: /);
+      add({ key: 'arc:' + it.key, arcKey: it.key, category: cat, level: it.level === 'critical' ? 'fail' : it.level, text: title, rows: qRowsIn(it.text), clips: [], sources: ['Arc check'], panel: 'plangate', why: ARC_WHY[cat] || ARC_WHY.structure, fix: fix || 'Repair this point in the plan.', action: { type: 'planfix', fullText: it.text }, preAccepted: accepted.has(it.key) });
+    });
+    // 3) AI story editor findings
+    const ed = job.treatment && job.treatment.storyEditor;
+    (ed && ed.findings || []).forEach((f, i) => {
+      add({ key: `editor:${qHash(f.issue + f.why)}`, category: EDITOR_CAT[f.issue] || 'structure', level: f.severity === 'low' ? 'note' : 'warn', severityNote: f.severity, text: `${f.issue}: ${f.why}`, rows: f.rows || [], clips: [], sources: ['AI story editor'], panel: 'plangate', why: EDITOR_WHY[f.issue] || 'Found by the AI story editor.', fix: f.fix || 'Repair this in the plan.', action: ed.applied ? null : { type: 'planfix', fullText: `AI story editor (${f.severity}) — ${f.issue}${f.rows && f.rows.length ? ` at row ${f.rows.join(', ')}` : ''}: ${f.why} Suggested fix: ${f.fix}` }, addressed: ed.applied || null, unverifiable: true });
+    });
+    // 4) Structural: missing rows, clips pointing at rows that don't exist
+    const gaps = missingWrittenRows();
+    if(gaps.length) add({ key: 'gaps:' + gaps.join('-'), category: 'production', level: 'fail', text: `Planned row${gaps.length > 1 ? 's' : ''} ${gaps.join(', ')} ${gaps.length > 1 ? 'have' : 'has'} no clip — the video has a hole there.`, rows: gaps, clips: [], sources: ['Batch check'], panel: null, why: 'A missing row is a jump in the story the viewer will notice.', fix: 'Write the missing row(s).', action: { type: 'writeMissing' } });
+    const rowSet = new Set(outline.map(r => r.row));
+    scenes.filter(s => +s.outlineRow && !rowSet.has(+s.outlineRow)).forEach(s => add({ key: 'orphan:' + s.sceneNumber, category: 'structure', level: 'warn', text: `Clip ${s.sceneNumber} points at plan row ${s.outlineRow}, which doesn't exist.`, rows: [], clips: [s.sceneNumber], sources: ['Structure check'], panel: null, why: 'The clip no longer matches the plan, so continuity checks can\'t follow it.', fix: 'Check the clip against the plan.', action: { type: 'gotoClip' } }));
+  }
+  // 5) Monetization / uniqueness (strings; ad-risk and repeats come structured below)
+  if(storyOptsFromJob().monetizeSafe){
+    try{
+      monetizeCheck().warn.forEach(w => {
+        if(/^Not advertiser-friendly|clip\(s\) repeat an earlier clip|^Names copied from the source/.test(w)) return;
+        fromRule(w, 'Monetization check', 'monetize', 'mon');
+      });
+    }catch(e){ console.warn('[Quality] monetization check failed', e); }
+  }
+  // 6) Ad-risk words (structured)
+  try{
+    adRiskScan().forEach(h => {
+      const clip = (h.base || h.where).match(/clip (\d+)/);
+      const spoken = /narration|dialogue/.test(h.where);
+      const isThumb = /thumbnail/.test(h.where);
+      add({ key: `adrisk:${qHash(h.where + h.word)}`, category: spoken ? 'narration' : 'production', level: 'warn', text: `Not advertiser-friendly (${h.label}): "${h.word}" in ${h.where}.`, rows: [], clips: clip ? [+clip[1]] : [], sources: ['Ad-risk check'], panel: 'monetize', why: 'Words like this can get the video limited or no ads (yellow $).', fix: isThumb ? 'Change the thumbnail wording.' : clip ? 'Rewrite that clip without the word — imply instead of show.' : 'Soften this wording.', action: clip ? { type: 'rewriteSafe', clip: +clip[1], word: h.word, risk: h.label } : isThumb ? { type: 'thumb' } : null });
+    });
+  }catch(e){ console.warn('[Quality] ad-risk scan failed', e); }
+  // 7) Repeated clips
+  Object.entries(findRepeats(scenes)).forEach(([n, prev]) => add({ key: `repeat:${n}`, category: 'originality', level: 'warn', text: `Clip ${n} looks like a repeat of clip ${prev}.`, rows: [], clips: [+n, +prev], sources: ['Repeat check'], panel: null, why: 'Repetitive content reads as padding — and as "inauthentic" to YouTube.', fix: 'Generate clip ' + n + ' again with a different take (or mark intentional if the new visuals differ enough).', action: { type: 'regen', clip: +n } }));
+  // 8) Simple English
+  if(storyOptsFromJob().simpleEnglish && scenes.length){
+    try{
+      simpleEnglishScan().flagged.forEach(f => add({ key: `simple:${f.sc.sceneNumber}`, category: 'narration', level: 'warn', text: `Clip ${f.sc.sceneNumber}: ${f.issues.join(' · ')}`, rows: [], clips: [f.sc.sceneNumber], sources: ['Simple English'], panel: 'simpleeng', why: 'Hard words and long sentences lose English learners and casual listeners.', fix: 'Rewrite this clip\'s line in simple English (same meaning, same length).', action: { type: 'simplify', clip: f.sc.sceneNumber } }));
+    }catch(e){ console.warn('[Quality] simple English failed', e); }
+  }
+  // 9) Characters
+  const leaks = Array.isArray(job.nameLeaks) ? job.nameLeaks : [];
+  if(leaks.length) add({ key: 'leaks:' + qHash(leaks.join(',')), category: 'character', level: 'warn', text: `Names copied from the source: ${leaks.join(', ')}.`, rows: [], clips: [], sources: ['Name-leak check', ...(storyOptsFromJob().monetizeSafe ? ['Monetization check'] : [])], panel: null, why: 'The retelling must be original — copied names make it a copy.', fix: 'Rename them.', action: { type: 'planfix', label: 'Rename', fullText: `Names copied from the source material: ${leaks.join(', ')} — rename these characters (record them in "renames").` } });
+  const roster = characters.map(c => String(c.name || '').trim().toLowerCase());
+  characters.forEach((c, i) => {
+    if(!c.faceSignature) add({ key: `face:${qHash(c.name)}`, category: 'character', level: 'note', text: `${c.name} has no face signature.`, rows: [], clips: [], sources: ['Character check'], panel: `char-${i}`, why: 'Without a fixed face description the character can drift between clips.', fix: 'Add a face signature on the character card.', action: { type: 'char', index: i } });
+    if(!c.referenceId && scenes.some(s => (s.charactersInScene || []).includes(c.name))) add({ key: `refid:${qHash(c.name)}`, category: 'production', level: 'warn', text: `${c.name} has no VideoExpress reference photo ID.`, rows: [], clips: [], sources: ['Production check'], panel: `char-${i}`, why: 'The automation needs the reference photo to keep the character\'s face consistent.', fix: 'Paste the reference photo ID on the character card.', action: { type: 'char', index: i } });
+  });
+  scenes.forEach(s => {
+    const unknown = (s.charactersInScene || []).filter(n => n && !roster.includes(String(n).trim().toLowerCase()));
+    if(unknown.length) add({ key: `castless:${s.sceneNumber}:${qHash(unknown.join(','))}`, category: 'character', level: 'warn', text: `Clip ${s.sceneNumber} lists ${unknown.join(', ')}, who ${unknown.length > 1 ? 'are' : 'is'} not in the cast.`, rows: [], clips: [s.sceneNumber], sources: ['Character check'], panel: null, why: 'A character without a description and reference photo can\'t be drawn consistently.', fix: 'Pick the right cast member in the clip\'s character picker.', action: { type: 'gotoClip' } });
+    if(!String(s.imagePrompt || '').trim() || !String(s.videoAudioPrompt || '').trim()) add({ key: `noprompt:${s.sceneNumber}`, category: 'production', level: 'fail', text: `Clip ${s.sceneNumber} has no ${!String(s.imagePrompt || '').trim() ? 'image' : 'video'} prompt.`, rows: [], clips: [s.sceneNumber], sources: ['Production check'], panel: null, why: 'This clip can\'t be produced without its prompts.', fix: 'Generate the clip\'s prompts again.', action: { type: 'regen', clip: s.sceneNumber } });
+  });
+  const narrated = scenes.filter(s => s.narrationLine).length;
+  if(scenes.length >= 4 && narrated >= scenes.length / 2){
+    scenes.filter(s => !s.narrationLine && !s.dialogue && !/outro/i.test(s.beat || '')).forEach(s => add({ key: `noline:${s.sceneNumber}`, category: 'narration', level: 'note', text: `Clip ${s.sceneNumber} has no spoken line in a narrated video.`, rows: [], clips: [s.sceneNumber], sources: ['Narration check'], panel: null, why: 'A silent clip in a narrated story can feel like a gap — fine if it is a deliberate pause.', fix: 'Add a line, or mark intentional if the silence is on purpose.', action: { type: 'gotoClip' } }));
+  }
+  const th = job.thumbnail || {};
+  if(scenes.length && !(th.prompt && thumbnailTitle())) add({ key: 'thumb-missing', category: 'production', level: 'warn', text: th.prompt ? 'The thumbnail has no title text.' : 'There is no thumbnail prompt.', rows: [], clips: [], sources: ['Production check'], panel: 'thumb', why: 'The thumbnail and its title decide most of the click-through.', fix: 'Open the thumbnail and add a title.', action: { type: 'thumb' } });
+
+  // Intentional marks (never on FAIL)
+  const marks = qIntentional();
+  list.forEach(f => {
+    const m = marks[f.key];
+    f.intentional = f.level !== 'fail' && !!(m || f.preAccepted);
+    f.reason = m && m.reason || '';
+  });
+  // Category status. "Not checked yet" when the category has no data to check.
+  const has = {
+    structure: !!outline,
+    emotion: !!(outline && (outline.some(r => r.tension || r.emotion) || (job.treatment && job.treatment.storyEditor))),
+    retention: !!(outline && job.retentionMode),
+    originality: !!((storyOptsFromJob().monetizeSafe && outline) || scenes.length),
+    character: characters.length > 0,
+    narration: scenes.length > 0,
+    production: scenes.length > 0,
+    other: true
+  };
+  const cats = Q_CATS.map(([key, label]) => {
+    const fs = list.filter(f => f.category === key);
+    const active = fs.filter(f => !f.intentional && !f.addressed);
+    const fail = active.filter(f => f.level === 'fail').length, warn = active.filter(f => f.level === 'warn').length, note = active.filter(f => f.level === 'note').length;
+    const status = fail ? 'fail' : warn ? 'warn' : (has[key] || fs.length) ? 'pass' : 'unchecked';
+    return { key, label, findings: fs, fail, warn, note, status, checked: has[key] || fs.length > 0 };
+  }).filter(c => c.key !== 'other' || c.findings.length);
+  const totals = cats.reduce((t, c) => ({ fail: t.fail + c.fail, warn: t.warn + c.warn, note: t.note + c.note, checked: t.checked + (c.checked ? 1 : 0) }), { fail: 0, warn: 0, note: 0, checked: 0 });
+  lastQualityReport = { findings: list, cats, totals, at: Date.now() };
+  return lastQualityReport;
+}
+
+// --- Intentional ------------------------------------------------------------
+async function setQualityIntentional(key, on){
+  const rep = lastQualityReport || qualityFindings();
+  const f = rep.findings.find(x => x.key === key);
+  if(!f) return;
+  if(on && f.level === 'fail'){ showToast('FAIL findings can\'t be marked intentional'); return; }
+  job.qualityIntentional = Object.assign({}, job.qualityIntentional || {});
+  if(on) job.qualityIntentional[key] = { reason: '', at: Date.now(), text: f.text, level: f.level };
+  else delete job.qualityIntentional[key];
+  if(f.arcKey){ // keep the plan score in step (Phase 3 behaviour)
+    const acc = new Set((job.treatment && job.treatment.spineAccepted) || []);
+    if(on) acc.add(f.arcKey); else acc.delete(f.arcKey);
+    job.treatment.spineAccepted = [...acc];
+  }
+  await saveJobToStorage(true);
+  renderResults();
+}
+async function setQualityReason(key, reason){
+  if(!job || !job.qualityIntentional || !job.qualityIntentional[key]) return;
+  job.qualityIntentional[key].reason = String(reason || '').slice(0, 200);
+  await saveJobToStorage(true);
+}
+// Plan warnings marked intentional are left out of the plan audit (like arc checks).
+function isIntentionalPlanWarning(w){
+  const m = job && job.qualityIntentional && job.qualityIntentional['plan:' + qHash(w)];
+  return !!m && m.level !== 'fail';
+}
+
+// --- Fixes -----------------------------------------------------------------
+let qualityBusy = null;
+const Q_ACTION_INFO = {
+  planfix: { label: 'Fix in plan', cost: 'ai' }, plancheck: { label: 'Run plan check', cost: 'ai' }, openloops: { label: 'Fix open-loop gaps', cost: 'ai' },
+  hintclip: { label: 'Rewrite clip line', cost: 'ai' }, openerclip: { label: 'Rewrite opening line', cost: 'ai' }, rewriteSafe: { label: 'Rewrite clip safely', cost: 'ai' },
+  simplify: { label: 'Simplify this clip', cost: 'ai' }, regen: { label: 'Generate again', cost: 'ai' }, writeMissing: { label: 'Write missing row', cost: 'ai' },
+  aiToggle: { label: 'Turn AI disclosure on', cost: 'free', recheck: true }, thumb: { label: 'Open thumbnail', cost: 'free', nav: true },
+  char: { label: 'Open character card', cost: 'free', nav: true }, gotoClip: { label: 'Go to clip', cost: 'free', nav: true }
+};
+function qActionInfo(f){
+  if(!f.action) return null;
+  const base = Q_ACTION_INFO[f.action.type];
+  if(!base) return null;
+  // A plan fix whose rows are all written can't change the plan → offer the clip instead.
+  if(f.action.type === 'planfix' && f.rows.length && f.rows.every(r => r <= lastWrittenRow())) return { label: 'Rows already written — go to clip', cost: 'free', nav: true, locked: true };
+  return Object.assign({}, base, f.action.label ? { label: f.action.label } : {});
+}
+async function runQualityFix(key){
+  if(qualityBusy) return;
+  const rep = qualityFindings();
+  const f = rep.findings.find(x => x.key === key);
+  if(!f) return;
+  const info = qActionInfo(f);
+  if(!info) return;
+  if(info.nav){ return qualityNavigate(f, info); }
+  if(busy.has('generate') || busy.has('continue') || planGateBusy){ showToast('Wait for the running generation or plan check to finish'); return; }
+  qualityBusy = key;
+  renderResults();
+  const before = rep.findings;
+  let outcome = {};
+  try{
+    outcome = (await qualityActionRun(f)) || {};
+  }catch(e){
+    outcome = { error: e && e.name === 'AbortError' ? 'Cancelled' : e.message };
+  }finally{
+    qualityBusy = null;
+  }
+  // Recheck: the checks are free, so re-run all of them and compare.
+  const after = qualityFindings().findings;
+  const sameProblem = g => g.key === f.key || (g.category === f.category && qSig(g.text) === qSig(f.text) && (!f.clips.length || g.clips.some(c => f.clips.includes(c))) && (!f.rows.length || !g.rows.length || g.rows.some(r => f.rows.includes(r))));
+  const still = after.find(g => sameProblem(g) && !g.intentional);
+  const beforeKeys = new Set(before.map(g => g.key)), beforeSigs = new Set(before.map(g => g.category + qSig(g.text)));
+  const newProblems = after.filter(g => !g.intentional && !beforeKeys.has(g.key) && !beforeSigs.has(g.category + qSig(g.text)) && !sameProblem(g)).map(g => `${Q_LEVEL_LABEL[g.level]} · ${g.text}`);
+  let result, detail = outcome.detail || '';
+  if(outcome.error){ result = 'error'; detail = outcome.error; }
+  else if(outcome.rejected){ result = 'rejected'; }
+  else if(f.unverifiable && outcome.applied){ result = 'unverified'; detail = detail || 'The plan was changed, but an AI-editor finding can\'t be checked by code — ask the story editor again to confirm.'; }
+  else result = still ? 'still' : 'fixed';
+  job.qualityLog = [{ at: Date.now(), key: f.key, text: f.text, category: f.category, action: info.label, result, detail, newProblems: newProblems.slice(0, 6) }].concat(job.qualityLog || []).slice(0, 30);
+  await saveJobToStorage(true);
+  renderResults();
+  showToast(result === 'fixed' ? `Fixed ✓ — rechecked${newProblems.length ? `, but ${newProblems.length} new problem(s) appeared` : ''}` : result === 'still' ? 'Rechecked — the problem is still present' : result === 'rejected' ? 'Not applied — ' + (detail || 'see the report') : result === 'unverified' ? 'Plan changed — not machine-verifiable' : 'Fix failed: ' + detail);
+}
+function qualityNavigate(f, info){
+  const a = f.action || {};
+  if(info.locked || a.type === 'gotoClip' || a.type === 'regen'){ const c = f.clips[0] || (f.rows.length ? ((job.scenes || []).find(s => +s.outlineRow === f.rows[0]) || {}).sceneNumber : null); if(c) scrollToScene(c); else if(f.rows.length) gotoPlanRow(f.rows[0]); return; }
+  if(a.type === 'thumb') return openPanel('thumb');
+  if(a.type === 'char') return openPanel(`char-${a.index}`);
+}
+async function qualityActionRun(f){
+  const a = f.action;
+  const sceneIdx = n => (job.scenes || []).findIndex(s => +s.sceneNumber === +n);
+  switch(a.type){
+    case 'planfix': return fixOnePlanProblem(f);
+    case 'plancheck': await manualPlanGate(); return {};
+    case 'openloops': await fixOpenLoopGaps(); return {};
+    case 'simplify': await simplifyHardLines(a.clip); return {};
+    case 'regen': { const i = sceneIdx(a.clip); if(i < 0) return { error: 'clip not found' }; await regenerateScene(i); return {}; }
+    case 'writeMissing': await continueScript(); return {};
+    case 'aiToggle': ytSet('ai', true); { const el = document.getElementById('ytAi'); if(el) el.checked = true; } return {};
+    case 'rewriteSafe': return rewriteClipLines(a.clip, `Remove the advertiser-unfriendly wording "${a.word}" (${a.risk}). Express the same moment without it — imply rather than show; no blood, gore, swearing, sexual content or drug focus.`, a.word);
+    case 'hintclip': { const sec = (getRetentionMap() || {}).secret || ''; const c = f.clips[0]; return rewriteClipLines(c, `This clip's spoken line hints the story's secret too early. Rewrite it so it no longer points at the secret${sec ? ` ("${sec}")` : ''}, while keeping the scene's meaning.`, null, ['narrationLine', 'dialogue']); }
+    case 'openerclip': { const first = (job.scenes || [])[0]; if(!first) return { error: 'no clips yet' }; return rewriteClipLines(first.sceneNumber, 'Rewrite this opening line so it does not start with a stock opener ("Once upon a time", "Long ago", "In a small village"…) or the same words as earlier videos. Start inside the action or with a concrete question.', null, ['narrationLine', 'dialogue']); }
+  }
+  return { error: 'no fix available' };
+}
+// One AI request that edits ONLY the named fields of one clip.
+async function rewriteClipLines(sceneNumber, instruction, mustContain, onlyFields){
+  const sc = (job.scenes || []).find(s => +s.sceneNumber === +sceneNumber);
+  if(!sc) return { error: `clip ${sceneNumber} not found` };
+  const fields = (onlyFields || ['narrationLine', 'dialogue', 'imagePrompt', 'videoAudioPrompt']).filter(k => sc[k] && (!mustContain || String(sc[k]).toLowerCase().includes(String(mustContain).toLowerCase())));
+  if(!fields.length) return { error: 'nothing to rewrite in that clip' };
+  const payload = {}; fields.forEach(k => { payload[k] = sc[k]; });
+  const lang = job.language || 'English';
+  const system = `You edit ONE clip of a story video. Reply with ONLY a JSON object with exactly these keys: ${fields.map(k => `"${k}"`).join(', ')}. ${instruction} Change as little as possible: keep the meaning, names, story facts, length and format (spoken lines in ${lang}; prompts in English). If "dialogue" starts with a speaker lead-in, keep that format. If "videoAudioPrompt" quotes the dialogue, the quote must match the new dialogue exactly.`;
+  const res = await callTask('json', system, JSON.stringify(payload, null, 1));
+  let changed = 0;
+  const oldLine = sc.dialogue ? splitSpokenLine(sc.dialogue).line : null;
+  fields.forEach(k => { if(res && typeof res[k] === 'string' && res[k].trim() && res[k].trim() !== sc[k]){ sc[k] = res[k].trim(); changed++; } });
+  if(fields.includes('dialogue') && !fields.includes('videoAudioPrompt') && oldLine && sc.videoAudioPrompt){
+    const newLine = splitSpokenLine(sc.dialogue).line;
+    if(newLine && newLine !== oldLine && sc.videoAudioPrompt.includes(oldLine)) sc.videoAudioPrompt = sc.videoAudioPrompt.split(oldLine).join(newLine);
+  }
+  if(!changed) return { error: 'the AI returned no change' };
+  await saveJobToStorage(true);
+  return { detail: `Rewrote ${changed} field(s) of clip ${sceneNumber}.` };
+}
+// Repairs ONE plan problem. Written rows stay locked. Kept only if the problem
+// is gone (where code can check it) and the plan doesn't score worse.
+async function fixOnePlanProblem(f){
+  const outline = getOutline();
+  if(!outline) return { error: 'no plan' };
+  const locked = lastWrittenRow();
+  if(f.rows.length && f.rows.every(r => r <= locked)) return { rejected: true, detail: `rows ${f.rows.join(', ')} are already written as clips, so the plan can't change them — use the clip fix instead` };
+  const base = { outline: clonePlan(outline), retentionMap: clonePlan(getRetentionMap() || null), spine: clonePlan(getSpine()), characters: clonePlan((job.styleBlock && job.styleBlock.characters) || []), renames: [], changes: [] };
+  const beforeA = auditPlanCandidate(base);
+  const problem = (f.action && f.action.fullText) || f.text;
+  const cand = await repairPlanCandidate(base, [problem], locked, null, { single: true });
+  const afterA = auditPlanCandidate(cand);
+  const changed = JSON.stringify(cand.outline) !== JSON.stringify(base.outline) || JSON.stringify(cand.spine || null) !== JSON.stringify(base.spine || null) || (cand.renames || []).length > 0 || JSON.stringify(cand.retentionMap || null) !== JSON.stringify(base.retentionMap || null);
+  if(!changed) return { rejected: true, detail: 'the AI returned the plan unchanged' };
+  const inAudit = beforeA.warns.includes(f.text) || beforeA.warns.includes(problem);
+  if(inAudit && afterA.warns.some(w => qSig(w) === qSig(problem) || qSig(w) === qSig(f.text))) return { rejected: true, detail: 'the repaired plan still has this problem, so it was not applied' };
+  if(afterA.score < beforeA.score) return { rejected: true, detail: `the repair made the plan worse (${beforeA.score} → ${afterA.score}): ${afterA.warns.filter(w => !beforeA.warns.includes(w)).slice(0, 2).join(' / ') || 'new problems'} — the old plan was kept` };
+  // Renames that touch already-written clips need the user's OK.
+  const pairs = cand.renames || [];
+  const touched = pairs.length ? (job.scenes || []).filter(s => pairs.some(p => JSON.stringify(s).includes(p.original))).length : 0;
+  if(touched && !confirm(`This renames ${pairs.map(p => `${p.original} → ${p.renamed}`).join(', ')}.\n\nAlso rename in the ${touched} clip(s) already written? (Cancel keeps the old plan.)`)) return { rejected: true, detail: 'rename cancelled — the plan was not changed' };
+  applyPlanWinner(cand);
+  if(touched) job.scenes = applyNameChanges({ s: job.scenes }, pairs).s;
+  await saveJobToStorage(true);
+  return { applied: true, detail: (cand.changes || []).slice(0, 3).join(' · ') };
+}
+function gotoPlanRow(n){
+  openPanel('plan');
+  setTimeout(() => { const el = document.getElementById(`plan-row-${n}`); if(el){ el.scrollIntoView({ behavior: 'smooth', block: 'center' }); el.classList.add('scene-flash'); setTimeout(() => el.classList.remove('scene-flash'), 1600); } }, 60);
+}
+function openQualityReport(){ openPanel('quality'); }
+
+// --- Render -----------------------------------------------------------------
+function qualitySummaryText(t){
+  if(!t || !t.checked) return 'Quality: Not checked';
+  if(!t.fail && !t.warn) return 'Quality: All clear';
+  return `Quality: ${[t.fail ? `${t.fail} Fail` : '', t.warn ? `${t.warn} Warn` : ''].filter(Boolean).join(' · ')}`;
+}
+function renderQualityReport(openAttr){
+  let rep;
+  try{ rep = qualityFindings(); }catch(e){ console.warn('[Quality] report failed', e); return `<div class="warn-box">The quality report could not be built: ${escHtml(e.message)}</div>`; }
+  const t = rep.totals;
+  const log = (job.qualityLog || []);
+  const lastFor = key => log.find(l => l.key === key);
+  const resultLabel = { fixed: 'Fixed ✓', still: 'Still present', rejected: 'Not applied', error: 'Fix failed', unverified: 'Changed — not machine-verifiable' };
+  // Consecutive numbers collapse into one link ("rows 6–11").
+  const runs = ns => { const out = []; ns.slice().sort((x, y) => x - y).forEach(n => { const l = out[out.length - 1]; if(l && n === l[1] + 1) l[1] = n; else out.push([n, n]); }); return out; };
+  const refLinks = f => [
+    ...runs(f.rows).slice(0, 5).map(([a, z]) => `<a href="#" class="q-ref" onclick="gotoPlanRow(${a}); return false;">${a === z ? `row ${a}` : `rows ${a}–${z}`}</a>`),
+    ...runs(f.clips).slice(0, 5).map(([a, z]) => `<a href="#" class="q-ref" onclick="scrollToScene(${a}); return false;">${a === z ? `clip ${a}` : `clips ${a}–${z}`}</a>`)
+  ].join(' ');
+  const card = f => {
+    const info = qActionInfo(f);
+    const last = lastFor(f.key);
+    return `<div class="q-f q-${f.level}${f.intentional ? ' q-int' : ''}${f.addressed ? ' q-int' : ''}">
+      <div class="q-top"><span class="q-lvl q-${f.level}">${Q_LEVEL_LABEL[f.level]}${f.severityNote ? ` · ${escHtml(f.severityNote)}` : ''}</span><span class="q-text">${escHtml(f.text)}</span></div>
+      <div class="q-meta">${refLinks(f)}${refLinks(f) ? ' · ' : ''}Source: ${escHtml(f.sources.join(' + '))}${f.panel ? ` · <a href="#" class="q-ref" onclick="openPanel('${escHtml(f.panel)}'); return false;">open panel</a>` : ''}</div>
+      <div class="q-why"><b>Why it matters:</b> ${escHtml(f.why)}</div>
+      <div class="q-why"><b>Suggested fix:</b> ${escHtml(f.fix)}</div>
+      ${f.addressed ? `<div class="q-rc q-unverified">Addressed by the story editor's repair (${escHtml(f.addressed)}) — not machine-verifiable</div>` : ''}
+      ${last ? `<div class="q-rc q-${last.result}">${resultLabel[last.result] || last.result} after "${escHtml(last.action)}" · ${new Date(last.at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}${last.detail ? ` — ${escHtml(last.detail)}` : ''}</div>` : ''}
+      ${f.intentional ? `<div class="q-intent">Marked intentional <input type="text" class="q-reason" placeholder="Reason (optional)" value="${escHtml(f.reason)}" onchange="setQualityReason('${escHtml(f.key)}', this.value)" ${f.preAccepted && !qIntentional()[f.key] ? 'disabled title="Marked in the Plan quality panel"' : ''}></div>` : ''}
+      <div class="q-actions">
+        ${info && !f.intentional && !f.addressed ? `<button class="btn btn-regen q-btn" onclick="runQualityFix('${escHtml(f.key)}')" ${qualityBusy ? 'disabled' : ''}>${qualityBusy === f.key ? '⏳ Fixing…' : escHtml(info.label)}<span class="q-cost ${info.cost}">${info.cost === 'free' ? 'free' : '1 AI request'}</span></button>` : ''}
+        ${f.level !== 'fail' && !f.addressed ? (f.intentional ? `<button class="arc-ok-btn" onclick="setQualityIntentional('${escHtml(f.key)}', false)">Re-activate</button>` : `<button class="arc-ok-btn" title="Keep it — an intentional creative choice. It stays visible but leaves the active counts." onclick="setQualityIntentional('${escHtml(f.key)}', true)">Intentional</button>`) : ''}
+      </div>
+    </div>`;
+  };
+  const order = { fail: 0, warn: 1, note: 2 };
+  const sorted = fs => fs.slice().sort((a, b) => ((a.intentional || a.addressed) - (b.intentional || b.addressed)) || (order[a.level] - order[b.level]));
+  const fixedRecent = log.filter(l => l.result === 'fixed').slice(0, 5);
+  const lastAny = log[0];
+  return `
+    <details class="acc acc-quality" data-acc="quality" ${openAttr('quality', true)}>
+      <summary><span>🩺 Story quality <span class="acc-sub">${escHtml(qualitySummaryText(t).replace(/^Quality: /, ''))}${t.note ? ` · ${t.note} note${t.note > 1 ? 's' : ''}` : ''}</span></span></summary>
+      <div class="acc-body">
+        ${lastAny && lastAny.newProblems && lastAny.newProblems.length ? `<div class="warn-box">The last fix ("${escHtml(lastAny.action)}") caused ${lastAny.newProblems.length} new problem(s): ${lastAny.newProblems.map(escHtml).join(' · ')}</div>` : ''}
+        ${rep.cats.map(c => `
+          <details class="q-cat" data-acc="q-${c.key}" ${openAttr('q-' + c.key, c.status === 'fail' || c.status === 'warn')}>
+            <summary><span class="q-pill q-${c.status}">${c.status === 'unchecked' ? 'Not checked yet' : c.status.toUpperCase()}</span><span class="q-cat-name">${c.label}</span><span class="acc-sub">${[c.fail ? `${c.fail} fail` : '', c.warn ? `${c.warn} warn` : '', c.note ? `${c.note} note${c.note > 1 ? 's' : ''}` : '', c.findings.filter(f => f.intentional).length ? `${c.findings.filter(f => f.intentional).length} intentional` : ''].filter(Boolean).join(' · ')}</span></summary>
+            <div class="q-list">${c.findings.length ? sorted(c.findings).map(card).join('') : `<div class="hint">${c.status === 'unchecked' ? 'Not enough data yet to check this.' : 'No problems found.'}</div>`}</div>
+          </details>`).join('')}
+        ${fixedRecent.length ? `<div class="q-fixed"><b>Recently fixed ✓</b>${fixedRecent.map(l => `<div>• ${escHtml(l.text)} <span class="acc-sub">${escHtml(l.action)} · ${new Date(l.at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span></div>`).join('')}</div>` : ''}
+        <div class="hint">Built from the existing checks (plan check, Story Doctor, arc checks, AI story editor, Simple English, monetization, repeats) plus a few production checks. Rechecked after every fix. Intentional items stay listed but leave the counts; FAIL items can't be marked intentional.</div>
+      </div>
+    </details>`;
+}
+
+// Applies a repaired plan to the live job (shared by the Plan Gate and single fixes).
+function applyPlanWinner(win){
+  job.treatment.outline = win.outline;
+  if(win.retentionMap) job.treatment.retentionMap = win.retentionMap;
+  if(win.spine) job.treatment.storySpine = win.spine;
+  if(job.styleBlock) job.styleBlock.characters = win.characters;
+  if(win.renames && win.renames.length){
+    job.thumbnail = applyNameChanges(job.thumbnail, win.renames);
+    ['logline', 'sourceBeats', 'narratorVoice'].forEach(k => { if(job.treatment[k] != null) job.treatment[k] = applyNameChanges({ v: job.treatment[k] }, win.renames).v; });
+    job.treatment.nameChanges = (job.treatment.nameChanges || []).concat(win.renames);
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -3991,7 +4441,10 @@ function renderStageBar(){
   catch(e){ console.warn('[Generator] Stage bar:', e); bar.innerHTML = ''; return; }
   currentNextStep = next;
   const canCancel = !!(activeAbort && !activeAbort.signal.aborted);
-  bar.innerHTML = `<div class="stage-list" role="list">${stages.map((s, i) => `${i ? '<span class="stage-sep" aria-hidden="true">›</span>' : ''}<button type="button" role="listitem" class="stage st-${s.status}" onclick="goStage('${s.key}')" title="${escHtml(s.label)}: ${escHtml({ done: 'done', run: 'running', attn: 'needs attention', partial: 'in progress', todo: 'not started', na: 'not used for this job' }[s.status])}${s.detail ? ' — ' + escHtml(s.detail) : ''}"><span class="st-ic">${STAGE_ICON[s.status]}</span>${escHtml(s.label)}${s.detail ? `<span class="st-d">${escHtml(s.detail)}</span>` : ''}</button>`).join('')}</div>
+  let qt = null;
+  try{ qt = (lastQualityReport && Date.now() - lastQualityReport.at < 1500 ? lastQualityReport : qualityFindings()).totals; }catch(e){ qt = null; }
+  const qCls = !qt || !qt.checked ? '' : qt.fail ? 'q-fail' : qt.warn ? 'q-warn' : 'q-pass';
+  bar.innerHTML = `<div class="stage-list" role="list">${stages.map((s, i) => `${i ? '<span class="stage-sep" aria-hidden="true">›</span>' : ''}<button type="button" role="listitem" class="stage st-${s.status}" onclick="goStage('${s.key}')" title="${escHtml(s.label)}: ${escHtml({ done: 'done', run: 'running', attn: 'needs attention', partial: 'in progress', todo: 'not started', na: 'not used for this job' }[s.status])}${s.detail ? ' — ' + escHtml(s.detail) : ''}"><span class="st-ic">${STAGE_ICON[s.status]}</span>${escHtml(s.label)}${s.detail ? `<span class="st-d">${escHtml(s.detail)}</span>` : ''}</button>`).join('')}<button type="button" class="stage q-sum ${qCls}" onclick="openQualityReport()" title="Open the Story quality report (intentional findings are not counted)">${escHtml(qualitySummaryText(qt))}</button></div>
     <div class="next-step"><span class="ns-cap">Next</span><button type="button" class="next-btn ${next.running ? 'running' : ''}" onclick="runNextStep()" ${next.running || next.disabled ? 'disabled' : ''}>${next.running ? '⏳ ' : ''}${escHtml(next.label)}</button>${canCancel ? '<button type="button" class="cancel-gen cancel-mini" onclick="cancelGeneration()">✕ Cancel</button>' : ''}</div>`;
 }
 
@@ -5556,10 +6009,11 @@ function renderResults(){
   const rMap = getRetentionMap();
 
   side.innerHTML = `
+    ${renderQualityReport(openAttr)}
     ${leaks.length ? `<div class="warn-box">⚠ These character names also appear in your Source: <b>${escHtml(leaks.join(', '))}</b>. The model may have reused an original name — regenerate, or edit the names before producing.</div>` : ''}
 
     ${t.logline ? `
-    <details class="acc acc-treatment" data-acc="treatment" ${openAttr('treatment', true)}>
+    <details class="acc acc-treatment" data-acc="treatment" ${openAttr('treatment', false)}>
       <summary><span>🎬 Director's treatment</span></summary>
       <div class="acc-body treatment-card">
         <p class="logline">${escHtml(t.logline)}</p>
@@ -5589,19 +6043,19 @@ function renderResults(){
       <summary><span>🗺️ Scene plan <span class="acc-sub">${Math.min(writtenRow, planRows.length)}/${planRows.length} written · ${planLocations} locations${planExpansion ? ` · ${planExpansion} expanded` : ''}</span></span></summary>
       <div class="acc-body treatment-item">
         ${job.expandMode === 'strict' && job.totalSeconds && planRows.length * 9 < job.totalSeconds - 30 ? `<div class="warn-box">Source-only mode: the source supports ~${formatTime(planRows.length * 9)}, shorter than your ${formatTime(job.totalSeconds)} target. Choose "Expand the story" for a full-length plan.</div>` : ''}
-        ${planRows.map(r => `<div class="plan-row ${r.row <= writtenRow ? 'written' : ''}"><span class="plan-n">${r.row}</span><span class="plan-kind ${r.kind}">${r.kind === 'expansion' ? 'EXP' : r.kind === 'outro' ? 'OUT' : 'SRC'}</span><span><b>${escHtml(r.location)}</b> · ${escHtml(r.summary)}</span></div>`).join('')}
+        ${planRows.map(r => `<div class="plan-row ${r.row <= writtenRow ? 'written' : ''}" id="plan-row-${r.row}"><span class="plan-n">${r.row}</span><span class="plan-kind ${r.kind}">${r.kind === 'expansion' ? 'EXP' : r.kind === 'outro' ? 'OUT' : 'SRC'}</span><span><b>${escHtml(r.location)}</b> · ${escHtml(r.summary)}</span></div>`).join('')}
         <div class="hint">SRC = from your source · EXP = planned expansion · OUT = closing outro. Written rows are dimmed.</div>
       </div>
     </details>` : ''}
 
     ${getOutline() ? `
-    <details class="acc" data-acc="plangate" ${openAttr('plangate', true)}>
+    <details class="acc" data-acc="plangate" ${openAttr('plangate', false)}>
       <summary><span>🛡 Plan quality</span></summary>
       <div class="acc-body treatment-item">${renderPlanGate()}</div>
     </details>` : ''}
 
     ${retention ? `
-    <details class="acc ${retention.warn.length ? 'acc-char' : 'acc-treatment'}" data-acc="retention" ${openAttr('retention', retention.warn.length > 0)}>
+    <details class="acc ${retention.warn.length ? 'acc-char' : 'acc-treatment'}" data-acc="retention" ${openAttr('retention', false)}>
       <summary><span>🎯 Retention check <span class="acc-sub">${retention.warn.length ? `${retention.warn.length} to fix` : 'all good'}</span></span></summary>
       <div class="acc-body treatment-item">
         ${rMap && rMap.mysteryA ? `<div style="margin-bottom:8px;"><b>Mystery A → B</b><span>${escHtml(rMap.mysteryA)} → ${escHtml(rMap.mysteryB || '—')}</span></div>` : ''}
