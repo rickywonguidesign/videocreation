@@ -116,7 +116,7 @@ async function callChat({ provider, key, model, systemPrompt, userPrompt, effort
     const content = data.choices?.[0]?.message?.content;
     const finishReason = data.choices?.[0]?.finish_reason || null; // "stop" | "length" | …
     const u = data.usage || {};
-    return { ok: true, content, finishReason, model: data.model || model, usage: { input: u.prompt_tokens, output: u.completion_tokens }, usedEffort: useEffort, api: 'chat' };
+    return { ok: true, content, finishReason, model: data.model || model, usage: { input: u.prompt_tokens, output: u.completion_tokens, cached: u.prompt_tokens_details?.cached_tokens ?? null, reasoning: u.completion_tokens_details?.reasoning_tokens ?? null }, usedEffort: useEffort, api: 'chat' };
 }
 
 // Responses API — used when an OpenAI model (e.g. some GPT-6 models) is only
@@ -155,7 +155,7 @@ async function callResponses({ provider, key, model, systemPrompt, userPrompt, e
     const u = data.usage || {};
     // Responses API: status "incomplete" (+ incomplete_details.reason) = cut off.
     const finishReason = data.status === 'incomplete' ? 'incomplete' : (data.status === 'completed' ? 'stop' : (data.status || null));
-    return { ok: true, content, finishReason, incompleteReason: data.incomplete_details?.reason || null, model: data.model || model, usage: { input: u.input_tokens, output: u.output_tokens }, usedEffort: useEffort, api: 'responses' };
+    return { ok: true, content, finishReason, incompleteReason: data.incomplete_details?.reason || null, model: data.model || model, usage: { input: u.input_tokens, output: u.output_tokens, cached: u.input_tokens_details?.cached_tokens ?? null, reasoning: u.output_tokens_details?.reasoning_tokens ?? null }, usedEffort: useEffort, api: 'responses' };
 }
 
 const NEEDS_RESPONSES_RE = /responses api|\/v1\/responses|v1\/chat\/completions|not supported (?:in|with|on) (?:the )?chat|only supported (?:in|with|on)|use the responses/i;
@@ -206,10 +206,10 @@ app.post('/api/generate-script', async (req, res) => {
         // Token usage in the terminal helps compare cost between models.
         const u = result.usage || {};
         const effortNote = result.usedEffort && EFFORTS.has(reasoningEffort) ? ` (${reasoningEffort})` : '';
-        console.log(`[${new Date().toISOString()}] ${provider}/${chosenModel}${effortNote} via ${result.api} ${Date.now() - started}ms · in ${u.input ?? '?'} / out ${u.output ?? '?'} tokens`);
+        console.log(`[${new Date().toISOString()}] ${provider}/${chosenModel}${effortNote} via ${result.api} ${Date.now() - started}ms · in ${u.input ?? '?'} (cached ${u.cached ?? '?'}) / out ${u.output ?? '?'} (reasoning ${u.reasoning ?? '?'}) tokens`);
 
         // finishReason is an extra field — older pages simply ignore it.
-        res.json({ content: result.content, model: result.model, api: result.api, usage: u, finishReason: result.finishReason || null });
+        res.json({ content: result.content, model: result.model, api: result.api, usage: u, finishReason: result.finishReason || null, provider });
     } catch (err) {
         const detail = [err.message, err.code, err.cause && (err.cause.code || err.cause.message)].filter(Boolean).join(' / ');
         console.error(`[${new Date().toISOString()}] ${provider}/${chosenModel} request failed: ${detail}`);
@@ -236,9 +236,9 @@ app.post('/api/models', async (req, res) => {
 
 // Lets the page confirm it's talking to THIS version of the server (an old
 // deploy still running is the usual reason a fix "doesn't work").
-const SERVER_VERSION = '2026-11-23.1';
+const SERVER_VERSION = '2026-11-23.2';
 app.get('/api/health', cors({ origin: '*' }), (req, res) => {
-    res.json({ ok: true, version: SERVER_VERSION, aiTimeoutMinutes: AI_TIMEOUT_MS / 60000, features: ['models', 'responses-fallback', 'reasoning-effort', 'long-timeout', 'finish-reason'] });
+    res.json({ ok: true, version: SERVER_VERSION, aiTimeoutMinutes: AI_TIMEOUT_MS / 60000, features: ['models', 'responses-fallback', 'reasoning-effort', 'long-timeout', 'finish-reason', 'usage-details'] });
 });
 
 const PORT = process.env.PORT || 3000;

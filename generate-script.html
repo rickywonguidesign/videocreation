@@ -397,6 +397,30 @@
   .vd-old{color:var(--err);opacity:.85;} .vd-new{color:var(--done);}
   .vd-warn{color:var(--amber);font-size:11.5px;}
   .vd-check{font-size:11.5px;color:var(--text);display:flex;gap:6px;align-items:flex-start;}
+  /* Phase 6: usage, model per step, prompt debug */
+  .u-tot{display:grid;grid-template-columns:1fr;gap:3px;font-size:12px;color:var(--text-dim);margin-bottom:8px;}
+  .u-k{color:var(--text);font-weight:600;margin-right:4px;}
+  .u-table td .u-nr{font-size:9.5px;}
+  .u-nr{color:var(--text-dim);font-size:10.5px;}
+  .u-h{font-family:'IBM Plex Mono',monospace;font-size:10px;letter-spacing:.06em;text-transform:uppercase;color:var(--amber);margin:10px 0 4px;}
+  .u-table{width:100%;border-collapse:collapse;font-size:11px;}
+  .u-table th{font-weight:500;color:var(--text-dim);text-align:right;padding:2px 4px;border-bottom:1px solid var(--line);}
+  .u-table td{text-align:right;padding:3px 4px;border-bottom:1px solid var(--line);color:var(--text);font-variant-numeric:tabular-nums;}
+  .u-table th:first-child,.u-table td:first-child{text-align:left;}
+  .u-calls{display:flex;flex-direction:column;gap:4px;}
+  .u-call{font-size:11px;color:var(--text-dim);border-left:2px solid var(--line);padding:3px 8px;}
+  .u-call b{color:var(--text);font-weight:600;}
+  .u-call.u-failed,.u-call.u-cutoff{border-left-color:var(--err);} .u-call.u-retried,.u-call.u-switched{border-left-color:var(--amber);} .u-call.u-cancelled{border-left-color:var(--text-dim);} .u-call.u-ok{border-left-color:var(--done);}
+  .u-st{color:var(--text);} .u-time{font-family:'IBM Plex Mono',monospace;font-size:10px;margin-right:4px;}
+  .u-tok{font-family:'IBM Plex Mono',monospace;font-size:10px;}
+  .u-debug{margin-top:12px;border-top:1px solid var(--line);padding-top:8px;}
+  .u-debug summary{cursor:pointer;font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--text);}
+  .u-row{display:flex;gap:6px;align-items:center;margin:8px 0;}
+  .u-row select{flex:1;font-size:11px;background:var(--bg);color:var(--text);border:1px solid var(--line);border-radius:4px;padding:4px;}
+  .u-note{font-size:11px;color:var(--text-dim);margin-bottom:6px;}
+  .u-prompt{width:100%;height:180px;margin-top:8px;font-family:'IBM Plex Mono',monospace;font-size:10px;background:var(--bg);color:var(--text-dim);border:1px solid var(--line);border-radius:4px;padding:6px;resize:vertical;}
+  .mp-sel{font-size:10.5px;background:var(--bg);color:var(--text);border:1px solid var(--line);border-radius:4px;padding:2px 3px;max-width:150px;}
+  .mp-last{font-size:10px;color:var(--text-dim);}
   .modal-close{width:100%;margin-top:14px;background:none;border:1px solid var(--line);color:var(--text-dim);font-family:'IBM Plex Mono',monospace;font-size:12px;padding:9px;border-radius:5px;cursor:pointer;}
   .empty-note{font-size:12px;color:var(--text-dim);text-align:center;padding:20px 0;}
 
@@ -1395,6 +1419,7 @@ async function callOpenAIResponses(apiKey, model, systemPrompt, userPrompt, effo
   }
   if(!r.ok) throw new Error(`openai returned ${r.status} — ${(await r.text()).slice(0, 120)}`);
   const d = await r.json();
+  lastResponsesMeta = { usage: d.usage, model: d.model, status: d.status };
   if(d.output_text) return d.output_text;
   return (d.output || []).filter(x => x && x.type === 'message').flatMap(x => x.content || []).filter(c => c && typeof c.text === 'string').map(c => c.text).join('');
 }
@@ -1533,8 +1558,12 @@ async function runModelCheck(force){
 // Model + reasoning for one task, or null = use the normal picked model.
 function modelForTask(task){
   if(!isPremiumOn() || !readApiKey()) return null;
-  const p = MODEL_PLAN[task];
-  if(!p) return null;
+  const p0 = MODEL_PLAN[task];
+  if(!p0) return null;
+  // Phase 6: per-step choice (saved in this browser); no choice = the plan default.
+  const ov = getTaskOverrides()[task];
+  if(ov === 'picked') return null;
+  const p = (ov && GPT6_CANDIDATES[ov]) ? Object.assign({}, p0, { model: ov }) : p0;
   const provider = currentProvider();
   if(!withProviderPrefix('x', provider)) return null;
   const chk = modelCheck && modelCheck[p.model];
@@ -1577,12 +1606,13 @@ async function callTask(task, systemPrompt, userPrompt, extra){
   if(isPremiumOn() && readApiKey() && !modelCheck) { try{ await runModelCheck(false); }catch(e){} }
   if(signal && signal.aborted) throw abortError();
   const m = modelForTask(task);
-  if(!m) return callGeneration(systemPrompt, userPrompt, signal ? { signal } : undefined);
+  const step = extra && extra.step;
+  if(!m) return callGeneration(systemPrompt, userPrompt, { signal, task, step });
   let lastErr = null;
   let failedId = null;
   for(const id of m.candidates){
     try{
-      const out = await callGeneration(systemPrompt, userPrompt, { model: id, effort: m.effort, signal });
+      const out = await callGeneration(systemPrompt, userPrompt, { model: id, effort: m.effort, signal, task, step, switchedFrom: failedId || undefined });
       if(failedId) noteFallback(task, failedId, id, lastErr && lastErr.message);
       return out;
     }catch(e){
@@ -1596,7 +1626,7 @@ async function callTask(task, systemPrompt, userPrompt, extra){
   // No GPT-6 ID worked → the picked model (always announced).
   planFallbackWarned.add(m.model);
   noteFallback(task, failedId || m.model, getSelectedModel() || 'the picked model', lastErr && lastErr.message);
-  return callGeneration(systemPrompt, userPrompt, signal ? { signal } : undefined);
+  return callGeneration(systemPrompt, userPrompt, { signal, task, step, switchedFrom: failedId || m.model });
 }
 // Kept for older call sites: "important" = story-level work.
 function callImportant(systemPrompt, userPrompt){ return callTask('strategy', systemPrompt, userPrompt); }
@@ -1609,7 +1639,7 @@ async function repairJsonWithModel(rawText, signal){
   const system = 'You fix broken JSON. Return ONLY the same data as valid JSON — same keys, same values, same order. Do not add, remove, summarise or rewrite any content. Remove any text outside the JSON.';
   for(const id of m.candidates){
     try{
-      return await callGeneration(system, String(rawText).slice(0, 120000), { model: id || undefined, effort: m.effort, noJsonRepair: true, signal });
+      return await callGeneration(system, String(rawText).slice(0, 120000), { model: id || undefined, effort: m.effort, noJsonRepair: true, signal, task: 'json', step: 'JSON repair' });
     }catch(e){
       console.warn('[Generator] JSON validation failed with', id, e.message);
       if(e && e.name === 'AbortError') throw e;
@@ -1647,7 +1677,8 @@ function renderModelPlanTable(){
   if(!withProviderPrefix('x', prov)) return '<div class="hint" style="color:var(--amber);">Your provider can\'t run GPT-6 models — the picked model is used instead.</div>';
   const fams = ['astra', 'sol', 'luna'];
   const statusRows = fams.map(f => `<tr><td><b>${f.charAt(0).toUpperCase() + f.slice(1)}</b></td><td colspan="2" style="text-align:right;">${famStatus(f)}</td></tr>${famReason(f)}`).join('');
-  return `<table class="mp-table"><tbody>${Object.values(MODEL_PLAN).map(p => `<tr><td>${p.label}</td><td><b>${p.model.charAt(0).toUpperCase() + p.model.slice(1)}</b></td><td><span class="mp-eff mp-${p.effort}">${p.effort}</span></td></tr>`).join('')}</tbody></table>
+  const ovs = getTaskOverrides(), last = lastActualModels(), cap = f => f.charAt(0).toUpperCase() + f.slice(1);
+  return `<table class="mp-table"><tbody>${Object.entries(MODEL_PLAN).map(([task, p]) => { const ov = ovs[task] || 'default'; const l = last[task]; return `<tr><td>${p.label}${l ? `<div class="mp-last">last answered by <b>${escHtml(l.act || l.req || '?')}</b>${l.act && l.req && l.act !== l.req ? ` (asked ${escHtml(l.req)})` : ''}${l.from ? ` — switched from ${escHtml(l.from)}` : ''}${l.st && !['ok', 'retried', 'switched'].includes(l.st) ? ` · ${escHtml(l.st)}` : ''}</div>` : ''}</td><td><select class="mp-sel" onchange="setTaskOverride('${task}', this.value)" aria-label="Model for ${escHtml(p.label)}"><option value="default" ${ov === 'default' ? 'selected' : ''}>Plan default (${cap(p.model)})</option>${['astra', 'sol', 'luna'].map(f => `<option value="${f}" ${ov === f ? 'selected' : ''}>${cap(f)}</option>`).join('')}<option value="picked" ${ov === 'picked' ? 'selected' : ''}>My picked model</option></select></td><td><span class="mp-eff mp-${p.effort}">${p.effort}</span></td></tr>`; }).join('')}</tbody></table>
     ${backendStatus && !backendStatus.ok ? `<div class="ret-line warn" style="margin-top:10px;">⚠ ${escHtml(backendHelpText(backendStatus))}</div>` : ''}${backendStatus && backendStatus.ok ? `<div class="hint" style="margin-top:8px;">Backend ✓ server.js ${escHtml(backendStatus.version)}</div>` : ''}
     <div class="mp-head">Model check ${readApiKey() ? `<button type="button" class="mp-recheck" onclick="runModelCheck(true)" ${modelCheckBusy ? 'disabled' : ''}>${modelCheckBusy ? 'Checking…' : '↻ Check again'}</button>` : '<span class="hint">— add your API key to check</span>'}</div>
     <table class="mp-table"><tbody>${statusRows}</tbody></table>`;
@@ -1701,6 +1732,7 @@ async function fetchWithRetry(label, doFetch, o){
   const opt = o || {};
   for(let attempt = 0; ; attempt++){
     if(opt.signal && opt.signal.aborted) throw abortError(); // cancelled: no further attempts
+    if(opt.meta) opt.meta.attempts = attempt + 1; // every attempt is counted (Phase 6 usage log)
     let response = null, netErr = null;
     try{ response = await doFetch(); }catch(e){ netErr = e; }
     const canRetry = attempt < RETRY_DELAYS_MS.length;
@@ -1726,7 +1758,26 @@ async function fetchWithRetry(label, doFetch, o){
 // cut off before any text came back would be cut off again, so no retry either.
 const backendBodyRetryable = body => !/fetch failed|cut off|finish reason: (length|incomplete)/i.test(body);
 
+// Phase 6: every AI request is recorded (usage as reported by the provider)
+// and its exact prompt kept in memory for the Prompt debug view.
 async function callGeneration(systemPrompt, userPrompt, opts){
+  const o = Object.assign({}, opts || {});
+  const meta = o.__meta = { attempts: 0 };
+  const t0 = Date.now();
+  const step = o.step || STEP_LABEL[o.task] || 'Other';
+  lastPrompts[step] = { at: t0, system: String(systemPrompt || ''), user: String(userPrompt || ''), task: o.task || null, requested: o.model || getSelectedModel() || null };
+  try{
+    const out = await callGenerationCore(systemPrompt, userPrompt, o);
+    recordAiCall(meta, { t0, step, o, status: o.switchedFrom ? 'switched' : meta.attempts > 1 ? 'retried' : 'ok' });
+    return out;
+  }catch(e){
+    recordAiCall(meta, { t0, step, o, status: e && e.name === 'AbortError' ? 'cancelled' : e && e.truncated ? 'cutoff' : 'failed', err: e && e.message });
+    throw e;
+  }finally{
+    if(lastPrompts[step]) lastPrompts[step].requested = meta.requested || lastPrompts[step].requested;
+  }
+}
+async function callGenerationCore(systemPrompt, userPrompt, opts){
   const openaiKey = readApiKey();
   const backendUrl = document.getElementById('backendUrl').value.trim();
   // Tolerate either "http://host:port" or "http://host:port/api" in the
@@ -1738,6 +1789,8 @@ async function callGeneration(systemPrompt, userPrompt, opts){
   let rawText;
   let finishReason = null; // "stop" | "length" | "incomplete" | "max_tokens" — when the provider says
   const signal = (opts && opts.signal) || null;
+  const meta = (opts && opts.__meta) || {};
+  meta.requested = selectedModel; meta.provider = openaiKey ? provider : 'built-in';
 
   if(openaiKey && backendUrl){
     let response;
@@ -1747,7 +1800,7 @@ async function callGeneration(systemPrompt, userPrompt, opts){
         signal,
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ openaiKey, systemPrompt, userPrompt, model: selectedModel, provider, baseUrl: PROVIDERS[provider].base, reasoningEffort: (opts && opts.effort) || null })
-      }), { retryNetwork: true, isRetryableBody: backendBodyRetryable, signal });
+      }), { retryNetwork: true, isRetryableBody: backendBodyRetryable, signal, meta });
     }catch(networkErr){
       if(networkErr && networkErr.name === 'AbortError') throw networkErr;
       throw new Error(`Could not reach your backend proxy at "${backendBase}/api/generate-script" — make sure it's running (cd backend && node server.js) and the URL is correct.`);
@@ -1764,12 +1817,13 @@ async function callGeneration(systemPrompt, userPrompt, opts){
     const data = await response.json();
     rawText = data.content;
     finishReason = data.finishReason || null; // sent by server.js 2026-11-23.1+; older servers omit it
+    meta.usage = normalizeUsage('backend', data.usage); meta.actual = data.model || null;
     if(!rawText) throw new Error("No content in backend response");
   }else if(openaiKey){
     let response;
     try{
       // Direct browser calls: a network error is usually CORS (permanent), so only HTTP 429/5xx are retried.
-      response = await fetchWithRetry('AI request', () => callChatCompletions(PROVIDERS[provider].base, openaiKey, selectedModel, systemPrompt, userPrompt, (opts && opts.effort) || null, signal), { signal });
+      response = await fetchWithRetry('AI request', () => callChatCompletions(PROVIDERS[provider].base, openaiKey, selectedModel, systemPrompt, userPrompt, (opts && opts.effort) || null, signal), { signal, meta });
     }catch(networkErr){
       if(networkErr && networkErr.name === 'AbortError') throw networkErr;
       throw new Error(`Could not reach ${provider} directly from the browser — this is usually blocked by CORS. Add a backend proxy URL above (cd backend && node server.js, then use http://localhost:3000) to work around it.`);
@@ -1778,7 +1832,9 @@ async function callGeneration(systemPrompt, userPrompt, opts){
       const errBody = await response.text();
       // A model that's only served on OpenAI's Responses API → use it.
       if(provider === 'openai' && [400, 404].includes(response.status) && /responses api|\/v1\/responses|v1\/chat\/completions|only supported (?:in|with|on)|use the responses/i.test(errBody)){
+        lastResponsesMeta = null;
         rawText = await callOpenAIResponses(openaiKey, selectedModel, systemPrompt, userPrompt, (opts && opts.effort) || null, signal);
+        if(lastResponsesMeta){ meta.usage = normalizeUsage('responses', lastResponsesMeta.usage); meta.actual = lastResponsesMeta.model || null; if(lastResponsesMeta.status === 'incomplete') finishReason = 'incomplete'; }
       }else{
         throw new Error(`${provider} returned ${response.status} — check your key and model ID. ${errBody.slice(0,120)}`);
       }
@@ -1787,6 +1843,7 @@ async function callGeneration(systemPrompt, userPrompt, opts){
       const data = await response.json();
       rawText = data.choices && data.choices[0] && data.choices[0].message && data.choices[0].message.content;
       finishReason = (data.choices && data.choices[0] && data.choices[0].finish_reason) || null;
+      meta.usage = normalizeUsage('chat', data.usage); meta.actual = data.model || null;
     }
     if(!rawText) throw new Error(`No content in ${provider} response`);
   }else{
@@ -1802,7 +1859,7 @@ async function callGeneration(systemPrompt, userPrompt, opts){
           system: systemPrompt,
           messages: [{ role: "user", content: userPrompt }]
         })
-      }), { signal });
+      }), { signal, meta });
     }catch(networkErr){
       if(networkErr && networkErr.name === 'AbortError') throw networkErr;
       throw new Error(`Could not reach the built-in generator — this free option (no key entered) only works inside Claude.ai's own preview. If you're running this file on your own machine, enter an API key above and a backend proxy URL (cd backend && node server.js, then use http://localhost:3000), then try again.`);
@@ -1813,8 +1870,10 @@ async function callGeneration(systemPrompt, userPrompt, opts){
     if(!textBlock) throw new Error("No text in response");
     rawText = textBlock.text;
     finishReason = data.stop_reason || null;
+    meta.usage = normalizeUsage('anthropic', data.usage); meta.actual = data.model || null;
   }
 
+  meta.finishReason = finishReason;
   try{
     return parseModelJson(rawText);
   }catch(parseErr){
@@ -1825,6 +1884,9 @@ async function callGeneration(systemPrompt, userPrompt, opts){
       e.truncated = true; e.rawText = rawText; e.finishReason = finishReason;
       throw e;
     }
+    // Phase 6: safe local repair first — no paid request when it works.
+    const local = localJsonRepair(rawText);
+    if(local){ meta.localFix = local.fixes.join(', ') || 'reformatted'; return local.value; }
     if(opts && opts.noJsonRepair) throw parseErr;
     const fixed = await repairJsonWithModel(rawText, signal);
     if(fixed) return fixed;
@@ -2440,7 +2502,7 @@ SECRET (never reveal or hint before row ${m.revealRow || '?'}): ${m.secret || '�
 
 ${usable.map((g, i) => `GAP ${i + 1} — no open question between row ${g.from || 'start'} and row ${g.to}. Rows you may change:
 ${g.rows.map(fmt).join('\n')}`).join('\n\n')}`;
-    const res = await callTask('review', system, user);
+    const res = await callTask('review', system, user, { step: 'Open-loop fix' });
     const fixes = (res && Array.isArray(res.fixes)) ? res.fixes : [];
     const allowed = new Set(usable.flatMap(g => g.rows.map(r => +r.row)));
     const good = fixes.filter(f => f && allowed.has(+f.row) && f.summary);
@@ -2626,7 +2688,7 @@ ${JSON.stringify(cand.spine || {})}` : ''}
 
 CURRENT PLAN (${N} rows):
 ${cand.outline.map(fmt).join('\n')}`;
-  const res = await callTask('review', system, user, { signal });
+  const res = await callTask('review', system, user, { signal, step: editor ? 'Plan check + story editor' : (ropts && ropts.single ? 'Fix in plan' : 'Plan repair') });
   const outline = normalizeOutline(res && res.outline);
   if(!outline || outline.length !== N) throw new Error(`repair returned ${outline ? outline.length : 0} rows instead of ${N}`);
   if(lockedUpTo) for(let i = 0; i < lockedUpTo; i++) outline[i] = cand.outline[i];
@@ -3059,7 +3121,7 @@ async function simplifyHardLines(onlyScene){
     const system = `You rewrite the spoken lines of a YouTube story video into SIMPLE ${lang}. Reply with ONLY JSON: {"lines": [{"sceneNumber": number, "narrationLine": string|null, "dialogue": string|null}]}.
 Rules: keep the exact meaning, names, story facts, tension and emotion. Use everyday words an English learner (A2–B1) knows; sentences of 6–14 words, never more than 18; simple tenses; active voice; no idioms, no poetic or old-fashioned words, no semicolons. Keep about the same total length — each line must still fill 8-10 seconds (about 20-25 words). If a dialogue starts with a speaker lead-in (e.g. 'Mina says: "…"'), keep that lead-in format exactly and change only the quoted words. Return null for any field you were not given. Never add new information.`;
     const user = JSON.stringify(flagged.map(f => ({ sceneNumber: f.sc.sceneNumber, narrationLine: f.sc.narrationLine || null, dialogue: f.sc.dialogue || null })), null, 1);
-    const res = await callTask('json', system, user);
+    const res = await callTask('json', system, user, { step: 'Simplify' });
     const lines = (res && Array.isArray(res.lines)) ? res.lines : [];
     const touchedClips = lines.map(l => +l.sceneNumber).filter(n => (job.scenes || []).some(sc => +sc.sceneNumber === n));
     if(touchedClips.length && !(await snapshotOrAsk('Simplify', `Before simplifying clip${touchedClips.length > 1 ? 's' : ''} ${touchedClips.slice(0, 8).join(', ')}`, { clips: touchedClips }))) throw new Error('stopped — no version could be saved');
@@ -3236,6 +3298,7 @@ async function generateScript(){
   if(busy.has('generate')) return; // a second click arrived during the check
   busy.add('generate');
   let planSavedThisRun = false;
+  usageCollectPending = true; pendingUsage = []; // the plan call happens before the job exists
   const genAbort = new AbortController();
   activeAbort = genAbort;
   busyLabels.generate = 'Planning the story…';
@@ -3287,6 +3350,8 @@ async function generateScript(){
       monetizeSafe: storyOptsFromForm().monetizeSafe,
       source, currentTopic: topic
     };
+    usageCollectPending = false;
+    pendingUsage.splice(0).forEach(r => addUsage(job, r));
     if(job.treatment){
       job.treatment.outline = normalizeOutline(job.treatment.outline);
       // Phase 3: plans made with the spine rule are checked for it.
@@ -3352,6 +3417,7 @@ async function generateScript(){
     }
     showError('Generation failed: ' + e.message + '. Try trimming the source text or simplifying the topic, then generate again.' + (planSavedThisRun ? ' Your story plan WAS saved — open it from "📂 Load saved job" and click "Generate next scenes" to continue without paying for the plan again.' : ''));
   }finally{
+    usageCollectPending = false;
     busy.delete('generate');
     busyLabels.generate = null;
     if(activeAbort === genAbort) activeAbort = null;
@@ -3400,7 +3466,7 @@ async function continueScript(){
     const outputOverride = `\nOUTPUT OVERRIDE FOR THIS CONTINUATION CALL: Ignore the top-level shape in the schema above for THIS response only — output ONLY a JSON object of the form {"scenes": [...]}, containing just this batch's new scene objects (each one following the "scenes" item schema exactly, same fields and rules as always). Do NOT include "topic", "characterStyle", "treatment", "styleBlock", or "thumbnail" in this response.`;
 
     const planNote = rows
-      ? `\nPLAN FOR THIS BATCH — HARD CONSTRAINT: This video was fully planned in treatment.outline during the opening batch. Write EXACTLY ${rows.length} scene(s) — one per outline row listed in the user message ("THIS BATCH'S ROWS"), in order, each with "outlineRow" set to its row number, depicting that row's location, time-of-day, and event. Rows of kind "expansion" are planned, faithful additions to the source — write them with the same craft and specificity as source rows, consistent with the characters, setting, and everything already shown. Use the full outline in the user message to foreshadow what is coming and to pay off what was set up earlier. ANTI-REPETITION: the user message lists every scene ALREADY WRITTEN — never depict, re-stage, or rephrase any of those moments, actions, or lines; if a row looks close to something already written, show the NEXT new development of that moment instead (keeping the row's location and purpose). Narration and dialogue must not reuse ideas, images, or phrasings from earlier lines.${isFinalBatch ? ' This batch contains the final rows of the plan — land the Payoff with real weight and close the video.' : ' End this batch on a small hook that pulls into the next row.'}`
+      ? `\nPLAN FOR THIS BATCH — HARD CONSTRAINT: This video was fully planned in treatment.outline during the opening batch. Write EXACTLY one scene per outline row listed in the user message ("THIS BATCH'S ROWS" — it states how many rows and whether this batch ends the plan), in order, each with "outlineRow" set to its row number, depicting that row's location, time-of-day, and event. Rows of kind "expansion" are planned, faithful additions to the source — write them with the same craft and specificity as source rows, consistent with the characters, setting, and everything already shown. Use the full outline in the user message to foreshadow what is coming and to pay off what was set up earlier. ANTI-REPETITION: the user message lists every scene ALREADY WRITTEN — never depict, re-stage, or rephrase any of those moments, actions, or lines; if a row looks close to something already written, show the NEXT new development of that moment instead (keeping the row's location and purpose). Narration and dialogue must not reuse ideas, images, or phrasings from earlier lines.`
       : `\nLEGACY JOB (no saved outline): Generate the next 3-5 consecutive scenes. The user message lists every scene ALREADY WRITTEN — never depict, re-stage, or rephrase any of those moments, actions, or lines. Each new scene must show a new development, and the story may move to new specific locations within the established setting. If the source has nothing left to show, land the Payoff in this batch; if the previous scene is already the Payoff or an Outro, output {"scenes": []}.${isFinalBatch ? ' This is likely the final batch — land the Payoff.' : ''}`;
 
     const systemPrompt = baseSystemPrompt() + outputOverride + planNote + `\nRules: This CONTINUES an existing shot list. Vary shot size and camera movement, and don't repeat the immediately preceding scene's combination. Per VISUAL VARIETY: this batch's first new imagePrompt must look clearly different (pose/action/framing, AND background) from the last scene of the previous batch quoted below, and every scene after that must keep differing from the one before it. Per ACTION CONTINUITY: if this batch's first scene stays in the same location as the previous scene, it must pick up exactly where that scene left off (quoted below); if its outline row moves to a new location or time, open with a clear establishing beat that makes the transition read as intentional. Per CROWD & SCENE POPULATION RULE: if the setting inherently implies other people, populate the imagery with concrete, visually distinct background people — never the named character's own description reused. Per CHARACTER FACE VISIBILITY RULE: keep every named character's face clearly visible in imagePrompt and restate their faceSignature. Per EXTENDED SINGLE-ACTION PACING RULE: never let one ongoing event sit unchanged for more than 3-4 scenes. Do not invent new named characters beyond the roster given below. Keep imagePrompt and videoAudioPrompt concise enough that the whole response fits in the token budget — but "dialogue" and "narrationLine" must always hit their full 8-10 second length. Per LANGUAGE RULE: every field must be in English except "dialogue" and "narrationLine", which follow ${lang}.` + jobRulesTail(job.characterStyle, job.customStyle || '', job.setting || '', !!job.retentionMode, Object.assign(storyOptsFromJob(), { brief: true }));
@@ -3416,7 +3482,7 @@ async function continueScript(){
     const fmtRow = r => `${r.row}. [${r.kind}${r.sourceBeat ? ` · source beat ${r.sourceBeat}` : ''} · ${r.beat}] @ ${r.location} (${r.timeOfDay}) — ${r.summary}${r.purpose ? ` {purpose: ${r.purpose}}` : ''}`;
     const t = job.treatment || {};
 
-    const userPrompt = `Source material (a premise being retold originally):\n${sourceTextForPrompt}\n\n${job.currentTopic ? `Retelling angle (secondary — a stylistic twist only): ${job.currentTopic}` : `No retelling angle given — follow the source material's own story directly.`}\nCharacter / render style: ${styleLabelFor(job.characterStyle, job.customStyle)}\nStory setting / cultural context: ${job.setting || t.setting || 'as established in the opening batch'}\nOutput language for dialogue/narration: ${lang}${nameChangesText}\n\nEstablished look — reuse exactly:\nStyle: ${job.styleBlock.description}\nWorld: ${t.environment || 'infer from earlier scenes'}\nColor grade: ${t.colorGrade || '—'}\nCharacters (do not invent new named characters):\n${job.styleBlock.characters.map(c => `- ${c.name} (${c.role}): ${c.description}${c.faceSignature ? ` FACE: ${c.faceSignature}` : ''}${c.visualTag ? ` VISUAL TAG: ${c.visualTag}` : ''}`).join('\n')}${Array.isArray(job.styleBlock.products) && job.styleBlock.products.length ? `\n\nProducts — reuse these exact descriptions:\n${job.styleBlock.products.map(p => `- ${p.name}: ${p.description}`).join('\n')}` : ''}\n\nSource beats:\n${(t.sourceBeats || []).map((b,i) => `${i+1}. ${b}`).join('\n') || '(none recorded)'}\n${outline ? `\nFULL OUTLINE (the whole video, for foreshadowing and payoff):\n${outline.map(fmtRow).join('\n')}\n\nTHIS BATCH'S ROWS — write exactly these, in order:\n${rows.map(r => fmtRow(r) + arcRowSuffix(r)).join('\n')}\n` : ''}${retentionBatchNote(rows)}${arcBatchNote(rows, outline)}\nALREADY WRITTEN — never repeat any of these moments, actions, or lines:\n${writtenScenesLog() || '(none)'}\n\nThe previous scene ended at ${formatTime(lastEndSeconds)}. Its imagePrompt (your first new imagePrompt must look clearly different):\n"${lastScene ? lastScene.imagePrompt : 'opening of the video'}"\n\nIts action (continue from it if the next row stays in the same place):\n"${lastScene ? lastScene.videoAudioPrompt : 'opening of the video'}"\n${job.totalSeconds ? `\nTotal video length target: ${job.totalSeconds}s.` : ''}`;
+    const userPrompt = `Source material (a premise being retold originally):\n${sourceTextForPrompt}\n\n${job.currentTopic ? `Retelling angle (secondary — a stylistic twist only): ${job.currentTopic}` : `No retelling angle given — follow the source material's own story directly.`}\nCharacter / render style: ${styleLabelFor(job.characterStyle, job.customStyle)}\nStory setting / cultural context: ${job.setting || t.setting || 'as established in the opening batch'}\nOutput language for dialogue/narration: ${lang}${nameChangesText}\n\nEstablished look — reuse exactly:\nStyle: ${job.styleBlock.description}\nWorld: ${t.environment || 'infer from earlier scenes'}\nColor grade: ${t.colorGrade || '—'}\nCharacters (do not invent new named characters):\n${job.styleBlock.characters.map(c => `- ${c.name} (${c.role}): ${c.description}${c.faceSignature ? ` FACE: ${c.faceSignature}` : ''}${c.visualTag ? ` VISUAL TAG: ${c.visualTag}` : ''}`).join('\n')}${Array.isArray(job.styleBlock.products) && job.styleBlock.products.length ? `\n\nProducts — reuse these exact descriptions:\n${job.styleBlock.products.map(p => `- ${p.name}: ${p.description}`).join('\n')}` : ''}\n\nSource beats:\n${(t.sourceBeats || []).map((b,i) => `${i+1}. ${b}`).join('\n') || '(none recorded)'}\n${outline ? `\nFULL OUTLINE (the whole video, for foreshadowing and payoff):\n${outline.map(fmtRow).join('\n')}\n\nTHIS BATCH'S ROWS — write exactly these ${rows.length} row(s) as exactly ${rows.length} scene(s), in order:\n${rows.map(r => fmtRow(r) + arcRowSuffix(r)).join('\n')}\n${isFinalBatch ? 'This batch contains the final rows of the plan — land the Payoff with real weight and close the video.' : 'End this batch on a small hook that pulls into the next row.'}\n` : ''}${retentionBatchNote(rows)}${arcBatchNote(rows, outline)}\nALREADY WRITTEN — never repeat any of these moments, actions, or lines:\n${writtenScenesLog() || '(none)'}\n\nThe previous scene ended at ${formatTime(lastEndSeconds)}. Its imagePrompt (your first new imagePrompt must look clearly different):\n"${lastScene ? lastScene.imagePrompt : 'opening of the video'}"\n\nIts action (continue from it if the next row stays in the same place):\n"${lastScene ? lastScene.videoAudioPrompt : 'opening of the video'}"\n${job.totalSeconds ? `\nTotal video length target: ${job.totalSeconds}s.` : ''}`;
 
     let raw;
     try{
@@ -3542,6 +3608,238 @@ async function markCopyProgress(n, stage){
   doneMap[n] = stage;
   await saveProgress();
   renderResults();
+}
+
+// ---------------------------------------------------------------------------
+// PHASE 6 — AI USAGE, MODEL PER STEP, PROMPT DEBUG
+// Every AI request goes through callGeneration(); its wrapper records one
+// call record with the numbers the PROVIDER reported (never estimated):
+//   { t, step, task, prov, req, act, in, out, cached, reas, ms, retries, st, fin, err, from, local }
+//   st: ok | retried | switched | cutoff | cancelled | failed
+// Records go to job.usageLog (oldest pruned to stay under ~30 KB) and the
+// never-pruned running totals in job.usageTotals.
+// ---------------------------------------------------------------------------
+const USAGE_LOG_MAX_BYTES = 30000;
+const STEP_LABEL = { strategy: 'Plan', script: 'Scenes', review: 'Plan check & fixes', scenePrompts: 'Clip prompts', thumbnail: 'Thumbnail', seo: 'SEO', audio: 'Music & SFX', shorts: 'Shorts', json: 'JSON & rewrites' };
+let usageCollectPending = false;   // true while a new job's plan request runs (before the job exists)
+let pendingUsage = [];
+const sessionUsage = [];           // every call this session (memory only), newest last
+const lastPrompts = {};            // step → the exact prompt last sent (memory only)
+let lastResponsesMeta = null;      // usage from a direct Responses-API call
+const numOrNull = v => (v === null || v === undefined || v === '' || !Number.isFinite(+v)) ? null : +v;
+function normalizeUsage(kind, u){
+  if(!u || typeof u !== 'object') return { in: null, out: null, cached: null, reas: null };
+  if(kind === 'backend') return { in: numOrNull(u.input), out: numOrNull(u.output), cached: numOrNull(u.cached), reas: numOrNull(u.reasoning) };
+  if(kind === 'chat') return { in: numOrNull(u.prompt_tokens), out: numOrNull(u.completion_tokens), cached: numOrNull(u.prompt_tokens_details && u.prompt_tokens_details.cached_tokens), reas: numOrNull(u.completion_tokens_details && u.completion_tokens_details.reasoning_tokens) };
+  if(kind === 'responses') return { in: numOrNull(u.input_tokens), out: numOrNull(u.output_tokens), cached: numOrNull(u.input_tokens_details && u.input_tokens_details.cached_tokens), reas: numOrNull(u.output_tokens_details && u.output_tokens_details.reasoning_tokens) };
+  if(kind === 'anthropic') return { in: numOrNull(u.input_tokens), out: numOrNull(u.output_tokens), cached: numOrNull(u.cache_read_input_tokens), reas: null };
+  return { in: null, out: null, cached: null, reas: null };
+}
+function emptyUsageTotals(){ return { since: Date.now(), calls: 0, st: {}, retries: 0, ms: 0, in: [0, 0], out: [0, 0], cached: [0, 0], reas: [0, 0], byStep: {}, byModel: {} }; }
+function addToBucket(b, rec){
+  b.calls = (b.calls || 0) + 1; b.ms = (b.ms || 0) + (rec.ms || 0);
+  ['in', 'out', 'cached', 'reas'].forEach(k => { b[k] = b[k] || [0, 0]; if(rec[k] !== null && rec[k] !== undefined){ b[k][0] += rec[k]; b[k][1]++; } });
+}
+function addUsage(j, rec){
+  if(!j) return;
+  j.usageLog = Array.isArray(j.usageLog) ? j.usageLog : [];
+  j.usageTotals = j.usageTotals && typeof j.usageTotals === 'object' ? j.usageTotals : emptyUsageTotals();
+  const T = j.usageTotals;
+  T.calls++; T.st[rec.st] = (T.st[rec.st] || 0) + 1; T.retries += rec.retries || 0; T.ms += rec.ms || 0;
+  ['in', 'out', 'cached', 'reas'].forEach(k => { if(rec[k] !== null && rec[k] !== undefined){ T[k][0] += rec[k]; T[k][1]++; } });
+  addToBucket(T.byStep[rec.step] = T.byStep[rec.step] || {}, rec);
+  const mk = rec.act || rec.req || 'unknown';
+  addToBucket(T.byModel[mk] = T.byModel[mk] || {}, rec);
+  j.usageLog.push(rec);
+  // ~30 KB cap: the oldest call details go first; the totals above are kept.
+  while(j.usageLog.length > 1 && JSON.stringify(j.usageLog).length + JSON.stringify(T).length > USAGE_LOG_MAX_BYTES){ j.usageLog.shift(); T.pruned = (T.pruned || 0) + 1; }
+}
+let usageSaveTimer = null;
+function recordAiCall(meta, ctx){
+  const o = ctx.o || {};
+  const u = meta.usage || { in: null, out: null, cached: null, reas: null };
+  const rec = {
+    t: ctx.t0, step: ctx.step, task: o.task || null, prov: meta.provider || currentProvider(),
+    req: meta.requested || o.model || null, act: meta.actual || null,
+    in: u.in, out: u.out, cached: u.cached, reas: u.reas,
+    ms: Date.now() - ctx.t0, retries: Math.max(0, (meta.attempts || 1) - 1), st: ctx.status,
+    fin: meta.finishReason || null, err: ctx.err ? String(ctx.err).replace(/sk-[A-Za-z0-9_\-]{6,}/g, 'sk-…').slice(0, 160) : null,
+    from: o.switchedFrom || null, local: meta.localFix || null
+  };
+  sessionUsage.push(rec); if(sessionUsage.length > 200) sessionUsage.shift();
+  if(rec.task){ try{ const m = JSON.parse(localStorage.getItem('lastActualModels') || '{}'); m[rec.task] = { req: rec.req, act: rec.act, st: rec.st, from: rec.from, t: rec.t }; localStorage.setItem('lastActualModels', JSON.stringify(m)); }catch(e){} }
+  if(usageCollectPending) pendingUsage.push(rec);
+  else if(job && job.jobId){
+    addUsage(job, rec);
+    // Failed/cancelled calls are often not followed by a save — keep their record.
+    if(rec.st === 'failed' || rec.st === 'cancelled' || rec.st === 'cutoff'){ clearTimeout(usageSaveTimer); usageSaveTimer = setTimeout(() => { if(job && job.jobId) saveJobToStorage(true); }, 1500); }
+  }
+  return rec;
+}
+
+// --- Local JSON repair (before any paid repair) ------------------------------
+// Only safe, mechanical fixes: a byte-order mark, code fences, text around ONE
+// complete JSON structure, trailing commas. An unbalanced structure (a cut-off
+// reply) is never touched, and the result must keep every top-level key the
+// raw text named.
+function jsonScan(body, onChar){
+  let inStr = false, esc = false, depth = 0;
+  for(let i = 0; i < body.length; i++){
+    const c = body[i];
+    if(inStr){ if(esc) esc = false; else if(c === '\\') esc = true; else if(c === '"') inStr = false; onChar(c, i, depth, true); continue; }
+    if(c === '"'){ inStr = true; onChar(c, i, depth, false); continue; }
+    if(c === '{' || c === '['){ onChar(c, i, depth, false); depth++; continue; }
+    if(c === '}' || c === ']'){ depth--; onChar(c, i, depth, false); continue; }
+    onChar(c, i, depth, false);
+  }
+  return depth;
+}
+function topLevelKeys(body){
+  const keys = [];
+  let cur = null, start = -1;
+  let inStr = false, esc = false, depth = 0;
+  for(let i = 0; i < body.length; i++){
+    const c = body[i];
+    if(inStr){
+      if(esc){ esc = false; continue; }
+      if(c === '\\'){ esc = true; continue; }
+      if(c === '"'){ inStr = false; if(depth === 1) cur = body.slice(start + 1, i); }
+      continue;
+    }
+    if(c === '"'){ inStr = true; start = i; continue; }
+    if(c === ':' && depth === 1 && cur !== null){ try{ keys.push(JSON.parse('"' + cur + '"')); }catch(e){ keys.push(cur); } cur = null; continue; }
+    if(c === '{' || c === '['){ depth++; cur = null; continue; }
+    if(c === '}' || c === ']'){ depth--; cur = null; continue; }
+    if(!/\s/.test(c)) cur = (c === ',') ? null : cur;
+  }
+  return keys;
+}
+function localJsonRepair(raw){
+  let s = String(raw || '').replace(/^﻿/, '').trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```\s*$/, '').trim();
+  const first = s.search(/[{\[]/);
+  if(first < 0) return null;
+  let end = -1, depth = 0, inStr = false, esc = false;
+  for(let i = first; i < s.length; i++){
+    const c = s[i];
+    if(inStr){ if(esc) esc = false; else if(c === '\\') esc = true; else if(c === '"') inStr = false; continue; }
+    if(c === '"') inStr = true;
+    else if(c === '{' || c === '[') depth++;
+    else if(c === '}' || c === ']'){ depth--; if(depth === 0){ end = i; break; } }
+  }
+  if(end < 0) return null; // unbalanced = probably cut off → never repaired here
+  const body = s.slice(first, end + 1);
+  const fixes = [];
+  if(first > 0 || end < s.length - 1) fixes.push('text around the JSON removed');
+  let out = '';
+  jsonScan(body, (c, i, d, inside) => {
+    if(!inside && c === ','){
+      let j = i + 1; while(j < body.length && /\s/.test(body[j])) j++;
+      if(body[j] === '}' || body[j] === ']'){ if(!fixes.includes('trailing commas removed')) fixes.push('trailing commas removed'); return; }
+    }
+    out += c;
+  });
+  let parsed;
+  try{ parsed = JSON.parse(out); }catch(e){ return null; }
+  if(!parsed || typeof parsed !== 'object') return null;
+  if(!Array.isArray(parsed)){
+    const missing = topLevelKeys(body).filter(k => !(k in parsed));
+    if(missing.length) return null;                                      // never silently drop data
+    if('scenes' in parsed && !Array.isArray(parsed.scenes)) return null; // expected shape
+  }
+  return { value: parsed, fixes };
+}
+
+// --- Model per step ------------------------------------------------------------
+function getTaskOverrides(){ try{ const o = JSON.parse(localStorage.getItem('taskModelOverrides') || '{}'); return o && typeof o === 'object' ? o : {}; }catch(e){ return {}; } }
+function setTaskOverride(task, value){
+  const o = getTaskOverrides();
+  if(!value || value === 'default') delete o[task]; else o[task] = value;
+  try{ localStorage.setItem('taskModelOverrides', JSON.stringify(o)); }catch(e){}
+  renderModelPlanBox();
+  showToast(value && value !== 'default' ? `${MODEL_PLAN[task].label}: ${value === 'picked' ? 'your picked model' : value.charAt(0).toUpperCase() + value.slice(1)}` : `${MODEL_PLAN[task].label}: back to the plan default`);
+}
+function lastActualModels(){ try{ return JSON.parse(localStorage.getItem('lastActualModels') || '{}') || {}; }catch(e){ return {}; } }
+
+// --- Prompt debug (read-only; the exact strings that were sent) ----------------
+function promptSections(text){
+  const t = String(text || '');
+  const re = /(?:^|\n)[ \t]*([A-Z][A-Z0-9&'\/()\-]+(?:[ ][A-Z0-9&'\/()\-]+){0,9})(?=[ \t]*(?:—|:|\(|\.|\n))/g;
+  const heads = [];
+  let m;
+  while((m = re.exec(t))){
+    const name = m[1].trim();
+    if(name.replace(/[^A-Z]/g, '').length < 5) continue; // "JSON", "OK" etc. are not section names
+    heads.push({ name, at: m.index + (t[m.index] === '\n' ? 1 : 0) });
+  }
+  if(heads.length < 2) return [{ name: 'Whole text (no named sections in this prompt)', chars: t.length }];
+  const out = [];
+  if(heads[0].at > 0) out.push({ name: 'Opening (before the first named section)', chars: heads[0].at });
+  heads.forEach((h, i) => out.push({ name: h.name, chars: (i + 1 < heads.length ? heads[i + 1].at : t.length) - h.at }));
+  return out;
+}
+const redact = s => String(s || '').replace(/sk-[A-Za-z0-9_\-]{6,}/g, 'sk-…(redacted)');
+let promptDebugStep = null;
+function copyLastPrompt(){
+  const p = lastPrompts[promptDebugStep];
+  if(!p) return;
+  copyText(`=== SYSTEM ===\n${redact(p.system)}\n\n=== USER ===\n${redact(p.user)}`);
+  showToast('Prompt copied');
+}
+
+// --- Usage panel ---------------------------------------------------------------
+const NR = '<span class="u-nr">Not reported</span>';
+const fmtTok = n => Number(n).toLocaleString();
+function fmtField(pair, calls){ if(!pair || !pair[1]) return NR; return `${fmtTok(pair[0])}${pair[1] < calls ? ` <span class="u-nr">(${calls - pair[1]} call${calls - pair[1] > 1 ? 's' : ''} not reported)</span>` : ''}`; }
+const fmtMs = ms => ms >= 60000 ? `${Math.floor(ms / 60000)}m ${Math.round(ms % 60000 / 1000)}s` : `${(ms / 1000).toFixed(1)}s`;
+const ST_LABEL = { ok: 'ok', retried: 'retried', switched: 'model switched', cutoff: 'cut off', cancelled: 'cancelled', failed: 'failed' };
+function renderUsagePanel(openAttr){
+  if(!job || !job.jobId) return '';
+  const T = job.usageTotals, log = Array.isArray(job.usageLog) ? job.usageLog : [];
+  const steps = Object.keys(lastPrompts);
+  if(!promptDebugStep || !lastPrompts[promptDebugStep]) promptDebugStep = steps[steps.length - 1] || null;
+  const bucketRows = (obj) => Object.entries(obj || {}).sort((a, b) => ((b[1].in || [0])[0] + (b[1].out || [0])[0]) - ((a[1].in || [0])[0] + (a[1].out || [0])[0]))
+    .map(([k, b]) => `<tr><td>${escHtml(k)}</td><td>${b.calls}</td><td>${b.in && b.in[1] ? fmtTok(b.in[0]) : NR}</td><td>${b.cached && b.cached[1] ? fmtTok(b.cached[0]) : NR}</td><td>${b.out && b.out[1] ? fmtTok(b.out[0]) : NR}</td><td>${b.reas && b.reas[1] ? fmtTok(b.reas[0]) : NR}</td><td>${fmtMs(b.ms || 0)}</td></tr>`).join('');
+  const head = '<tr><th></th><th>calls</th><th>input</th><th>cached</th><th>output</th><th>reasoning</th><th>time</th></tr>';
+  const p = promptDebugStep && lastPrompts[promptDebugStep];
+  const debug = `
+    <details class="u-debug" data-acc="promptdebug" ${openAttr('promptdebug', false)}>
+      <summary>Prompt debug <span class="acc-sub">read-only · this session</span></summary>
+      ${steps.length ? `<div class="u-row"><select onchange="promptDebugStep = this.value; renderResults();">${steps.map(s => `<option value="${escHtml(s)}" ${s === promptDebugStep ? 'selected' : ''}>${escHtml(s)} — ${new Date(lastPrompts[s].at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</option>`).join('')}</select> <button class="arc-ok-btn" onclick="copyLastPrompt()">Copy</button></div>
+      ${p ? `<div class="u-note">The exact text sent for "${escHtml(promptDebugStep)}" to ${escHtml(p.requested || 'the picked model')}. Total: system ${fmtTok(p.system.length)} characters · user ${fmtTok(p.user.length)} characters.</div>
+      <table class="u-table"><tr><th>Section</th><th>characters</th></tr>${promptSections(p.system).map(x => `<tr><td>system · ${escHtml(x.name)}</td><td>${fmtTok(x.chars)}</td></tr>`).join('')}${promptSections(p.user).map(x => `<tr><td>user · ${escHtml(x.name)}</td><td>${fmtTok(x.chars)}</td></tr>`).join('')}</table>
+      <textarea class="u-prompt" readonly>${escHtml(`=== SYSTEM ===\n${redact(p.system)}\n\n=== USER ===\n${redact(p.user)}`)}</textarea>` : ''}` : '<div class="hint">No AI request has been made in this session yet. Prompts are kept in memory only, not saved.</div>'}
+      <div class="hint">Known deliberate overrides in these prompts: SIMPLE ENGLISH overrides "sound human" wording; the PLAN-FIRST OVERRIDE and OUTPUT OVERRIDE replace the schema's top-level shape for that call; STORY SPINE works alongside (not instead of) the STORY DOCTOR rules.</div>
+    </details>`;
+  if(!T || !T.calls){
+    return `<details class="acc" data-acc="usage" ${openAttr('usage', false)}><summary><span>📊 Usage <span class="acc-sub">no usage recorded yet</span></span></summary><div class="acc-body treatment-item"><div class="hint">AI calls made for this job from now on are listed here with the token numbers the provider reports. Jobs made before this update have no usage log.</div>${debug}</div></details>`;
+  }
+  const st = T.st || {};
+  const cachedPct = T.in[1] && T.cached[1] ? Math.round(T.cached[0] / T.in[0] * 100) : null;
+  return `
+    <details class="acc" data-acc="usage" ${openAttr('usage', false)}>
+      <summary><span>📊 Usage <span class="acc-sub">${T.calls} call${T.calls > 1 ? 's' : ''} · ${T.in[1] ? fmtTok(T.in[0]) + ' in' : 'input not reported'} · ${T.out[1] ? fmtTok(T.out[0]) + ' out' : 'output not reported'}</span></span></summary>
+      <div class="acc-body treatment-item">
+        <div class="u-tot">
+          <div><span class="u-k">Requests</span> ${T.calls} — ${Object.entries(st).map(([k, n]) => `${n} ${ST_LABEL[k] || k}`).join(' · ')}${T.retries ? ` · ${T.retries} retr${T.retries > 1 ? 'ies' : 'y'} inside them` : ''}</div>
+          <div><span class="u-k">Input</span> ${fmtField(T.in, T.calls)}</div>
+          <div><span class="u-k">Cached input</span> ${fmtField(T.cached, T.calls)}${cachedPct !== null ? ` <span class="u-nr">(${cachedPct}% of reported input)</span>` : ''}</div>
+          <div><span class="u-k">Output</span> ${fmtField(T.out, T.calls)}</div>
+          <div><span class="u-k">Reasoning</span> ${fmtField(T.reas, T.calls)}</div>
+          <div><span class="u-k">Time waiting</span> ${fmtMs(T.ms)}</div>
+        </div>
+        <div class="u-h">By step</div><table class="u-table">${head}${bucketRows(T.byStep)}</table>
+        <div class="u-h">By model (the model that actually answered)</div><table class="u-table">${head}${bucketRows(T.byModel)}</table>
+        <div class="u-h">Last ${Math.min(20, log.length)} calls${T.pruned ? ` <span class="u-nr">(${T.pruned} older call details pruned to stay under 30 KB — totals above still include them)</span>` : ''}</div>
+        <div class="u-calls">${log.slice(-20).reverse().map(r => `<div class="u-call u-${r.st}">
+          <span class="u-time">${new Date(r.t).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}</span>
+          <span class="u-k">${escHtml(r.step)}</span> · ${escHtml(r.act || r.req || '?')}${r.act && r.req && r.act !== r.req ? ` <span class="u-nr">(asked ${escHtml(r.req)})</span>` : ''}${r.from ? ` <span class="u-nr">switched from ${escHtml(r.from)}</span>` : ''}
+          · <span class="u-st">${ST_LABEL[r.st] || r.st}</span>${r.retries ? ` · ${r.retries} retr${r.retries > 1 ? 'ies' : 'y'}` : ''}${r.fin ? ` · finish: ${escHtml(r.fin)}` : ''}${r.local ? ` · JSON fixed locally (${escHtml(r.local)})` : ''}
+          <div class="u-tok">in ${r.in ?? 'not reported'} · cached ${r.cached ?? 'not reported'} · out ${r.out ?? 'not reported'} · reasoning ${r.reas ?? 'not reported'} · ${fmtMs(r.ms)}${r.err ? ` · ${escHtml(r.err)}` : ''}</div>
+        </div>`).join('')}</div>
+        <div class="hint">Numbers come only from the AI provider; anything it didn't report says "Not reported" — nothing is estimated. Cached input is the provider's own count of reused prompt tokens.</div>
+        ${debug}
+      </div>
+    </details>`;
 }
 
 // ---------------------------------------------------------------------------
@@ -4296,7 +4594,7 @@ async function rewriteClipLines(sceneNumber, instruction, mustContain, onlyField
   const payload = {}; fields.forEach(k => { payload[k] = sc[k]; });
   const lang = job.language || 'English';
   const system = `You edit ONE clip of a story video. Reply with ONLY a JSON object with exactly these keys: ${fields.map(k => `"${k}"`).join(', ')}. ${instruction} Change as little as possible: keep the meaning, names, story facts, length and format (spoken lines in ${lang}; prompts in English). If "dialogue" starts with a speaker lead-in, keep that format. If "videoAudioPrompt" quotes the dialogue, the quote must match the new dialogue exactly.`;
-  const res = await callTask('json', system, JSON.stringify(payload, null, 1));
+  const res = await callTask('json', system, JSON.stringify(payload, null, 1), { step: 'Clip rewrite' });
   if(!(await snapshotOrAsk('Rewrite clip', `Before rewriting clip ${sceneNumber}: ${instruction.split('.')[0].slice(0, 90)}`, { clips: [+sceneNumber] }))) return { error: 'stopped — no version could be saved' };
   let changed = 0;
   const oldLine = sc.dialogue ? splitSpokenLine(sc.dialogue).line : null;
@@ -6565,6 +6863,7 @@ function renderResults(){
     </details>` : ''}
 
     ${renderVersionsPanel(openAttr)}
+    ${renderUsagePanel(openAttr)}
     ${renderStoryQualityPanels(openAttr)}
 
     ${voiceList ? `
