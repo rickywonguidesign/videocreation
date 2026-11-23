@@ -688,6 +688,8 @@
 <div class="toast mono" id="toast"></div>
 <div class="save-banner" id="saveBanner" role="alert"><b>⚠ Your latest changes were NOT saved.</b> <span id="saveBannerMsg"></span>
   <div class="sb-actions"><button class="primary" onclick="exportCurrentJob()">⬇ Export this project</button><button onclick="retrySave()">Try saving again</button><button onclick="hideSaveBanner()">Dismiss</button></div></div>
+<div class="save-banner" id="storageFullBanner" role="alert"><b>⚠ Browser storage is full.</b> <span id="storageFullMsg"></span>
+  <div class="sb-actions"><button class="primary" onclick="hideStorageFullBanner(); openSavedModal();">Open Saved jobs → Upgrade storage</button><button onclick="exportCurrentJob()">⬇ Export this project</button><button onclick="hideStorageFullBanner()">Dismiss</button></div></div>
 <div class="save-banner undo" id="undoBar" role="status"><span id="undoMsg"></span>
   <div class="sb-actions"><button class="primary" onclick="undoDelete()">↩ Undo</button></div></div>
 <input type="file" id="importFile" accept=".json,application/json" style="display:none" onchange="importProjectFile(this)">
@@ -4028,11 +4030,21 @@ async function renderStorageHealth(){
   const usage = est && Number.isFinite(est.usage) && Number.isFinite(est.quota) && est.quota > 0
     ? `${fmtBytes(est.usage)} used of approximately ${fmtBytes(est.quota)} (reported by the browser)` : 'This browser doesn\'t report storage usage.';
   const lsJobs = lsStore ? localStorageBytes(oldCopyKeys()) : 0;
+  // Space taken by versions (measured from the stored text).
+  let vBytes = 0, vJobs = 0;
+  try{
+    const keys = (await window.storage.list('snap:')).keys;
+    for(const k of keys){ try{ const v = (await window.storage.get(k)).value; vBytes += (k.length + v.length) * 2; vJobs++; }catch(e){} }
+  }catch(e){}
+  const lsTotal = lsStore ? localStorageBytes() : 0;
+  const nearFull = mode === 'local' ? lsTotal >= 4e6 : (est && est.quota > 0 && est.usage / est.quota >= 0.8);
   const old = mode === 'idb' ? oldCopyKeys() : [];
   const m = migration;
   el.innerHTML = `
     <div class="sh-line"><b>Storage:</b> ${modeLine}</div>
     <div class="sh-line"><b>Usage:</b> ${escHtml(usage)}${mode === 'local' && lsStore ? ` · projects here take ${fmtBytes(lsJobs)} (browsers usually allow about 5 MB for this storage)` : ''}</div>
+    <div class="sh-line"><b>Versions:</b> ${vJobs ? `${fmtBytes(vBytes)} across ${vJobs} job(s)` : 'none saved yet'} <span class="sh-dim">— ${mode === 'local' ? `max ${VERSION_LIMIT_SMALL} per job here (${VERSION_LIMIT} full versions after the upgrade)` : `max ${VERSION_LIMIT} per job`}</span></div>
+    ${nearFull ? `<div class="sh-box" style="border-color:var(--err);"><b style="color:var(--err);">Almost full</b> — ${mode === 'local' ? `browser storage holds ${fmtBytes(lsTotal)} of the usual ~5 MB. Upgrade storage recommended (below).` : 'the browser reports over 80% of its storage in use. Export old jobs and delete them to free space.'}</div>` : ''}
     <div class="sh-line"><b>Persistent storage:</b> ${persisted === null ? 'not supported by this browser' : persisted ? 'on ✓' : `off <button class="sh-btn" onclick="requestPersistence()">Ask the browser to keep my data</button>`} <span class="sh-dim">— lowers the chance the browser clears projects; it is not a backup.</span></div>
     ${mode === 'local' && lsStore && storageState.idbOk !== false ? `<div class="sh-box"><b>Upgrade storage</b> — move projects to IndexedDB for much more room. Originals stay untouched until you remove them.
       <div class="sh-steps"><span>1.</span> <button class="sh-btn" onclick="exportAllJobs()">⬇ Export all (recommended first)</button> <span>2.</span> <button class="sh-btn primary" onclick="upgradeStorage()" ${busy.has('migrate') ? 'disabled' : ''}>${busy.has('migrate') ? '⏳ Upgrading…' : 'Upgrade storage'}</button></div></div>` : ''}
@@ -4069,26 +4081,92 @@ function snapshotParts(scope){
   return parts;
 }
 // Saves a version BEFORE a change. Returns true on success.
+// On the original ~5 MB browser storage versions are kept small: at most 3
+// per job, and Rename versions leave out the all-clips copy. After "Upgrade
+// storage" it's 10 full versions per job.
+const VERSION_LIMIT_SMALL = 3;
+const isSmallStorage = () => storageState.mode === 'local';
+const versionLimit = () => isSmallStorage() ? VERSION_LIMIT_SMALL : VERSION_LIMIT;
+let lastSnapshotQuota = false;
 async function takeSnapshot(op, desc, scope){
   if(!job || !job.jobId) return false;
+  lastSnapshotQuota = false;
   try{
-    const parts = snapshotParts(scope || {});
+    const sc = Object.assign({}, scope || {});
+    let note = '';
+    if(sc.allClips && isSmallStorage()){ sc.allClips = false; note = ' (clips not included — small browser storage)'; }
+    const parts = snapshotParts(sc);
     if(!parts.plan && !parts.scenes) return true; // nothing that this change can touch
     const list = await loadVersions(job.jobId);
-    list.unshift({ id: 'v' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6), at: Date.now(), op, desc: String(desc || '').slice(0, 200), parts });
-    while(list.length > VERSION_LIMIT) list.pop(); // oldest goes first; the job itself is never touched
-    await window.storage.set(`snap:${job.jobId}`, JSON.stringify(list));
-    versionsCache = { jobId: job.jobId, list };
+    list.unshift({ id: 'v' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6), at: Date.now(), op, desc: (String(desc || '') + note).slice(0, 240), parts });
+    while(list.length > versionLimit()) list.pop(); // oldest goes first; the job itself is never touched
+    const res = await writeVersionsWithRoom(job.jobId, list);
+    versionsCache = { jobId: job.jobId, list: res.list };
+    if(res.removed) showToast(`Storage was full — removed ${res.removed} old version${res.removed > 1 ? 's' : ''} to make room`);
     return true;
   }catch(e){
     lastSnapshotError = e.message;
+    lastSnapshotQuota = isQuotaError(e);
     console.warn('[Versions] snapshot failed', e);
     return false;
   }
 }
+// Writes the version list; when storage is full, removes the oldest versions —
+// this job's first, then other jobs' (oldest first) — and tries again.
+// Only versions are removed, never a job or its progress.
+async function writeVersionsWithRoom(jobId, list){
+  const key = `snap:${jobId}`;
+  let removed = 0;
+  const touched = []; // other jobs' version lists as they were, to put back if it still doesn't fit
+  for(let guard = 0; guard < 300; guard++){
+    try{
+      await window.storage.set(key, JSON.stringify(list));
+      return { list, removed };
+    }catch(e){
+      if(!isQuotaError(e)) throw e;
+      if(list.length > 1){ list.pop(); removed++; continue; } // this job's oldest (nothing stored changes until a write succeeds)
+      const freed = await trimOldestOtherVersion(jobId, touched);
+      if(freed){ removed += freed; continue; }
+      // Still doesn't fit even with every old version gone: put the other
+      // jobs' versions back exactly as they were, then let the user decide.
+      for(const t of touched.reverse()){ try{ await window.storage.set(t.key, t.value); }catch(_){} }
+      throw e;
+    }
+  }
+  throw new Error('could not make room for the version');
+}
+async function trimOldestOtherVersion(exceptId, touched){
+  let keys = [];
+  try{ keys = (await window.storage.list('snap:')).keys.filter(k => k !== `snap:${exceptId}`); }catch(e){ return 0; }
+  let pick = null;
+  for(const k of keys){
+    try{ const raw = (await window.storage.get(k)).value; const l = JSON.parse(raw); if(Array.isArray(l) && l.length && (!pick || (l[l.length - 1].at || 0) < (pick.l[pick.l.length - 1].at || 0))) pick = { k, l, raw }; }catch(e){}
+  }
+  if(!pick) return 0;
+  if(touched && !touched.some(t => t.key === pick.k)) touched.push({ key: pick.k, value: pick.raw });
+  pick.l.pop();
+  try{
+    if(pick.l.length) await window.storage.set(pick.k, JSON.stringify(pick.l)); else await window.storage.delete(pick.k);
+    return 1;
+  }catch(e){
+    try{ await window.storage.delete(pick.k); return 1; }catch(_){ return 0; }
+  }
+}
+function showStorageFullBanner(msg){
+  const b = document.getElementById('storageFullBanner');
+  if(!b) return;
+  document.getElementById('storageFullMsg').textContent = msg;
+  b.classList.add('show');
+}
+function hideStorageFullBanner(){ const b = document.getElementById('storageFullBanner'); if(b) b.classList.remove('show'); }
 // Never continue a destructive change silently when its version couldn't be saved.
 async function snapshotOrAsk(op, desc, scope){
   if(await takeSnapshot(op, desc, scope)) return true;
+  if(lastSnapshotQuota){
+    const small = isSmallStorage();
+    showStorageFullBanner(small ? 'Upgrade storage in Saved jobs fixes this — about 2 GB instead of about 5 MB. Old versions were already removed to make room, but it still doesn\'t fit.' : 'Old versions were already removed to make room, but it still doesn\'t fit. Export and delete old jobs in Saved jobs to free space.');
+    return confirm(`Browser storage is full — ${small ? 'Upgrade storage in Saved jobs fixes this.' : 'free some space in Saved jobs.'}\n\nA restorable version couldn't be saved before "${op}", even after removing old versions.\n\nContinue WITHOUT a version? Cancel stops the change — you can export the project first.`);
+  }
   return confirm(`A restorable version couldn't be saved before "${op}" (${lastSnapshotError}).\n\nContinue WITHOUT a version? Cancel stops the change — you can export the project first.`);
 }
 function versionDiff(v){
@@ -4192,7 +4270,7 @@ function renderVersionsPanel(openAttr){
           <button class="arc-ok-btn" onclick="toggleVersionCompare('${v.id}')">${versionsUi.open === v.id ? 'Hide' : 'Compare with now'}</button>
           ${versionsUi.open === v.id ? diffHtml(v) : ''}
         </div>`).join('') : '<div class="hint">A version is saved automatically before every plan repair, Fix in plan, rename, open-loop fix, Simplify and clip rewrite.</div>'}
-        <div class="hint">Last ${VERSION_LIMIT} per job; the oldest is removed first. Restoring saves the current state as a version first, so it can be undone. Written clips are never changed unless you tick "also restore clip content".</div>
+        <div class="hint">Last ${versionLimit()} per job${isSmallStorage() ? ` on browser storage (${VERSION_LIMIT} full versions after Upgrade storage)` : ''}; the oldest is removed first. Restoring saves the current state as a version first, so it can be undone. Written clips are never changed unless you tick "also restore clip content".</div>
       </div>
     </details>`;
 }
@@ -5258,8 +5336,9 @@ function setSaveState(ok, err){
   renderSaveChip();
   if(ok) hideSaveBanner();
   else showSaveBanner(isQuotaError(err)
-    ? 'Browser storage is full. Export this project to a file now, then delete old jobs in "📂 Load saved job" to free space.'
+    ? (storageState.mode === 'local' ? 'Browser storage is full — Upgrade storage in Saved jobs fixes this (about 2 GB instead of about 5 MB). Export this project first to be safe.' : 'Browser storage is full. Export this project to a file now, then delete old jobs in "📂 Load saved job" to free space.')
     : `Saving failed (${saveState.error}). Export this project to a file so nothing is lost.`);
+  if(!ok && isQuotaError(err) && storageState.mode === 'local'){ const b = document.querySelector('#saveBanner .sb-actions'); if(b && !b.querySelector('.sb-upgrade')) b.insertAdjacentHTML('afterbegin', '<button class="primary sb-upgrade" onclick="hideSaveBanner(); openSavedModal();">Open Saved jobs → Upgrade storage</button>'); }
 }
 function renderSaveChip(){
   const el = document.getElementById('saveStatus');
