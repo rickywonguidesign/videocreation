@@ -2086,6 +2086,103 @@ function wokeUpNotesLine(t){
   const notes = (t && Array.isArray(t.worldNotes)) ? t.worldNotes.filter(Boolean).slice(0, 30) : [];
   return notes.length ? `\nWorld research notes (stay accurate to these):\n${notes.map(n => `- ${n}`).join('\n')}` : '';
 }
+
+function isWokeUpJob(){ return !!job && isWokeUpAngle(job.currentTopic || ''); }
+function wokeUpExperienceLabel(id){
+  const m = (job && job.treatment && Array.isArray(job.treatment.experienceMap)) ? job.treatment.experienceMap.find(e => e && e.id === id) : null;
+  return m ? `${id} · ${m.name || ''}${m.aspect ? ` (${m.aspect})` : ''}` : id;
+}
+const WOKEUP_REPAIR_NOTE = `This is a "WHAT IF YOU WOKE UP" video: second-person "you" experiencing another world across ten acts (wake-up hook, immersion, first reality check, learning how the world works, escalating experiences, human connection, unexpected revelation, final experience, reflection, memorable ending). It tells the story of EXPERIENCING a world, not of completing one mission. When repairing: keep each row's "Act N —" label and the act order; when one thread, object, place or person dominates, shorten it to the rows it genuinely needs (keep its setup and a natural ending — often handled by locals or simply left behind) and use the freed rows for NEW experiences of this world, each exploring a different aspect (food, work, money, customs, social hierarchy, technology, family, entertainment, danger, night…) — never more rows of the same problem; never make "You" the hero who fixes the world or carries a quest; bridge experiences with natural transitions. Return "experienceMap" (each {id, name, aspect, act, rows, learn}) and give every row "experience". Story-structure rules below that talk about evidence, arrests, clues and a hero's secret apply only where they fit this format.\n\n`;
+// Narrative balance check for "What If You Woke Up" plans. Runs inside the
+// existing plan hygiene check, so the Plan Gate repairs these problems
+// automatically before any scene is written, and the quality report shows them.
+const WOKEUP_STOP = new Set('about above after again against along also among another around away back because been before behind being below beside between both bring brings came come comes coming could does doing down during each even every from front gets getting give gives goes going gone have having here into just keep keeps know knows learn learns like look looks looking made make makes many more most much must near next once only onto other others over past same see sees seeing show shows shown some still such take takes than that their them then there these they thing things this those through time tries trying turn turns under until upon very want wants watch watches what when where which while will with without would your yours yourself first last little small large long finally slowly quickly suddenly realize realise realizes realises notice notices discover discovers feel feels find finds found follow follows hear hears asks says tell tells walk walks open opens other people person someone everyone something nothing world life city town village street streets house home local locals crowd morning evening night today day days hours moment moments place places side man men woman women child children family together around inside outside'.split(' '));
+function wokeUpBalanceWarnings(outline, roster, expMap){
+  const warn = [], ok = [];
+  const rows = (outline || []).filter(r => r.kind !== 'outro');
+  const N = rows.length;
+  if(N < 6) return { warn, ok };
+  const list = ns => ns.length > 8 ? ns.slice(0, 8).join(', ') + '…' : ns.join(', ');
+  const cap = N < 35 ? 4 : Math.max(5, Math.ceil(N * 0.12));
+  const minExp = Math.max(4, Math.round(N / 5));
+  // 1) Experiences: enough of them, none dominating, no long runs, varied aspects.
+  const withExp = rows.filter(r => r.experience);
+  if(withExp.length < N * 0.8){
+    warn.push(`World balance — no experience map: ${N - withExp.length} of ${N} rows have no "experience". Plan the video as distinct experiences of this world (treatment.experienceMap) and tag every row with its experience id.`);
+  }else{
+    const count = {};
+    withExp.forEach(r => { count[r.experience] = (count[r.experience] || 0) + 1; });
+    const ids = Object.keys(count);
+    if(ids.length < minExp) warn.push(`World balance — narrow world: only ${ids.length} distinct experience(s) across ${N} rows (aim for at least ${minExp}). Add experiences that explore other aspects of this world instead of stretching the same ones.`);
+    ids.filter(id => count[id] > cap).forEach(id => {
+      const rs = withExp.filter(r => r.experience === id).map(r => r.row);
+      warn.push(`World balance — one thread dominates: experience ${wokeUpExperienceLabel(id)} takes ${count[id]} rows (rows ${list(rs)}); max ${cap}. Shorten it to what it needs and use the freed rows for other experiences of this world.`);
+    });
+    const runs = [];
+    for(let i = 0; i < rows.length;){
+      let j = i;
+      while(j + 1 < rows.length && rows[j + 1].experience && rows[j + 1].experience === rows[i].experience) j++;
+      if(rows[i].experience && j - i + 1 > 5) runs.push(`rows ${rows[i].row}-${rows[j].row} (${wokeUpExperienceLabel(rows[i].experience)})`);
+      i = j + 1;
+    }
+    if(runs.length) warn.push(`World balance — too long on one experience: ${runs.join(', ')} — max 5 rows in a row; move on to another part of the world.`);
+    if(Array.isArray(expMap) && expMap.length){
+      const aspects = new Set(expMap.filter(e => e && ids.includes(e.id)).map(e => String(e.aspect || '').toLowerCase().trim()).filter(Boolean));
+      const need = Math.max(4, Math.round(ids.length * 0.6));
+      if(aspects.size && aspects.size < need) warn.push(`World balance — narrow world: the experiences cover only ${aspects.size} aspect(s) of the world (${[...aspects].join(', ')}); explore at least ${need} different ones.`);
+    }
+    if(!warn.length) ok.push(`World balance: ${ids.length} distinct experiences, none over ${cap} rows.`);
+  }
+  // 2) One object / problem / place word dominating the summaries.
+  const names = (roster || []).map(c => String(c.name || '').toLowerCase()).filter(Boolean);
+  const nameWords = new Set(names.flatMap(n => n.split(/\s+/)));
+  const worldWords = new Set(String((job && (job.currentTopic + ' ' + ((job.treatment && job.treatment.setting) || ''))) || '').toLowerCase().split(/[^a-z]+/).filter(Boolean));
+  const stem = w => w.replace(/(ies)$/, 'y').replace(/([^s])s$/, '$1');
+  const freq = {};
+  rows.forEach(r => {
+    const seen = new Set(String(r.summary || '').toLowerCase().replace(/[^a-z\s'-]/g, ' ').split(/\s+/).filter(w => w.length > 3 && !WOKEUP_STOP.has(w) && !nameWords.has(w) && !worldWords.has(w)).map(stem));
+    seen.forEach(w => { (freq[w] = freq[w] || []).push(r.row); });
+  });
+  const limit = Math.max(6, Math.ceil(N * 0.28));
+  const dom = Object.keys(freq).filter(w => !WOKEUP_STOP.has(w) && !worldWords.has(w) && freq[w].length > limit).sort((a, b) => freq[b].length - freq[a].length);
+  dom.slice(0, 3).forEach(w => warn.push(`World balance — one thing dominates: "${w}" is in ${freq[w].length} of ${N} rows (rows ${list(freq[w])}). One object or problem is taking over the video — keep it to a short connected sequence and explore other parts of the world.`));
+  // 3) One supporting character in too many rows.
+  (roster || []).forEach(c => {
+    const n = String(c.name || '').trim();
+    if(!n || /^you$/i.test(n)) return;
+    const key = n.toLowerCase().split(/\s+/).find(w => w.length > 2) || n.toLowerCase();
+    const hit = rows.filter(r => String(r.summary || '').toLowerCase().includes(key)).map(r => r.row);
+    if(hit.length > Math.max(6, Math.ceil(N * 0.3))) warn.push(`World balance — one thing dominates: ${n} is in ${hit.length} of ${N} rows. Let the people of this world vary — meet others.`);
+  });
+  // 4) One location taking a large share of the whole video (revisits are fine in moderation).
+  const locKey = l => String(l || '').toLowerCase().replace(/^(the|a|an)\s+/, '').replace(/[,·(].*$/, '').trim();
+  const lc = {};
+  rows.forEach(r => { const k = locKey(r.location); if(k) (lc[k] = lc[k] || []).push(r.row); });
+  Object.keys(lc).filter(k => lc[k].length > Math.max(8, Math.ceil(N * 0.3))).forEach(k => warn.push(`World balance — narrow world: "${k}" is the location of ${lc[k].length} of ${N} rows. Revisit places only when it adds something new.`));
+  // 5) Repeats further apart than the neighbour check sees.
+  const sig = t => new Set(String(t || '').toLowerCase().replace(/[^a-z0-9\s]/g, ' ').split(/\s+/).filter(w => w.length > 3 && !WOKEUP_STOP.has(w)));
+  const reps = [];
+  for(let i = 0; i < rows.length; i++){
+    const a = sig(rows[i].summary);
+    for(let j = i + 4; j <= Math.min(i + 12, rows.length - 1); j++){
+      const b = sig(rows[j].summary);
+      const inter = [...a].filter(w => b.has(w)).length, uni = new Set([...a, ...b]).size;
+      if(uni && inter / uni >= 0.5) reps.push(`${rows[i].row}/${rows[j].row}`);
+    }
+  }
+  if(reps.length) warn.push(`World balance — repeated experience: rows ${list(reps)} show almost the same moment again. Replace the later one with something new.`);
+  // 6) The newcomer turning into the hero who fixes the world.
+  const fixRows = rows.filter(r => /\b(fix|fixes|fixing|repair|repairs|repairing|unblock|unblocks|unclog|unclogs|restore|restores|reopen|reopens|rebuild|rebuilds|(remov|clean|clear|unblock)\w* (the |more |some )?(channel|pipe|drain|blockage|leaves|debris|gutter|well|spout))\b/i.test(String(r.summary || ''))).map(r => r.row);
+  if(fixRows.length > Math.max(2, Math.round(N * 0.08))) warn.push(`World balance — mission drift: ${fixRows.length} rows have You fixing or repairing things (rows ${list(fixRows)}). You are experiencing this world, not its repair crew — keep at most one small, plausible act of help.`);
+  // 7) The fixed acts are present.
+  const actOf = r => { const m = String(r.purpose || '').match(/^\s*(?:breather:\s*)?act\s*(\d+)/i); return m ? +m[1] : null; };
+  const acts = new Set(rows.map(actOf).filter(Boolean));
+  if(acts.size){
+    const missing = [1, 3, 7, 8, 10].filter(a => !acts.has(a));
+    if(missing.length) warn.push(`World balance — missing act${missing.length > 1 ? 's' : ''} ${missing.join(', ')} of the What If You Woke Up structure. Add ${missing.length > 1 ? 'them' : 'it'} (wake-up hook, first reality check, unexpected revelation, final experience, memorable ending) without dropping the others.`);
+  }
+  return { warn, ok };
+}
 function wokeUpRule(force){
   if(!force && detectNarrativeVoice(document.getElementById('topic').value) !== 'wokeup') return '';
   return `\nWHAT IF YOU WOKE UP — STORY ARCHITECTURE (HARD CONSTRAINT — this retelling angle IS the format of the video; where it conflicts with SOURCE-CONTENT RULE, TOPIC VS SOURCE PRIORITY RULE, ORIGINAL RETELLING, STORY SETTING or the opening-batch hook wording, THIS rule wins):
@@ -2104,8 +2201,16 @@ THE TEN ACTS — the fixed narrative DNA. Every video follows this progression i
   ACT 8 — THE FINAL EXPERIENCE (~12%): a meaningful final experience that shows how far you have come — a first real success, a moment of competence or belonging, a hard decision, a dangerous event you now handle. It must feel earned by everything before it.
   ACT 9 — THE REFLECTION AND MODERN CONNECTION (~6%): what this experience means against modern life — then vs now, convenience vs skill, technology vs knowledge, independence vs cooperation, comfort vs survival, assumptions vs reality. It grows out of the story; no forced moral.
   ACT 10 — THE MEMORABLE ENDING (~4%): one powerful, thoughtful or moving final thought that makes the viewer see their own world, these people, or their first assumption differently. The story fully concludes here; any like/share/subscribe outro (OUTRO RULE) stays a separate scene after it.
-Label every outline row: begin its "purpose" with its act, e.g. "Act 3 — first reality check: …" (a breather row starts "breather: Act 6 — …").
-STORY SPINE MAPPING (when STORY SPINE & ARC applies): protagonist = You; want = to survive and find your way in this world (or home); need = to understand and respect how these people live; flaw = your modern assumptions; inciting incident = Act 3's first reality check; point of no return = the moment in Act 3/4 you accept you must learn this world's ways; midpoint = a turning discovery in Act 5; dark moment = the hardest situation of Act 5 or early Act 8; climax = Act 8's final experience; takeaway = the reflection of Acts 9-10. The STORY DOCTOR "secret" is Act 7's revelation.
+Label every outline row: begin its "purpose" with its act, e.g. "Act 3 — first reality check: …" (a breather row starts "breather: Act 6 — …"), and after the act say what is NEW in this row ("… — new: you learn that bread is bought, not baked at home").
+EXPERIENCES, NOT A MISSION — THE CORE PRINCIPLE: this format tells the story of EXPERIENCING a world, not of completing one mission in it. Continuity CONNECTS experiences; it must never imprison the video inside one problem, object, place or person. Balance three things: (A) continuity — one coherent day/journey whose events connect naturally; (B) world exploration — many different aspects of THIS world; (C) personal progression — you go from confused and unprepared to understanding.
+NARRATIVE MAP — plan this BEFORE the outline: add "experienceMap" to the treatment object — an array of distinct experiences, each { "id": "E1", "name": short title, "aspect": the part of the world it explores (e.g. environment, water, food, shelter, clothing, work, money/trade, technology, transport, social hierarchy, law/authority, religion/beliefs, customs, family, entertainment, danger, health, night…), "act": the act(s) it belongs to, "rows": how many rows it gets, "learn": what the viewer newly understands about this world }. Choose the experiences FOR THIS WORLD from worldNotes — different worlds get different experiences; never a fixed checklist and never events borrowed from another period. Plan about one experience per 4-5 story rows (e.g. 11-12 for ~53 rows, 4-5 for ~20 rows), each with a DIFFERENT aspect (at most two experiences may share an aspect). Then give EVERY outline row "experience": the id it belongs to. Budget rows by what each experience genuinely needs — usually 2-5 rows; no experience may take more than ~12% of the story rows (max 4 rows when the video has under 35 rows), and never more than 5 consecutive rows. A problem gets the attention it deserves and then the story moves on: it can be solved, solved by locals, worked around, or simply left behind as the day carries you elsewhere — never stretch it with repeated attempts, returns, inspections or queues.
+FILLING THE LENGTH — this OVERRIDES the expansion guidance in PLANNING & EXPANSION (its "2-4 THREADS of 3-8 rows", "new obstacles and complications", supporting-character threads and clue chains do NOT apply here; neither does SOURCE-ONLY MODE — the source here is only a topic, so always plan the full requested length): when the video needs more rows, add MORE EXPERIENCES of the world from worldNotes, never more rows of the same experience. The scene count is a production requirement, not a reason to stretch any moment.
+BEAT DIVERSITY: every row must show a different experience moment from every other row — something new seen, done, learned or felt. Weak (forbidden): approach the fountain / look at it / try it / return to it / watch it. Strong: wake beside a dry fountain → realise you don't know how people get water here → follow residents and discover how the street works → see a working fountain and how people use it → move on to another part of the city. Before finishing the outline, merge or replace any row that repeats an earlier row's action, object, place or interaction without new information. A place, object or person may come back only when the return adds something new (e.g. coming home at night after a full day).
+PLAUSIBLE PROTAGONIST: you experience, learn, help and take part the way a confused newcomer realistically could. You never become the hero who fixes this world's infrastructure, solves a problem its own experts haven't, or carries a mission a stranger would never be trusted with; locals don't depend on you. Never invent a multi-scene quest, a fake mission or an artificial climax just to create plot.
+MAKE IT GRIPPING — in this format ORIGINAL RETELLING (b) means curiosity and discovery: stakes are personal and moment to moment (a cold night ahead, a coin you don't have, a custom you are breaking), NOT one quest, ticking clock or mystery that runs through the whole video.
+CONTINUITY BETWEEN EXPERIENCES: ACTION CONTINUITY ("pick up exactly where the previous scene ended") applies INSIDE an experience. Between experiences, bridge with a short, natural transition — following someone, a sound or smell that draws you, hunger, time passing, the light changing — so the video feels like one day/journey without chaining every scene to the same problem.
+STORY SPINE MAPPING (when STORY SPINE & ARC applies): protagonist = You; want = to make sense of this world and get through it; need = to understand and respect how these people live; flaw = your modern assumptions; outerConflict = the many realities of this world, met one at a time (not one villain or one broken thing); inciting incident = Act 3's first reality check; point of no return = the moment in Act 3/4 you accept you must learn this world's ways; midpoint = a turning discovery in Act 5; dark moment = the hardest situation of Act 5 or early Act 8; climax = Act 8's final experience; takeaway = the reflection of Acts 9-10. Each turning point should come from a DIFFERENT experience. The STORY DOCTOR "secret" is Act 7's revelation; its "plants" are earlier observations and assumptions that the revelation pays off — not plot devices you must fix.
+NARRATIVE BALANCE CHECK — before writing any scene, review the finished plan: Is the world explored broadly enough? Does any one storyline, object, place or person take too much space? Are there enough distinct experiences, all right for this world? Do discoveries come throughout? Are there quiet moments as well as challenges? Do events connect believably? Is the ending earned? If one thread dominates, rebalance the outline first.
 MICRO-HOOKS: create fresh curiosity roughly every 20-40 seconds (every 2-4 scenes) with a bridge that grows out of THIS moment — the bigger problem you haven't noticed yet, what the locals already know, the surprise still ahead. These are techniques, not stock phrases: never repeat a bridge, don't lean on "But…", no false suspense, close every loop you open and let each answer open the next question. Alternate tension, discovery, action, calm, emotion and reflection; no lecture-like stretches, and not every moment is dramatic.
 VISUAL PURPOSE: every scene must have a clear visual reason to exist — establishing and environment shots, You in action, close-ups of objects, tools and food, human interactions, dramatic moments, quiet atmospheric scenes and visual transitions — all period-accurate. Keep the normal scene format: nothing here changes the JSON fields.
 STYLE: avoid textbook or Wikipedia writing, heavy exposition, repeated sentence patterns, generic AI phrases, constant exaggeration, too many rhetorical questions, summaries, repeated information, artificial cliffhangers, and invented historical quotes presented as fact.`;
@@ -2356,6 +2461,8 @@ function normalizeOutline(raw){
     timeOfDay: r.timeOfDay || '',
     summary: r.summary || '',
     purpose: r.purpose || '',
+    // What If You Woke Up: the experience this row belongs to (only when the planner sent one).
+    ...(r.experience ? { experience: String(r.experience).trim().slice(0, 40) } : {}),
     // Phase 3 arc fields — only kept when the planner sent them.
     ...(Number.isFinite(+r.tension) && +r.tension >= 1 ? { tension: Math.max(1, Math.min(5, Math.round(+r.tension))) } : {}),
     ...(r.emotion ? { emotion: String(r.emotion).trim().toLowerCase().slice(0, 24) } : {}),
@@ -2668,10 +2775,11 @@ function planHygieneWarnings(outline, roster){
     if(a.toLowerCase() === b.toLowerCase() || (a.length >= 3 && b.length >= 3 && (a.slice(0, 3).toLowerCase() === b.slice(0, 3).toLowerCase() || lev(a, b) <= 2))) alike.push(`${a} / ${b}`);
   }
   if(alike.length) warn.push(`Character names look alike: ${alike.join(', ')} — viewers will mix them up; rename one.`);
+  if(isWokeUpJob()){ const wb = wokeUpBalanceWarnings(outline, roster, job.treatment && job.treatment.experienceMap); warn.push(...wb.warn); ok.push(...wb.ok); }
   return { warn, ok };
 }
 // High-impact problems cost more points.
-const PLAN_HIGH_RE = /Story arc — CRITICAL|Open-loop gaps|Stalling|Too long in one place|too late|too early|never clearly introduced|No row shows the incident|no hero introduction|no planned use|look alike|filler|no story purpose|only mood|hint the secret|No reveal row|didn't return a retention map/i;
+const PLAN_HIGH_RE = /World balance — (one thread dominates|one thing dominates|narrow world|mission drift)|Story arc — CRITICAL|Open-loop gaps|Stalling|Too long in one place|too late|too early|never clearly introduced|No row shows the incident|no hero introduction|no planned use|look alike|filler|no story purpose|only mood|hint the secret|No reveal row|didn't return a retention map/i;
 function scorePlanWarnings(warns){
   let score = 100;
   (warns || []).forEach(w => { score -= PLAN_HIGH_RE.test(w) ? 9 : isArcNote(w) ? 2 : 4; });
@@ -2681,7 +2789,7 @@ function scorePlanWarnings(warns){
 function auditPlanCandidate(cand){
   const saved = { t: job.treatment, chars: job.styleBlock && job.styleBlock.characters };
   try{
-    job.treatment = Object.assign({}, job.treatment || {}, { outline: cand.outline, retentionMap: cand.retentionMap });
+    job.treatment = Object.assign({}, job.treatment || {}, { outline: cand.outline, retentionMap: cand.retentionMap }, cand.experienceMap ? { experienceMap: cand.experienceMap } : {});
     if(job.styleBlock) job.styleBlock.characters = cand.characters;
     let warns = [];
     if(job.retentionMode && cand.retentionMap){
@@ -2706,9 +2814,10 @@ async function repairPlanCandidate(cand, warns, lockedUpTo, signal, ropts){
   const t = job.treatment || {};
   const editor = !!(ropts && ropts.editor);
   const hasArc = !!(cand.spine || cand.outline.some(r => r.tension || r.emotion || r.breather) || job.spineExpected);
-  const fmt = r => `${r.row}. [${r.kind} · ${r.beat}] @ ${r.location} (${r.timeOfDay}) — ${r.summary} {purpose: ${r.purpose || '—'}}${hasArc ? ` {tension: ${r.tension || '?'} · emotion: ${r.emotion || '?'}${r.breather ? ' · breather' : ''}}` : ''}`;
+  const wokeUp = isWokeUpJob();
+  const fmt = r => `${r.row}. [${r.kind} · ${r.beat}] @ ${r.location} (${r.timeOfDay}) — ${r.summary} {purpose: ${r.purpose || '—'}}${hasArc ? ` {tension: ${r.tension || '?'} · emotion: ${r.emotion || '?'}${r.breather ? ' · breather' : ''}}` : ''}${wokeUp && r.experience ? ` {experience: ${r.experience}}` : ''}`;
   const required = warns.filter(w => !isArcNote(w)), optional = warns.filter(isArcNote);
-  const system = `You are a senior story editor repairing a video's scene plan so a first-time viewer can follow it and stays to the end. Reply with ONLY JSON:
+  const system = (wokeUp ? WOKEUP_REPAIR_NOTE : '') + `You are a senior story editor repairing a video's scene plan so a first-time viewer can follow it and stays to the end. Reply with ONLY JSON:
 {"outline": [{"row": number, "beat": string, "kind": "source"|"expansion"|"outro", "sourceBeat": number|null, "location": string, "timeOfDay": string, "summary": string, "purpose": string${hasArc ? ', "tension": number, "emotion": string, "breather": boolean' : ''}}], "retentionMap": object${hasArc ? ', "storySpine": object' : ''}, "renames": [{"from": string, "to": string}], "changes": [string]${editor ? ', "editorFindings": [object], "editorVerdict": string' : ''}}
 HARD RULES:
 - Fix EVERY problem in the list. Change as little else as possible.
@@ -2737,6 +2846,11 @@ ${JSON.stringify(cand.retentionMap || {})}${hasArc ? `
 CURRENT storySpine:
 ${JSON.stringify(cand.spine || {})}` : ''}
 
+${wokeUp ? `
+
+CURRENT experienceMap (return the updated one as "experienceMap", and give every row "experience"):
+${JSON.stringify(cand.experienceMap || [])}` : ''}
+
 CURRENT PLAN (${N} rows):
 ${cand.outline.map(fmt).join('\n')}`;
   const res = await callTask('review', system, user, { signal, step: editor ? 'Plan check + story editor' : (ropts && ropts.single ? 'Fix in plan' : 'Plan repair') });
@@ -2747,6 +2861,11 @@ ${cand.outline.map(fmt).join('\n')}`;
   if(hasArc && !outline.some(r => r.tension)) outline.forEach((r, i) => { const o = cand.outline[i] || {}; ['tension', 'emotion', 'breather'].forEach(k => { if(o[k] != null && r[k] == null) r[k] = o[k]; }); });
   const spineOut = hasArc ? (normalizeSpine(res.storySpine, N) || cand.spine || null) : (cand.spine || null);
   let next = { outline, retentionMap: (res.retentionMap && typeof res.retentionMap === 'object') ? res.retentionMap : cand.retentionMap, spine: spineOut, characters: clonePlan(cand.characters || []), renames: (cand.renames || []).slice(), changes: Array.isArray(res.changes) ? res.changes.slice(0, 12) : [] };
+  if(wokeUp){
+    next.experienceMap = Array.isArray(res.experienceMap) && res.experienceMap.length ? res.experienceMap : (cand.experienceMap || null);
+    // A repair that dropped the row ids keeps the old ones row by row.
+    if(!outline.some(r => r.experience)) outline.forEach((r, i) => { const o = cand.outline[i] || {}; if(o.experience) r.experience = o.experience; });
+  }
   if(editor){
     next.editorFindings = sanitizeEditorFindings(res.editorFindings, N);
     next.editorVerdict = String(res.editorVerdict || '').trim().slice(0, 400);
@@ -2769,6 +2888,7 @@ async function runPlanGate(opts){
   const say = msg => { if(o.onStatus) o.onStatus(msg); };
   const lockedUpTo = lastWrittenRow();
   const base = { outline: clonePlan(getOutline()), retentionMap: clonePlan(getRetentionMap() || null), spine: clonePlan(getSpine()), characters: clonePlan((job.styleBlock && job.styleBlock.characters) || []), renames: [], changes: [] };
+  if(isWokeUpJob() && job.treatment.experienceMap) base.experienceMap = clonePlan(job.treatment.experienceMap);
   const versions = [{ label: 'Original plan', cand: base, audit: auditPlanCandidate(base) }];
   let best = versions[0];
   // AI story editor: ONCE per plan (or when asked again), inside round 1.
@@ -3375,7 +3495,7 @@ async function generateScript(){
 
     const userPrompt = `Source material (a premise to retell originally — rename every character):\n${source}\n\n${totalSeconds ? `Total video length: ${minuteVal} minutes (${totalSeconds}s)` : "Length not specified — treat as a short clip"}\n${topic ? (isWokeUpAngle(topic) ? wokeUpAngleLine(topic) : `Retelling angle (secondary — a stylistic twist only, must never override or replace the source material's actual content above): ${topic}`) : `No retelling angle given — follow the source material's own story directly, with no reframing.`}\nCharacter / render style: ${styleLabelFor(currentStyle, customStyle)}\nStory setting / cultural context: ${setting || 'Auto — infer one setting from the source and lock it'}\nOutput language for dialogue/narration: ${document.getElementById('language').value}\nScene plan: ${targetSceneCount ? (expandMode === 'strict' ? `source only — up to ~${targetSceneCount} scenes, fewer if the source is thinner` : `exactly ${targetSceneCount} outline rows — expand faithfully if the source is shorter`) : 'as many rows as the source supports'}${retentionOn ? '\nStory doctor: ON — restructure for retention per STORY DOCTOR and return treatment.retentionMap' : ''}`;
 
-    const gateOn = isPlanGateOn() && !!targetSceneCount;
+    const gateOn = (isPlanGateOn() || isWokeUpAngle(topic)) && !!targetSceneCount;
     const planFirstNote = gateOn ? `\nPLAN-FIRST OVERRIDE — this wins over any instruction above to write scenes now: return "scenes": [] (an empty array) in THIS response. Put all the effort into sourceBeats, treatment.outline (every row with a real "purpose"), treatment.retentionMap, styleBlock (characters with clearly different-sounding names) and the thumbnail. The plan will be checked and then the scenes are written in a separate step.` : '';
     const parsedRaw = sanitizeParsedScenes(await callTask('strategy', systemPrompt + planFirstNote, userPrompt, { signal: genAbort.signal }));
     if(genAbort.signal.aborted) throw abortError();
@@ -3531,7 +3651,7 @@ async function continueScript(){
     // With a full outline the source is mainly reference; long sources are trimmed.
     const src = job.source || '';
     const sourceTextForPrompt = (!outline || src.length <= 8000) ? src : src.slice(0, 8000) + '\n…(source truncated — the outline below already covers the rest)';
-    const fmtRow = r => `${r.row}. [${r.kind}${r.sourceBeat ? ` · source beat ${r.sourceBeat}` : ''} · ${r.beat}] @ ${r.location} (${r.timeOfDay}) — ${r.summary}${r.purpose ? ` {purpose: ${r.purpose}}` : ''}`;
+    const fmtRow = r => `${r.row}. [${r.kind}${r.sourceBeat ? ` · source beat ${r.sourceBeat}` : ''} · ${r.beat}] @ ${r.location} (${r.timeOfDay}) — ${r.summary}${r.purpose ? ` {purpose: ${r.purpose}}` : ''}${r.experience ? ` {experience: ${wokeUpExperienceLabel(r.experience)}}` : ''}`;
     const t = job.treatment || {};
 
     const userPrompt = `Source material (a premise being retold originally):\n${sourceTextForPrompt}\n\n${job.currentTopic ? (isWokeUpAngle(job.currentTopic) ? wokeUpAngleLine(job.currentTopic) + wokeUpNotesLine(t) + (detectNarrativeVoice(document.getElementById('topic').value) !== 'wokeup' ? '\n' + wokeUpRule(true) : '') : `Retelling angle (secondary — a stylistic twist only): ${job.currentTopic}`) : `No retelling angle given — follow the source material's own story directly.`}\nCharacter / render style: ${styleLabelFor(job.characterStyle, job.customStyle)}\nStory setting / cultural context: ${job.setting || t.setting || 'as established in the opening batch'}\nOutput language for dialogue/narration: ${lang}${nameChangesText}\n\nEstablished look — reuse exactly:\nStyle: ${job.styleBlock.description}\nWorld: ${t.environment || 'infer from earlier scenes'}\nColor grade: ${t.colorGrade || '—'}\nCharacters (do not invent new named characters):\n${job.styleBlock.characters.map(c => `- ${c.name} (${c.role}): ${c.description}${c.faceSignature ? ` FACE: ${c.faceSignature}` : ''}${c.visualTag ? ` VISUAL TAG: ${c.visualTag}` : ''}`).join('\n')}${Array.isArray(job.styleBlock.products) && job.styleBlock.products.length ? `\n\nProducts — reuse these exact descriptions:\n${job.styleBlock.products.map(p => `- ${p.name}: ${p.description}`).join('\n')}` : ''}\n\nSource beats:\n${(t.sourceBeats || []).map((b,i) => `${i+1}. ${b}`).join('\n') || '(none recorded)'}\n${outline ? `\nFULL OUTLINE (the whole video, for foreshadowing and payoff):\n${outline.map(fmtRow).join('\n')}\n\nTHIS BATCH'S ROWS — write exactly these ${rows.length} row(s) as exactly ${rows.length} scene(s), in order:\n${rows.map(r => fmtRow(r) + arcRowSuffix(r)).join('\n')}\n${isFinalBatch ? 'This batch contains the final rows of the plan — land the Payoff with real weight and close the video.' : 'End this batch on a small hook that pulls into the next row.'}\n` : ''}${retentionBatchNote(rows)}${arcBatchNote(rows, outline)}\nALREADY WRITTEN — never repeat any of these moments, actions, or lines:\n${writtenScenesLog() || '(none)'}\n\nThe previous scene ended at ${formatTime(lastEndSeconds)}. Its imagePrompt (your first new imagePrompt must look clearly different):\n"${lastScene ? lastScene.imagePrompt : 'opening of the video'}"\n\nIts action (continue from it if the next row stays in the same place):\n"${lastScene ? lastScene.videoAudioPrompt : 'opening of the video'}"\n${job.totalSeconds ? `\nTotal video length target: ${job.totalSeconds}s.` : ''}`;
@@ -4479,7 +4599,8 @@ const Q_RULES = [
   { re: /filler|no story purpose|only mood/i, cat: 'structure', level: 'warn', why: 'Rows that add no new information make the middle drag.', fix: 'Replace them with new information — evidence, an obstacle, a turn.', action: 'planfix' },
   { re: /^Rows that look almost the same/, cat: 'structure', level: 'warn', why: 'Repeated beats feel like padding.', fix: 'Make each of those rows show something new.', action: 'planfix' },
   { re: /^Too long in one place/, cat: 'structure', level: 'warn', why: 'Too many rows in one location look static on screen.', fix: 'Cut waiting rows or intercut with another place.', action: 'planfix' },
-  { re: /^Stalling/, cat: 'structure', level: 'warn', why: 'Back-to-back reaction rows feel like the story stopped.', fix: 'Keep at most 2 and replace the rest with a turn or new evidence.', action: 'planfix' }
+  { re: /^Stalling/, cat: 'structure', level: 'warn', why: 'Back-to-back reaction rows feel like the story stopped.', fix: 'Keep at most 2 and replace the rest with a turn or new evidence.', action: 'planfix' },
+  { re: /^World balance —/, cat: 'structure', level: 'warn', why: 'A "What If You Woke Up" video is about experiencing a world — one problem, place or person taking over turns it into a repetitive quest.', fix: 'Shorten that thread and use the freed rows for other experiences of this world.', action: 'planfix' }
 ];
 const ARC_CAT = { 'no-spine': 'structure', 'spine-fields': 'structure', 'tp-missing': 'structure', 'tp-order': 'structure', 'tp-place': 'structure', 'too-quick': 'structure', 'peak': 'structure', 'climax-flat': 'structure', 'flat': 'emotion', 'emotion': 'emotion', 'no-tension': 'emotion', 'breathers': 'structure', 'breather-pair': 'structure' };
 const ARC_WHY = {
@@ -4757,6 +4878,7 @@ async function fixOnePlanProblem(f){
   const locked = lastWrittenRow();
   if(f.rows.length && f.rows.every(r => r <= locked)) return { rejected: true, detail: `rows ${f.rows.join(', ')} are already written as clips, so the plan can't change them — use the clip fix instead` };
   const base = { outline: clonePlan(outline), retentionMap: clonePlan(getRetentionMap() || null), spine: clonePlan(getSpine()), characters: clonePlan((job.styleBlock && job.styleBlock.characters) || []), renames: [], changes: [] };
+  if(isWokeUpJob() && job.treatment.experienceMap) base.experienceMap = clonePlan(job.treatment.experienceMap);
   const beforeA = auditPlanCandidate(base);
   const problem = (f.action && f.action.fullText) || f.text;
   const cand = await repairPlanCandidate(base, [problem], locked, null, { single: true });
@@ -4921,6 +5043,7 @@ function renderQualityReport(openAttr){
 // Applies a repaired plan to the live job (shared by the Plan Gate and single fixes).
 function applyPlanWinner(win){
   job.treatment.outline = win.outline;
+  if(win.experienceMap) job.treatment.experienceMap = win.experienceMap;
   if(win.retentionMap) job.treatment.retentionMap = win.retentionMap;
   if(win.spine) job.treatment.storySpine = win.spine;
   if(job.styleBlock) job.styleBlock.characters = win.characters;
