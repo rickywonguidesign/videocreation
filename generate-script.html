@@ -2027,7 +2027,9 @@ function detectNarrativeVoice(topicText){
   return '';
 }
 
-function speechModeRule(){
+function speechModeRule(){ const r = speechModeRuleCore(); return detectNarrativeVoice(document.getElementById('topic').value) === 'silent' ? r : r + NO_SILENT_SCENES_RULE; }
+const NO_SILENT_SCENES_RULE = `\nNO SILENT SCENES — HARD CONSTRAINT: every scene in this batch must carry a spoken line ("narrationLine" or "dialogue", per the speech mode above), including establishing shots, reaction shots, transitions, quiet moments and "breather" rows. A breather is quiet in action and tone, never silent: give it a slower, calmer, reflective line of the same full length. Before finalizing, check every scene object — if both "narrationLine" and "dialogue" are null, write the missing line.`;
+function speechModeRuleCore(){
   const narrativeVoice = detectNarrativeVoice(document.getElementById('topic').value);
 
   if(narrativeVoice === 'silent'){
@@ -2052,7 +2054,7 @@ function speechModeRule(){
   }[narrativeVoice] || '';
 
   if(dialogueMode && narrationMode){
-    return `\nSPEECH MODE — MIXED NARRATION/DIALOGUE: Split the scenes in this batch by TYPE — each scene is either a narration scene OR a dialogue scene, never both at once. Across the whole batch, roughly 70% of scenes should be narration scenes (a "narrationLine" set, "dialogue" left null) and roughly 30% should be dialogue scenes (a "dialogue" line set, "narrationLine" left null). Use dialogue scenes for the moments that genuinely call for two characters speaking to each other or a character voicing something in the moment — a reaction, a request, an exchange. Use narration scenes for everything else — scene-setting, transitions, interior thought, emotional context. Don't alternate mechanically (not literally every third scene) — let the story's actual beats decide which few scenes deserve dialogue, while narration carries the rest. HARD CONSTRAINT, checked per scene before finalizing: "dialogue" and "narrationLine" can never both be non-null on the same scene object — if a moment seems to want both, that means it's really two scenes, or you need to pick whichever one actually serves the moment and leave the other null. A scene with both fields filled in is an error, full stop, even if the batch's overall ratio still comes out near 70/30. Whichever field is used must ${durationNote}.${voiceFlavor} Also add a "narratorVoice" field to the treatment object: a short description of the narrator's tone that stays consistent across every narration scene.`;
+    return `\nSPEECH MODE — MIXED NARRATION/DIALOGUE: Split the scenes in this batch by TYPE — each scene is either a narration scene OR a dialogue scene, never both at once. Across the whole batch, roughly 70% of scenes should be narration scenes (a "narrationLine" set, "dialogue" left null) and roughly 30% should be dialogue scenes (a "dialogue" line set, "narrationLine" left null). Use dialogue scenes for the moments that genuinely call for two characters speaking to each other or a character voicing something in the moment — a reaction, a request, an exchange. Use narration scenes for everything else — scene-setting, transitions, interior thought, emotional context. Don't alternate mechanically (not literally every third scene) — let the story's actual beats decide which few scenes deserve dialogue, while narration carries the rest. HARD CONSTRAINT, checked per scene before finalizing: "dialogue" and "narrationLine" can never both be non-null on the same scene object — if a moment seems to want both, that means it's really two scenes, or you need to pick whichever one actually serves the moment and leave the other null. A scene with both fields filled in is an error, full stop, even if the batch's overall ratio still comes out near 70/30. Equally, a scene with BOTH fields null is an error — every scene has exactly one spoken line, narration or dialogue; no scene is silent. Whichever field is used must ${durationNote}.${voiceFlavor} Also add a "narratorVoice" field to the treatment object: a short description of the narrator's tone that stays consistent across every narration scene.`;
   }
   if(dialogueMode && !narrationMode){
     return `\nSPEECH MODE — DIALOGUE ONLY: Every scene must have a "dialogue" line — a character speaking on screen, quoted inside videoAudioPrompt per that field's rule. Set "narrationLine" to null for every scene; do not add narration at all in this mode. Give even quieter or establishing scenes a natural line from whichever character is most relevant — avoid leaving scenes silent in this mode. Dialogue must ${durationNote}.${voiceFlavor}`;
@@ -2060,7 +2062,7 @@ function speechModeRule(){
   if(!dialogueMode && narrationMode){
     return `\nSPEECH MODE — NARRATION ONLY: This piece is voiceover-led, like a short documentary or fable. Every scene must have a "narrationLine" (voiceover) and none should have "dialogue" — set "dialogue" to null for every scene in this mode, even if characters are shown interacting; narration alone carries the story. Because "dialogue" is always null in this mode, videoAudioPrompt must NEVER contain any quoted, attributed line of speech AT ALL — not the narrationLine text, and not an invented line either. Characters can still interact and emote physically (a glance, a gesture, a reaction) with zero quoted words. Narration must add what the image can't show — interior thought, context, emotional turn — never just restate what's visually obvious. Narration must ${durationNote}.${voiceFlavor} Also add a "narratorVoice" field to the treatment object: a short description of the narrator's tone that stays consistent across every scene.`;
   }
-  return `\nSPEECH MODE — DEFAULT: Decide naturally, scene by scene, whether dialogue, narration, or silence best fits the moment — do not force either one. Leave both "dialogue" and "narrationLine" null for any scene that wouldn't naturally have speech. Whichever you do use must ${durationNote}.${voiceFlavor}`;
+  return `\nSPEECH MODE — DEFAULT: Decide naturally, scene by scene, whether dialogue or narration best fits the moment — do not force either one. Every scene must have exactly one spoken line: a "dialogue" OR a "narrationLine" (never both, never neither) — no scene is silent; a quiet moment gets a calm narration line. Whichever you do use must ${durationNote}.${voiceFlavor}`;
 }
 
 // voiceFlavor above only shapes how narration/dialogue TEXT sounds — it says
@@ -2671,7 +2673,7 @@ HARD RULES:
 - If two character names look alike, rename the less important one in "renames" (and use the new name everywhere).
 - Keep retentionMap complete and its row numbers consistent with the new outline (incidentRow, heroIntroRow, heroIntro, mysteryAAnsweredRow, revealRow, stakesRow, plants, openLoopRows, flashbackRows, mirrorEnding, secret, hookQuestion, mysteryA, mysteryB, stakes).
 - English only. Each summary one sentence, max 22 words. "changes" = short list of what you changed.${hasArc ? `
-- Keep the story spine: return "storySpine" (protagonist, want, need, flaw, outerConflict, innerConflict, stakes, resolution, takeaway, and the five turningPoints — inciting incident, point of no return, midpoint, dark moment, climax — each {name, row, event, note}) with row numbers matching the new outline, and give every row "tension" (1-5), "emotion" (one word) and "breather" (true only for a deliberate quiet scene). Story-arc NOTES are optional: change something for a note only if it clearly helps this story.` : ''}${editor ? storyEditorBlock() : ''}${ropts && ropts.single ? `
+- Keep the story spine: return "storySpine" (protagonist, want, need, flaw, outerConflict, innerConflict, stakes, resolution, takeaway, and the five turningPoints — inciting incident, point of no return, midpoint, dark moment, climax — each {name, row, event, note}) with row numbers matching the new outline, and give every row "tension" (1-5), "emotion" (one word) and "breather" (true only for a deliberate quiet scene — it still has its spoken line). Story-arc NOTES are optional: change something for a note only if it clearly helps this story.` : ''}${editor ? storyEditorBlock() : ''}${ropts && ropts.single ? `
 THIS IS A SINGLE-PROBLEM FIX: change ONLY what the one listed problem needs. Keep the premise, every character, the outcome and every other row exactly as they are.` : ''}`;
   const user = `Story: ${t.logline || job.topic || ''}
 Characters: ${(cand.characters || []).map(c => `${c.name} (${c.role || ''})`).join(', ')}
@@ -3530,6 +3532,20 @@ async function continueScript(){
     }
     if(missing.length) showToast(`Still missing row${missing.length > 1 ? 's' : ''} ${missing.map(r => r.row).join(', ')} — click "Write missing row" to try again`);
     else if(rows && rows.length && !added) showToast('The AI returned no usable scenes for this batch — try again');
+    // No silent clips: any clip the AI still left without a line gets one now.
+    if(added && !isSilentJob() && silentClips().length){
+      const n0 = silentClips().length;
+      busyLabels.continue = `Writing ${n0} missing spoken line${n0 > 1 ? 's' : ''}…`;
+      btn.textContent = busyLabels.continue;
+      renderStageBar();
+      try{
+        const filled = await fillSilentClips({ signal: ac.signal, auto: true });
+        if(filled) showToast(`Wrote ${filled} missing spoken line${filled > 1 ? 's' : ''} — no silent clips`);
+      }catch(e){
+        if(e && e.name === 'AbortError') throw e;
+        showToast(`${n0} clip(s) still have no spoken line — use "Write all missing lines" in Story quality`);
+      }
+    }
   }catch(e){
     if(e && e.name === 'AbortError') showToast('Cancelled — scenes already written are kept. The AI provider may still finish (and bill) the request it had started.');
     else showToast('Could not generate next batch: ' + e.message);
@@ -4522,9 +4538,8 @@ function qualityFindings(){
     if(unknown.length) add({ key: `castless:${s.sceneNumber}:${qHash(unknown.join(','))}`, category: 'character', level: 'warn', text: `Clip ${s.sceneNumber} lists ${unknown.join(', ')}, who ${unknown.length > 1 ? 'are' : 'is'} not in the cast.`, rows: [], clips: [s.sceneNumber], sources: ['Character check'], panel: null, why: 'A character without a description and reference photo can\'t be drawn consistently.', fix: 'Pick the right cast member in the clip\'s character picker.', action: { type: 'gotoClip' } });
     if(!String(s.imagePrompt || '').trim() || !String(s.videoAudioPrompt || '').trim()) add({ key: `noprompt:${s.sceneNumber}`, category: 'production', level: 'fail', text: `Clip ${s.sceneNumber} has no ${!String(s.imagePrompt || '').trim() ? 'image' : 'video'} prompt.`, rows: [], clips: [s.sceneNumber], sources: ['Production check'], panel: null, why: 'This clip can\'t be produced without its prompts.', fix: 'Generate the clip\'s prompts again.', action: { type: 'regen', clip: s.sceneNumber } });
   });
-  const narrated = scenes.filter(s => s.narrationLine).length;
-  if(scenes.length >= 4 && narrated >= scenes.length / 2){
-    scenes.filter(s => !s.narrationLine && !s.dialogue && !/outro/i.test(s.beat || '')).forEach(s => add({ key: `noline:${s.sceneNumber}`, category: 'narration', level: 'note', text: `Clip ${s.sceneNumber} has no spoken line in a narrated video.`, rows: [], clips: [s.sceneNumber], sources: ['Narration check'], panel: null, why: 'A silent clip in a narrated story can feel like a gap — fine if it is a deliberate pause.', fix: 'Add a line, or mark intentional if the silence is on purpose.', action: { type: 'gotoClip' } }));
+  if(!isSilentJob()){
+    silentClips().forEach(s => add({ key: `noline:${s.sceneNumber}`, category: 'narration', level: 'warn', text: `Clip ${s.sceneNumber} has no spoken line.`, rows: [], clips: [s.sceneNumber], sources: ['Narration check'], panel: null, why: 'Every clip needs a voice — a silent clip feels like a gap and CloneVoice has nothing to read for it.', fix: 'Write the missing line (it matches the clips around it).', action: { type: 'fillLine', clip: s.sceneNumber } }));
   }
   const th = job.thumbnail || {};
   if(scenes.length && !(th.prompt && thumbnailTitle())) add({ key: 'thumb-missing', category: 'production', level: 'warn', text: th.prompt ? 'The thumbnail has no title text.' : 'There is no thumbnail prompt.', rows: [], clips: [], sources: ['Production check'], panel: 'thumb', why: 'The thumbnail and its title decide most of the click-through.', fix: 'Open the thumbnail and add a title.', action: { type: 'thumb' } });
@@ -4592,7 +4607,7 @@ let qualityBusy = null;
 const Q_ACTION_INFO = {
   planfix: { label: 'Fix in plan', cost: 'ai' }, plancheck: { label: 'Run plan check', cost: 'ai' }, openloops: { label: 'Fix open-loop gaps', cost: 'ai' },
   hintclip: { label: 'Rewrite clip line', cost: 'ai' }, openerclip: { label: 'Rewrite opening line', cost: 'ai' }, rewriteSafe: { label: 'Rewrite clip safely', cost: 'ai' },
-  simplify: { label: 'Simplify this clip', cost: 'ai' }, regen: { label: 'Generate again', cost: 'ai' }, writeMissing: { label: 'Write missing row', cost: 'ai' },
+  simplify: { label: 'Simplify this clip', cost: 'ai' }, regen: { label: 'Generate again', cost: 'ai' }, writeMissing: { label: 'Write missing row', cost: 'ai' }, fillLine: { label: 'Write line', cost: 'ai' },
   aiToggle: { label: 'Turn AI disclosure on', cost: 'free', recheck: true }, thumb: { label: 'Open thumbnail', cost: 'free', nav: true },
   char: { label: 'Open character card', cost: 'free', nav: true }, gotoClip: { label: 'Go to clip', cost: 'free', nav: true }
 };
@@ -4656,6 +4671,7 @@ async function qualityActionRun(f){
     case 'simplify': await simplifyHardLines(a.clip); return {};
     case 'regen': { const i = sceneIdx(a.clip); if(i < 0) return { error: 'clip not found' }; await regenerateScene(i); return {}; }
     case 'writeMissing': await continueScript(); return {};
+    case 'fillLine': { const n = await fillSilentClips({ clips: [a.clip] }); return n ? { detail: `Wrote the line for clip ${a.clip}.` } : { error: 'the AI returned no line' }; }
     case 'aiToggle': ytSet('ai', true); { const el = document.getElementById('ytAi'); if(el) el.checked = true; } return {};
     case 'rewriteSafe': return rewriteClipLines(a.clip, `Remove the advertiser-unfriendly wording "${a.word}" (${a.risk}). Express the same moment without it — imply rather than show; no blood, gore, swearing, sexual content or drug focus.`, a.word);
     case 'hintclip': { const sec = (getRetentionMap() || {}).secret || ''; const c = f.clips[0]; return rewriteClipLines(c, `This clip's spoken line hints the story's secret too early. Rewrite it so it no longer points at the secret${sec ? ` ("${sec}")` : ''}, while keeping the scene's meaning.`, null, ['narrationLine', 'dialogue']); }
@@ -4718,6 +4734,85 @@ function gotoPlanRow(n){
 }
 function openQualityReport(){ openPanel('quality'); }
 
+
+// --- No silent clips --------------------------------------------------------
+// Every clip carries a spoken line unless the retelling angle asks for a
+// silent / cinematic piece. fillSilentClips() writes ONLY the empty field —
+// existing lines are never changed.
+function isSilentJob(){ return !!job && detectNarrativeVoice(job.currentTopic || '') === 'silent'; }
+function silentClips(){ return ((job && job.scenes) || []).filter(s => !String(s.narrationLine || '').trim() && !String(s.dialogue || '').trim()); }
+let silentFillBusy = false;
+async function fillAllSilentClips(){
+  if(silentFillBusy || qualityBusy) return;
+  if(busy.has('generate') || busy.has('continue')){ showToast('Wait for the running generation to finish'); return; }
+  const n0 = silentClips().length;
+  if(!n0) return;
+  silentFillBusy = true; renderResults();
+  try{
+    const n = await fillSilentClips({});
+    showToast(n ? `Wrote ${n} missing spoken line${n > 1 ? 's' : ''}${n < n0 ? ` — ${n0 - n} still empty, click again` : ''}` : 'The AI returned no lines — try again');
+  }catch(e){
+    showToast('Could not write the missing lines: ' + e.message);
+  }finally{
+    silentFillBusy = false; renderResults();
+  }
+}
+async function fillSilentClips(opts){
+  opts = opts || {};
+  const scenes = job.scenes || [];
+  let targets = silentClips();
+  if(opts.clips) targets = targets.filter(s => opts.clips.some(c => +c === +s.sceneNumber));
+  targets = targets.slice(0, 20);
+  if(!targets.length) return 0;
+  // Which field? Follow what the job already uses: a job with no narration
+  // at all but with dialogue is dialogue-only; everything else gets narration.
+  const hasNarr = scenes.some(s => s.narrationLine), hasDlg = scenes.some(s => s.dialogue);
+  const useDialogue = !hasNarr && (hasDlg || (formChecked('dialogueMode', false) && !formChecked('narrationFirst', false)));
+  const lang = job.language || 'English';
+  const t = job.treatment || {};
+  const outline = getOutline() || [];
+  const lineOf = s => s ? (s.narrationLine ? `narration: ${s.narrationLine}` : s.dialogue ? `${s.speaker || 'someone'} says: ${s.dialogue}` : '(no line)') : null;
+  const items = targets.map(sc => {
+    const i = scenes.indexOf(sc);
+    const row = outline.find(r => +r.row === +sc.outlineRow) || null;
+    const o = { sceneNumber: sc.sceneNumber, beat: sc.beat || null, plan: row ? [row.summary, row.purpose].filter(Boolean).join(' — ') : null, characters: sc.charactersInScene || [], whatWeSee: sc.videoAudioPrompt || sc.imagePrompt || '', previousLine: lineOf(scenes[i - 1]), nextLine: lineOf(scenes[i + 1]) };
+    return o;
+  });
+  const simple = job.simpleEnglish ? ' Use SIMPLE everyday words an English learner (A2–B1) knows; sentences of 6–14 words; no idioms or poetic words.' : '';
+  const field = useDialogue
+    ? `"dialogue" (ONLY the spoken words — no speaker name, no quotes), "speaker" (the name of the visible character who says it, from "characters") and "videoAudioPrompt" (the given whatWeSee text, changed as little as possible so the speaker visibly says the exact line: <descriptor of the speaker> speaks: "<line>", and the other character stays silent with a closed mouth)`
+    : `"narrationLine" (voiceover only — never quoted or spoken on screen)`;
+  const system = `You write the ONE missing spoken line for clips of a YouTube story video that were left silent by mistake. Reply with ONLY JSON: {"lines": [{"sceneNumber": number, ${useDialogue ? '"dialogue": string, "speaker": string, "videoAudioPrompt": string' : '"narrationLine": string'}}]} — one entry per clip given.
+For each clip write ${field} in ${lang}. It must fill the clip's 8-10 seconds: roughly 20-25 English words (or 35-45 syllables in a monosyllabic language), one complete, well-built line with real cinematic weight. It must fit exactly between previousLine and nextLine, match what we see in the clip and the plan, keep the same narrator voice${t.narratorVoice ? ` ("${t.narratorVoice}")` : ''}, add what the image can't show (thought, feeling, context), never repeat the lines around it, and never reveal anything the story hasn't revealed yet. A quiet or breather clip gets a calmer, slower, reflective line — still full length.${simple}`;
+  const user = `Story: ${t.logline || job.topic || ''}\n\nClips without a line:\n${JSON.stringify(items, null, 1)}`;
+  const res = await callTask('json', system, user, { step: 'Missing lines', signal: opts.signal || null });
+  const lines = (res && Array.isArray(res.lines)) ? res.lines : [];
+  if(useDialogue){
+    const touched = lines.map(l => +l.sceneNumber).filter(n => targets.some(s => +s.sceneNumber === n));
+    if(touched.length && !opts.auto && !(await snapshotOrAsk('Write missing lines', `Before writing lines for clip${touched.length > 1 ? 's' : ''} ${touched.slice(0, 8).join(', ')}`, { clips: touched }))) throw new Error('stopped — no version could be saved');
+  }
+  let filled = 0;
+  lines.forEach(l => {
+    const sc = targets.find(s => +s.sceneNumber === +l.sceneNumber);
+    if(!sc || sc.narrationLine || sc.dialogue) return;
+    if(useDialogue){
+      const d = cleanSpokenLine(String(l.dialogue || '').trim());
+      if(!d) return;
+      sc.dialogue = d;
+      if(l.speaker) sc.speaker = String(l.speaker).trim();
+      const vap = String(l.videoAudioPrompt || '').trim();
+      if(vap && vap.includes(d)) sc.videoAudioPrompt = vap;
+    }else{
+      const n = cleanSpokenLine(String(l.narrationLine || '').trim());
+      if(!n) return;
+      sc.narrationLine = n;
+    }
+    filled++;
+  });
+  if(filled) await saveJobToStorage(true);
+  return filled;
+}
+
 // --- Render -----------------------------------------------------------------
 function qualitySummaryText(t){
   if(!t || !t.checked) return 'Quality: Not checked';
@@ -4762,6 +4857,7 @@ function renderQualityReport(openAttr){
     <details class="acc acc-quality" data-acc="quality" ${openAttr('quality', true)}>
       <summary><span>🩺 Story quality <span class="acc-sub">${escHtml(qualitySummaryText(t).replace(/^Quality: /, ''))}${t.note ? ` · ${t.note} note${t.note > 1 ? 's' : ''}` : ''}</span></span></summary>
       <div class="acc-body">
+        ${(() => { const n = isSilentJob() ? 0 : silentClips().length; return n ? `<div class="warn-box">${n} clip${n > 1 ? 's have' : ' has'} no spoken line. <button class="btn btn-regen q-btn" onclick="fillAllSilentClips()" ${qualityBusy || silentFillBusy ? 'disabled' : ''}>${silentFillBusy ? '⏳ Writing lines…' : `Write all ${n} missing line${n > 1 ? 's' : ''}`}<span class="q-cost ai">1 AI request</span></button></div>` : ''; })()}
         ${lastAny && lastAny.newProblems && lastAny.newProblems.length ? `<div class="warn-box">The last fix ("${escHtml(lastAny.action)}") caused ${lastAny.newProblems.length} new problem(s): ${lastAny.newProblems.map(escHtml).join(' · ')}</div>` : ''}
         ${rep.cats.map(c => `
           <details class="q-cat" data-acc="q-${c.key}" ${openAttr('q-' + c.key, c.status === 'fail' || c.status === 'warn')}>
@@ -4828,8 +4924,8 @@ function isStoryEditorOn(){ const el = document.getElementById('storyEditor'); r
 function storySpineRule(){
   return `\nSTORY SPINE & ARC — storytelling GUIDELINES that serve this particular story. They refine PLANNING & EXPANSION and work ALONGSIDE the STORY DOCTOR / retention rules (never replacing them); the requested length and row count stay exactly as specified above.
 Also add to the treatment object: "storySpine": { "protagonist": string (name + who they are, one line), "want": string (the outer goal they chase), "need": string (what they truly need to learn or become), "flaw": string (the inner weakness that holds them back), "outerConflict": string (who or what stands in the way), "innerConflict": string (the struggle inside them), "stakes": string (what is concretely lost if they fail), "resolution": string (how it ends), "takeaway": string (the lesson the viewer leaves with, one plain sentence), "turningPoints": [{ "name": "inciting incident" | "point of no return" | "midpoint" | "dark moment" | "climax", "row": number, "event": string (the concrete event in that row that changes the hero's situation or choices — a real turn, not a label stuck on an ordinary scene), "note": string or null (only when the placement is unusual on purpose: say why) }] — all five, in story order }.
-Add to EVERY outline row: "tension": number 1-5 (how tense the moment feels), "emotion": string (the one main emotion the viewer should feel, one word — e.g. dread, hope, shame, relief, wonder, anger), "breather": boolean (true only for a deliberate quiet scene).
-How to use them: (a) typical placement — adjust to this story's length, genre, pacing and logic, never damage the story to hit a number: inciting incident in the first ~15-20% of rows, point of no return ~25-35%, midpoint ~45-55%, dark moment ~70-85%, climax ~80-92%, before any outro rows; (b) tension rises overall toward the climax in natural waves — a small dip after a big turn is good, a perfectly straight line is not; the highest tension sits at or near the climax; (c) vary the emotions — not the same emotion more than 2 rows in a row unless that sustained feeling is the point; (d) the climax is caused by the hero's own meaningful choice that shows whether they overcame their flaw — never luck, coincidence or a rescue; (e) the resolution SHOWS the takeaway through what happens (no preaching); (f) breathers — reflection, atmosphere, anticipation, a character moment, emotional contrast — are welcome when they serve the story: about one per 8 rows at most, usually right after a big turn, and each still reveals something about a character; a breather row has "breather": true and its purpose starts with "breather:".`;
+Add to EVERY outline row: "tension": number 1-5 (how tense the moment feels), "emotion": string (the one main emotion the viewer should feel, one word — e.g. dread, hope, shame, relief, wonder, anger), "breather": boolean (true only for a deliberate quiet scene — quiet in action and tone, but it still has its spoken line).
+How to use them: (a) typical placement — adjust to this story's length, genre, pacing and logic, never damage the story to hit a number: inciting incident in the first ~15-20% of rows, point of no return ~25-35%, midpoint ~45-55%, dark moment ~70-85%, climax ~80-92%, before any outro rows; (b) tension rises overall toward the climax in natural waves — a small dip after a big turn is good, a perfectly straight line is not; the highest tension sits at or near the climax; (c) vary the emotions — not the same emotion more than 2 rows in a row unless that sustained feeling is the point; (d) the climax is caused by the hero's own meaningful choice that shows whether they overcame their flaw — never luck, coincidence or a rescue; (e) the resolution SHOWS the takeaway through what happens (no preaching); (f) breathers — reflection, atmosphere, anticipation, a character moment, emotional contrast — are welcome when they serve the story: about one per 8 rows at most, usually right after a big turn, and each still reveals something about a character; a breather row has "breather": true and its purpose starts with "breather:". A breather is never a silent clip — it still gets its full spoken line, just calmer.`;
 }
 
 // --- Local arc checks (no AI call) ------------------------------------------
