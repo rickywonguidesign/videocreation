@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         VideoExpress Scene Automation
 // @namespace    videocreation-automation
-// @version      2.6
+// @version      2.7
 // @description  Pastes a scene's Image Prompt + Video/Audio Prompt into VideoExpress's Create Video From Prompt modal, sets options, auto-picks the reference photo from the library, and drives it through Create Image -> Create Video. Auto-runs as soon as a new scene payload appears on the clipboard — no button click needed after the first one.
 // @match        https://app.videoexpress.ai/*
 // @grant        none
@@ -19,7 +19,7 @@
     console.warn('[VE-Automation] Another copy of this script is already running on this page (v' + window.__veAutomationLoaded + ') — this copy will stay idle. Open Tampermonkey and disable/delete the duplicate script.');
     return;
   }
-  window.__veAutomationLoaded = '2.6';
+  window.__veAutomationLoaded = '2.7';
   // ============================================================
   // CONFIG — edit these to change behavior without touching the
   // engine logic below. Mirrors videoexpress-automation-flow.json.
@@ -507,6 +507,147 @@
     pauseBtnEl.onclick = togglePause;
     document.body.appendChild(pauseBtnEl);
     renderPauseBtn();
+  }
+
+  // ============================================================
+  // v2.7: ADD VIDEOS TO TIMELINE — a third floating button.
+  //   1. Click "🎞 Add video to Timeline" → the script starts listening.
+  //   2. YOU right-click a video (.library-item) and click "Add to Timeline"
+  //      in its menu. The script remembers that video's data-ident.
+  //   3. The script then does the same for every video with a BIGGER
+  //      data-ident, one by one, smallest first: right-click → "Add to
+  //      Timeline" → next… until no bigger data-ident is left.
+  // Click the button again at any time to stop. ⏸ Pause also holds the loop.
+  // ============================================================
+  const TIMELINE = {
+    itemSelector: '.library-item[data-ident]:not(.library-folder)',
+    menuLinkSelector: 'a[data-action="add-to-timeline"]',
+    menuWaitMs: 5000,      // max wait for the right-click menu to show
+    betweenItemsMs: 1500   // pause after each "Add to Timeline" so the site can add the clip
+  };
+  let tlState = 'off';      // 'off' | 'listening' | 'running'
+  let tlCurrentIdent = null; // data-ident of the last video added
+  let tlCount = 0;
+  let tlStop = false;
+  let tlBtnEl = null;
+  function renderTimelineBtn() {
+    if (!tlBtnEl) return;
+    tlBtnEl.textContent = tlState === 'off' ? '🎞 Add video to Timeline'
+      : tlState === 'listening' ? (tlCurrentIdent != null ? `👂 Now click "Add to Timeline" (ID ${tlCurrentIdent}) · ✕` : '👂 Right-click the first video… · ✕')
+      : `⏹ Stop timeline (${tlCount} added)`;
+    tlBtnEl.style.background = tlState === 'off' ? '#1E7F5C' : tlState === 'listening' ? '#E0A100' : '#C62828';
+  }
+  function identOf(el) {
+    const n = parseInt(el && el.getAttribute('data-ident'), 10);
+    return isNaN(n) ? null : n;
+  }
+  // Right-click listener: remembers which video the user right-clicked.
+  document.addEventListener('contextmenu', (e) => {
+    if (tlState !== 'listening' || !e.isTrusted) return;
+    const item = e.target && e.target.closest && e.target.closest(TIMELINE.itemSelector);
+    if (!item) return;
+    tlCurrentIdent = identOf(item);
+    renderTimelineBtn();
+    log(`Timeline: remembered video ${tlCurrentIdent} — now click "Add to Timeline".`);
+  }, true);
+  // Click listener: the user's own "Add to Timeline" click starts the loop.
+  document.addEventListener('click', (e) => {
+    if (tlState !== 'listening' || !e.isTrusted) return;
+    const link = e.target && e.target.closest && e.target.closest(TIMELINE.menuLinkSelector);
+    if (!link || tlCurrentIdent == null) return;
+    tlState = 'running';
+    tlCount = 1;
+    renderTimelineBtn();
+    log(`Timeline: video ${tlCurrentIdent} added by you — continuing with the next ones...`);
+    setTimeout(runTimelineLoop, TIMELINE.betweenItemsMs); // let the site finish your click first
+  }, true);
+  // The visible video with the smallest data-ident that is bigger than `after`.
+  function nextTimelineItem(after) {
+    let best = null, bestId = null;
+    for (const el of document.querySelectorAll(TIMELINE.itemSelector)) {
+      if (!isVisible(el)) continue;
+      const id = identOf(el);
+      if (id == null || id <= after) continue;
+      if (bestId == null || id < bestId) { best = el; bestId = id; }
+    }
+    return best ? { el: best, id: bestId } : null;
+  }
+  function visibleMenuLink() {
+    return Array.from(document.querySelectorAll(TIMELINE.menuLinkSelector)).find(isVisible) || null;
+  }
+  // A real-looking right-click on the centre of the element.
+  function rightClick(el) {
+    el.scrollIntoView({ block: 'center', inline: 'center' });
+    const r = el.getBoundingClientRect();
+    const opts = { bubbles: true, cancelable: true, view: window, button: 2, buttons: 2, clientX: r.left + r.width / 2, clientY: r.top + r.height / 2 };
+    const target = document.elementFromPoint(opts.clientX, opts.clientY);
+    const at = target && el.contains(target) ? target : el;
+    at.dispatchEvent(new MouseEvent('mousedown', opts));
+    at.dispatchEvent(new MouseEvent('mouseup', opts));
+    at.dispatchEvent(new MouseEvent('contextmenu', opts));
+  }
+  async function runTimelineLoop() {
+    try {
+      while (!tlStop) {
+        await checkPause();
+        if (tlStop) break;
+        const next = nextTimelineItem(tlCurrentIdent);
+        if (!next) {
+          log(`Timeline: done — ${tlCount} video(s) added. No video after ID ${tlCurrentIdent}.`);
+          break;
+        }
+        // The menu from the previous item must be closed first, so the
+        // "Add to Timeline" link found next really belongs to this video.
+        await waitForCondition(() => !visibleMenuLink(), 2000, 100);
+        log(`Timeline: right-clicking video ${next.id}...`);
+        rightClick(next.el);
+        const shown = await waitForCondition(() => visibleMenuLink(), TIMELINE.menuWaitMs, 100);
+        if (!shown) throw new Error(`the right-click menu for video ${next.id} never showed "Add to Timeline"`);
+        if (tlStop) break;
+        tlCurrentIdent = next.id;
+        visibleMenuLink().click();
+        tlCount++;
+        renderTimelineBtn();
+        log(`Timeline: added video ${next.id} (${tlCount} so far).`);
+        await sleep(TIMELINE.betweenItemsMs);
+      }
+      if (tlStop) log(`Timeline: stopped — ${tlCount} video(s) added, last ID ${tlCurrentIdent}.`);
+    } catch (err) {
+      console.error('[VE-Automation] Timeline loop failed:', err);
+      log(`Timeline: stopped — ${err.message}. ${tlCount} video(s) added, last ID ${tlCurrentIdent}.`);
+    } finally {
+      tlState = 'off';
+      tlStop = false;
+      renderTimelineBtn();
+    }
+  }
+  function toggleTimeline() {
+    if (tlState === 'off') {
+      tlState = 'listening';
+      tlCurrentIdent = null;
+      tlCount = 0;
+      tlStop = false;
+      log('Timeline: right-click the FIRST video, then click "Add to Timeline" — the rest follow automatically.');
+    } else if (tlState === 'listening') {
+      tlState = 'off';
+      log('Timeline: cancelled.');
+    } else {
+      tlStop = true;
+      log('Timeline: stopping after the current video...');
+    }
+    renderTimelineBtn();
+  }
+  function injectTimelineButton() {
+    tlBtnEl = document.createElement('button');
+    tlBtnEl.style.cssText = `
+      position:fixed; bottom:20px; right:300px; z-index:999998;
+      color:#fff; border:none; padding:12px 16px; border-radius:8px;
+      font-family:sans-serif; font-size:13px; font-weight:600; cursor:pointer;
+      box-shadow:0 4px 12px rgba(0,0,0,.3);
+    `;
+    tlBtnEl.onclick = toggleTimeline;
+    document.body.appendChild(tlBtnEl);
+    renderTimelineBtn();
   }
 
   // ============================================================
@@ -1104,6 +1245,7 @@
   });
   injectButton();
   injectPauseButton();
+  injectTimelineButton();
   setTimeout(warnIfDuplicateCopies, 3000); // after every copy has had time to add its button
   startAutoRunPolling();
 })();
