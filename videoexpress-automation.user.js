@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         VideoExpress Scene Automation
 // @namespace    videocreation-automation
-// @version      2.7
+// @version      2.9
 // @description  Pastes a scene's Image Prompt + Video/Audio Prompt into VideoExpress's Create Video From Prompt modal, sets options, auto-picks the reference photo from the library, and drives it through Create Image -> Create Video. Auto-runs as soon as a new scene payload appears on the clipboard — no button click needed after the first one.
 // @match        https://app.videoexpress.ai/*
 // @grant        none
@@ -19,7 +19,7 @@
     console.warn('[VE-Automation] Another copy of this script is already running on this page (v' + window.__veAutomationLoaded + ') — this copy will stay idle. Open Tampermonkey and disable/delete the duplicate script.');
     return;
   }
-  window.__veAutomationLoaded = '2.7';
+  window.__veAutomationLoaded = '2.9';
   // ============================================================
   // CONFIG — edit these to change behavior without touching the
   // engine logic below. Mirrors videoexpress-automation-flow.json.
@@ -40,7 +40,8 @@
       // Per request, each checkbox now gets exactly ONE click attempt, no
       // repeated fighting — if the site reverts it afterward, it stays
       // reverted, and the console warning will show that mismatch.
-      // auto_enhance_prompt: v2.3 — NOT set by the script any more; your own tick on the page is kept (see runFlow).
+      // auto_enhance_prompt: v2.9 — always UNTICKED by the script ("Automatically enhance my image prompt"),
+      // before "Use consistent character" is ticked, and again whenever VideoExpress re-ticks it. See forceAutoEnhanceOff().
       image_creative_mode: true, // NEW (v1.3): ticked right BEFORE use_consistent_character
       use_consistent_character: true,
       shared: false,
@@ -912,6 +913,22 @@
       return false;
     }
   }
+  // v2.8: collects why VideoExpress may have refused "Create Image": any visible
+  // error/alert/toast text, the prompt length vs the box's limit, and whether the
+  // cursor was moved back into the prompt box (what forms do on a rejected field).
+  function imageRefusalReason(promptEl, btn) {
+    const ERR_SEL = '.alert, .alert-danger, .alert-warning, .error, .error-message, .invalid-feedback, .help-block, .text-danger, .toast, .toast-body, .noty_body, .swal2-html-container, .swal2-title, .notification, [role="alert"], .bbm-modal__section .message';
+    const texts = Array.from(document.querySelectorAll(ERR_SEL)).filter(isVisible).map(el => (el.textContent || '').replace(/\s+/g, ' ').trim()).filter(t => t && t.length < 300 && !/two-factor|protect your account/i.test(t));
+    const ml = promptEl ? parseInt(promptEl.getAttribute('maxlength') || '', 10) : NaN;
+    return {
+      message: texts[0] || '',
+      allMessages: texts.slice(0, 5),
+      length: promptEl ? promptEl.value.length : 0,
+      maxLength: Number.isFinite(ml) ? ml : null,
+      promptFocused: !!promptEl && document.activeElement === promptEl,
+      buttonDisabled: !!(btn && (btn.disabled || btn.classList.contains('disabled')))
+    };
+  }
   // NEW (v1.4): clears every reference slot that still holds a photo (e.g.
   // left over from the previous scene in a reused modal) by clicking each
   // visible trash/"Clear selection" button. Re-queries after every click,
@@ -1037,17 +1054,27 @@
       await checkPause();
       log('Pasting Image Prompt...');
       const imagePromptEl = await waitForElement('textarea#opt_prompt');
+      console.log(`[VE-Automation] Image prompt: ${String(payload.image || '').length} characters; video prompt: ${String(payload.videoAudio || '').length} characters.`);
       setNativeValue(imagePromptEl, payload.image);
       await checkPause();
       log('Pasting Video/Audio Prompt...');
       const videoPromptEl = await waitForElement('textarea#opt_video_prompt');
       setNativeValue(videoPromptEl, payload.videoAudio);
-      // v2.3: "Auto enhance prompt" is YOUR choice — remember how you left it
-      // on the page before anything else is touched, and only put it back to
-      // that if VideoExpress resets it (it does when a reference photo is picked).
-      const autoEnhanceEl = document.querySelector("input[type='checkbox'][name='auto_enhance_prompt']");
-      const userAutoEnhance = autoEnhanceEl ? autoEnhanceEl.checked : null;
-      console.log('[VE-Automation] Keeping your setting — Auto enhance prompt:', userAutoEnhance);
+      // v2.9: "Automatically enhance my image prompt" is always switched OFF —
+      // first (before "Use consistent character" is ticked), and again after the
+      // reference photo step and right before Create Image, because VideoExpress
+      // re-ticks it on its own.
+      async function forceAutoEnhanceOff(when) {
+        const el = document.querySelector("input[type='checkbox'][name='auto_enhance_prompt']");
+        if (!el) { console.warn(`[VE-Automation] "Auto enhance image prompt" checkbox not found (${when}).`); return; }
+        if (el.checked) {
+          el.click();
+          await sleep(250);
+          if (el.checked) { el.checked = false; el.dispatchEvent(new Event('change', { bubbles: true })); }
+          console.log(`[VE-Automation] Unticked "Automatically enhance my image prompt" (${when}) → now ${el.checked ? 'STILL ticked' : 'off'}.`);
+        }
+      }
+      await forceAutoEnhanceOff('start');
       // v2.5: "Automatically enhance my video prompt" must be OFF. Found by its
       // name, or by its label text if the site renames the field. VideoExpress
       // re-ticks it on its own (consistent character, reference photo, image
@@ -1070,12 +1097,6 @@
         }
       }
       await forceEnhanceVideoOff('start');
-      // Puts a checkbox back to how YOU left it, only if the site changed it.
-      async function restoreUserSetting(name, wanted, label) {
-        if (wanted === null) return;
-        const el = document.querySelector(`input[type='checkbox'][name='${name}']`);
-        if (el && el.checked !== wanted) await setCheckbox(el, wanted, `${label} (restoring your setting)`);
-      }
       await applyAllFormOptions(payload, 'single pass');
       // Check each reference slot (Photo 1, Photo 2) separately. If the
       // library auto-pick above worked, the slot already has a real image and
@@ -1103,7 +1124,7 @@
       const noCharacters = sceneHasNoCharacters(payload);
       if (noCharacters) {
         await checkPause();
-        log('Scene has no characters — "Use consistent character" left off, skipping reference photos.');
+        log('Scene has no characters (the generator sent castCount 0 — no one is listed in this clip) — "Use consistent character" left off.');
       }
       // v1.6: when the generator sent character photo IDs, the photos were
       // auto-picked — skip every 5s manual window. Only without any IDs
@@ -1142,12 +1163,20 @@
       // wait below instead of waiting for pair images that never come.
       const bothRefPhotosEmpty = noCharacters || refSlots.every(slot => !slot.el || !slotHasImage(slot.el));
       if (bothRefPhotosEmpty) {
-        if (!noCharacters) log('No reference photos in either slot — unchecking "Use consistent character" before generating.');
+        if (!noCharacters) {
+          const withId = Array.isArray(payload.referencePhotos) ? payload.referencePhotos.filter(r => r && r.ident).length : 0;
+          const cast = typeof payload.castCount === 'number' ? payload.castCount : null;
+          const reason = !withId
+            ? `this scene's character${cast > 1 ? 's have' : ' has'} no VideoExpress reference photo ID in the generator — set it on the character card (Characters panel)`
+            : `the reference photo pick from the library failed (see the console above)`;
+          log(`No reference photo in either slot — ${reason}. Unticking "Use consistent character" before generating.`);
+          console.warn(`[VE-Automation] Use consistent character switched OFF: ${reason}. castCount=${cast}, IDs sent=${withId}.`);
+        }
         await setCheckbox(await waitForElement("input[type='checkbox'][name='use_consistent_character']"), false, 'use_consistent_character (no reference photos)');
       }
       // Set AFTER the reference photo step, since selecting it resets these.
       const cbFinal = CONFIG.checkboxDesiredState;
-      await restoreUserSetting('auto_enhance_prompt', userAutoEnhance, 'auto_enhance_prompt');
+      await forceAutoEnhanceOff('after reference photo');
       await forceEnhanceVideoOff('after reference photo');
       // The site's own slide counter (aria-label="N / N") tells us when a
       // genuinely NEW slide was added.
@@ -1161,12 +1190,31 @@
       await checkPause();
       log('Clicking Create Image...');
       const createImageBtn = await waitForElement('button.button-generate-image-submit');
+      // v2.8: Did VideoExpress actually START an image? (loading picture, or a new slide).
+      // If it refuses the request (prompt too long, no credits, a validation message…)
+      // nothing starts — before v2.8 the script then waited 5 minutes for a slide that
+      // never came. Now: one retry, then stop with the reason.
+      const generationStarted = () => !!document.querySelector("img[src*='loading-paint3-horiz.gif']") || getSwiperTotalCount() > totalSlidesBefore;
       createImageBtn.click();
       await checkPause();
       log('Confirming image generation actually started...');
-      const loadingStarted = await waitForAttributeContaining("img[src*='loading-paint3-horiz.gif']", 'src', 'loading-paint3-horiz.gif', 8000);
+      let loadingStarted = await waitForCondition(generationStarted, 15000, 300);
       if (!loadingStarted) {
-        console.warn('[VE-Automation] Loading indicator never appeared after clicking Create Image — the click may not have registered, or the site changed. Proceeding anyway, but this scene may end up using a stale image.');
+        const why = imageRefusalReason(imagePromptEl, createImageBtn);
+        console.warn('[VE-Automation] Create Image did not start an image. Diagnostics:', why);
+        log(`Create Image didn't start${why.message ? ` — VideoExpress says: "${why.message}"` : ''} — trying once more...`);
+        await sleep(2000);
+        if (!createImageBtn.disabled) createImageBtn.click();
+        loadingStarted = await waitForCondition(generationStarted, 15000, 300);
+        if (!loadingStarted) {
+          const w2 = imageRefusalReason(imagePromptEl, createImageBtn);
+          throw new Error(`VideoExpress did not start the image after clicking "Create Image" twice.\n\n` +
+            (w2.message ? `VideoExpress message: "${w2.message}"\n` : '') +
+            `Image prompt: ${w2.length} characters${w2.maxLength ? ` (this box allows ${w2.maxLength})` : ''}.\n` +
+            (w2.promptFocused ? `VideoExpress put the cursor back in the Image Prompt box — it usually does that when it rejects the prompt (often because it is too long).\n` : '') +
+            (w2.buttonDisabled ? `The Create Image button is disabled.\n` : '') +
+            `\nTry clicking "Create Image" by hand to see VideoExpress's own message, then click ⚡ Paste & Generate to run this scene again.`);
+        }
       }
       await checkPause();
       log('Waiting for image generation to finish...');
@@ -1205,7 +1253,8 @@
       if (CONFIG.requireManualConfirmation) {
         await pauseForUser('Image generated — check it looks right, then continue to create the video.');
       }
-      // Right before Create Video: image generation can re-tick it — switch it off again.
+      // Right before Create Video: image generation can re-tick them — switch them off again.
+      await forceAutoEnhanceOff('before Create Video');
       await forceEnhanceVideoOff('before Create Video');
       await checkPause();
       log('Waiting for the Create Video button to become visible...');
