@@ -2092,7 +2092,7 @@ function wokeUpExperienceLabel(id){
   const m = (job && job.treatment && Array.isArray(job.treatment.experienceMap)) ? job.treatment.experienceMap.find(e => e && e.id === id) : null;
   return m ? `${id} · ${m.name || ''}${m.aspect ? ` (${m.aspect})` : ''}` : id;
 }
-const WOKEUP_REPAIR_NOTE = `This is a "WHAT IF YOU WOKE UP" video: second-person "you" experiencing another world across ten acts (wake-up hook, immersion, first reality check, learning how the world works, escalating experiences, human connection, unexpected revelation, final experience, reflection, memorable ending). It tells the story of EXPERIENCING a world, not of completing one mission. When repairing: keep each row's "Act N —" label and the act order; when one thread, object, place or person dominates, shorten it to the rows it genuinely needs (keep its setup and a natural ending — often handled by locals or simply left behind) and use the freed rows for NEW experiences of this world, each exploring a different aspect (food, work, money, customs, social hierarchy, technology, family, entertainment, danger, night…) — never more rows of the same problem; never make "You" the hero who fixes the world or carries a quest; bridge experiences with natural transitions. Return "experienceMap" (each {id, name, aspect, act, rows, learn}) and give every row "experience". Story-structure rules below that talk about evidence, arrests, clues and a hero's secret apply only where they fit this format.\n\n`;
+const WOKEUP_REPAIR_NOTE = `This is a "WHAT IF YOU WOKE UP" video: second-person "you" experiencing another world across ten acts (wake-up hook, immersion, first reality check, learning how the world works, escalating experiences, human connection, unexpected revelation, final experience, reflection, memorable ending). It tells the story of EXPERIENCING a world, not of completing one mission. When repairing: keep each row's "Act N —" label and the act order; when one thread, object, place or person dominates, shorten it to the rows it genuinely needs (keep its setup and a natural ending — often handled by locals or simply left behind) and use the freed rows for NEW experiences of this world, each exploring a different aspect (food, work, money, customs, social hierarchy, technology, family, entertainment, danger, night…) — never more rows of the same problem; never make "You" the hero who fixes the world or carries a quest; bridge experiences with natural transitions. Keep the protagonist exactly "You" (never a proper name) and write summaries in second person — if the protagonist has a proper name, add {"from": "<that name>", "to": "You"} to "renames". Every row must do something (discovery, change, curiosity, progression, meaningful detail, connection, transition) — turn observation-only rows into moments where the observation causes something. Every gain is earned after an attempt, cost or setback ("earned: …" in its purpose); never hand You access, jobs, invitations or important people. Keep "questions" (each {id, question, kind, raisedRow, answeredRow}) spread across the video and answered; the ending has callbacks ("callback: row N") to specific early moments and shows how You changed. Return "experienceMap" (each {id, name, aspect, act, rows, learn}) and "questions", and give every row "experience". Story-structure rules below that talk about evidence, arrests, clues and a hero's secret apply only where they fit this format.\n\n`;
 // Narrative balance check for "What If You Woke Up" plans. Runs inside the
 // existing plan hygiene check, so the Plan Gate repairs these problems
 // automatically before any scene is written, and the quality report shows them.
@@ -2172,10 +2172,52 @@ function wokeUpBalanceWarnings(outline, roster, expMap){
   }
   if(reps.length) warn.push(`World balance — repeated experience: rows ${list(reps)} show almost the same moment again. Replace the later one with something new.`);
   // 6) The newcomer turning into the hero who fixes the world.
+  const actOf = r => { const m = String(r.purpose || '').match(/^\s*(?:breather:\s*)?act\s*(\d+)/i); return m ? +m[1] : null; };
   const fixRows = rows.filter(r => /\b(fix|fixes|fixing|repair|repairs|repairing|unblock|unblocks|unclog|unclogs|restore|restores|reopen|reopens|rebuild|rebuilds|(remov|clean|clear|unblock)\w* (the |more |some )?(channel|pipe|drain|blockage|leaves|debris|gutter|well|spout))\b/i.test(String(r.summary || ''))).map(r => r.row);
   if(fixRows.length > Math.max(2, Math.round(N * 0.08))) warn.push(`World balance — mission drift: ${fixRows.length} rows have You fixing or repairing things (rows ${list(fixRows)}). You are experiencing this world, not its repair crew — keep at most one small, plausible act of help.`);
-  // 7) The fixed acts are present.
-  const actOf = r => { const m = String(r.purpose || '').match(/^\s*(?:breather:\s*)?act\s*(\d+)/i); return m ? +m[1] : null; };
+  // 7) Perspective: the protagonist is "You", never a named third person.
+  const you = (roster || []).find(c => /^you$/i.test(String(c.name || '').trim()));
+  const povChar = (roster || []).find(c => !/^you$/i.test(String(c.name || '').trim()) && /viewer|present-day|modern|time[- ]travel|wakes up|protagonist/i.test(String(c.role || '')));
+  if(!you || povChar){
+    const nm = povChar ? povChar.name : ((roster || [])[0] || {}).name;
+    const named = nm ? rows.filter(r => String(r.summary || '').toLowerCase().includes(String(nm).toLowerCase().split(/\s+/)[0])).map(r => r.row) : [];
+    warn.push(`World balance — perspective: the protagonist ${nm ? `is named "${nm}"` : 'has no "You" character'}${named.length ? ` (rows ${list(named)})` : ''}. The main character must be "You" — second person in every summary and narration line, no proper name.`);
+  }
+  // 8) Observation-only rows (sightseeing instead of story).
+  const PASSIVE_START = /^\s*(?:you\s+)?(?:(?:quietly|silently|simply|just|slowly)\s+)?(watch|watches|notice|notices|see|sees|look|looks|observe|observes|gaze|gazes|stare|stares|glimpse|glimpses|listen|listens|hear|hears|admire|admires|study|studies|take in|takes in|marvel|marvels)\b/i;
+  const ACTIVE = /\b(try|tries|tried|ask|asks|decide|decides|join|joins|help|helps|buy|buys|pay|pays|refuse|refuses|fail|fails|warn|warns|offer|offers|realis\w*|realiz\w*|discover\w*|learn\w*|understand\w*|mistake\w*|grab\w*|follow\w*|run|runs|reach\w*|copy|copies|imitate\w*|answer\w*|until|suddenly|then you|so you|but you)\b/i;
+  const passive = rows.filter(r => PASSIVE_START.test(String(r.summary || '')) && !ACTIVE.test(String(r.summary || '').replace(PASSIVE_START, ''))).map(r => r.row);
+  const pairs = passive.filter((n, i) => i && passive[i - 1] === n - 1);
+  if(passive.length > Math.max(3, Math.ceil(N / 6)) || pairs.length) warn.push(`World balance — passive scenes: ${passive.length} row(s) are only watching/noticing/seeing (rows ${list(passive)})${pairs.length ? `, some back to back` : ''}. Make each observation cause something — a reaction, a decision, an attempt, a question, a mistake — or merge it into a neighbouring row.`);
+  // 9) Convenient progress: gains with no cost.
+  const GAIN = /\b(hired|hires|gets? (?:a |some )?(?:job|work)|given (?:a |some )?(?:job|work|coins?|money|food|bread|meal|place|bed)|invit\w*|welcom\w*|allowed (?:in|into|to)|let(?:s)? you (?:in|into|work|stay|see)|(?:takes?|leads?|brings?) you (?:into|behind|inside|backstage|below)|shows? you (?:the|their|his|her|how)|earn\w*|paid|pays you|receiv\w*|gift\w*|offers? you|trusts? you|access)\b/i;
+  const gains = rows.filter(r => GAIN.test(String(r.summary || '')));
+  const unearned = gains.filter(r => !/earned\s*:/i.test(String(r.purpose || ''))).map(r => r.row);
+  if(unearned.length > 1) warn.push(`World balance — too convenient: rows ${list(unearned)} hand You a gain (work, money, food, an invitation, access, a tour) with no "earned:" cost. Precede each with an attempt, cost or setback and say how it was earned — or replace it with something a stranger would plausibly get.`);
+  if(gains.length > Math.max(4, Math.ceil(N / 7))) warn.push(`World balance — too convenient: ${gains.length} rows give You something (rows ${list(gains.map(r => r.row))}). Keep successes few and small, about one per 6-8 rows, with setbacks between them.`);
+  // 10) Curiosity threads: raised and answered across the whole video.
+  const qs = Array.isArray(job && job.treatment && job.treatment.questions) ? job.treatment.questions.filter(q => q && q.question) : null;
+  if(!qs || !qs.length){
+    warn.push(`World balance — curiosity: the plan has no "questions" (raised and answered across the video). Add 6-10 questions — at least three modern-assumption contrasts — and spread them so one is raised or answered every ~6 rows.`);
+  }else{
+    const lastRow = rows.length ? rows[rows.length - 1].row : N;
+    const open = qs.filter(q => !(+q.answeredRow > 0 && +q.answeredRow <= lastRow && +q.answeredRow >= +q.raisedRow));
+    if(open.length > 1) warn.push(`World balance — curiosity: ${open.length} question(s) are never answered (${open.slice(0, 4).map(q => q.id || q.question).join(', ')}). Answer them on screen, or drop them.`);
+    const events = [...new Set(qs.flatMap(q => [+q.raisedRow, +q.answeredRow]).filter(n => n > 0))].sort((a, b) => a - b);
+    const marks = [rows.length ? rows[0].row - 1 : 0, ...events, lastRow];
+    const gaps = [];
+    for(let i = 1; i < marks.length; i++) if(marks[i] - marks[i - 1] > 8) gaps.push(`rows ${marks[i - 1] + 1}-${marks[i] - 1}`);
+    if(gaps.length) warn.push(`World balance — curiosity: no question is raised or answered in ${gaps.join(', ')}. Add a discovery, small setback or surprising human detail that raises the next question there.`);
+    const assumptions = qs.filter(q => /assum/i.test(String(q.kind || ''))).length;
+    if(qs.length < Math.max(4, Math.round(N / 8)) || assumptions < 2) warn.push(`World balance — curiosity: only ${qs.length} question(s), ${assumptions} of them modern-assumption contrasts. Aim for ${Math.max(4, Math.round(N / 8))}+ questions with at least three assumption contrasts.`);
+  }
+  // 11) Ending payoff: callbacks to specific early moments.
+  const tailStart = rows.length ? rows[Math.floor(rows.length * 0.75)].row : 0;
+  const tail = rows.filter(r => { const a = actOf(r); return a ? a >= 8 : r.row >= tailStart; });
+  const cbs = tail.flatMap(r => [...String(r.purpose || '').matchAll(/callback\s*:?\s*rows?\s*(\d+)/gi)].map(m => +m[1]));
+  const early = cbs.filter(n => n <= Math.ceil(N / 3));
+  if(cbs.length < 2 || !early.length) warn.push(`World balance — ending: the final acts have ${cbs.length} callback(s)${cbs.length && !early.length ? ', none to the opening third' : ''}. The ending must call back specific moments ("callback: row N") — Act 8 mirrors an early situation you now handle differently, Act 10 returns to your first assumption — so it shows how you changed.`);
+  // 12) The fixed acts are present.
   const acts = new Set(rows.map(actOf).filter(Boolean));
   if(acts.size){
     const missing = [1, 3, 7, 8, 10].filter(a => !acts.has(a));
@@ -2189,7 +2231,7 @@ function wokeUpRule(force){
 CONCEPT: the viewer is placed inside another time, place, civilization or world and lives it as if THEY personally woke up there. It must feel like living a journey, never like watching a history documentary.
 WORLD: the time and place are the ones the retelling angle names (e.g. "...in Ancient Rome", "...20,000 years ago"); if it names none, take them from the source material, then from the chosen story setting. Write them into treatment.setting. If the chosen story setting clashes with the world the angle names, the angle's world wins. Real places, peoples, periods and well-known landmarks KEEP their real names (Rome stays Rome, the Nile stays the Nile) — the renaming in ORIGINAL RETELLING (a) applies only to the ordinary people you invent; never turn real famous historical figures into speaking characters.
 RESEARCH FIRST: before writing beats, add "worldNotes" to the treatment object — an array of 12-20 short, specific, accurate facts this story will be built from: time period; geography; climate and environment; daily life and routines; technology and tools; food and water; housing; clothing; work; money or trade; social structure and laws; customs and beliefs; realistic dangers and hardships; one or two common modern misconceptions; and surprising true details that can become story moments. treatment.sourceBeats are then built FROM these notes as lived experiences — never as a list of facts. Never invent historical facts to add drama. For speculative or prehistoric worlds (e.g. the dinosaur age), stay with scientific evidence, and let the narration mark what is known versus what is a plausible guess ("scientists think…", "you can only imagine…"); note this in worldNotes too.
-PROTAGONIST — "YOU": put exactly one main character in styleBlock.characters named "You" (role: "the viewer — a present-day person who wakes up in this world"), with a full, fixed description, faceSignature and visualTag like any other character. Keep that one look and outfit for the whole video. "You" appears in most scenes (face visible per CHARACTER FACE VISIBILITY RULE); invented locals are full characters too when they recur. Narration is second-person, present tense ("you wake", "you notice") — it is voiceover, never spoken by an on-screen character; dialogue scenes, if the speech mode allows them, are locals speaking to You or You speaking.
+PROTAGONIST — "YOU" — PERSPECTIVE LOCK (overrides ORIGINAL RETELLING (a), STORY SETTING's naming, the character "name" schema note and any "hero's name" rule): put exactly one main character in styleBlock.characters whose "name" is exactly "You" (role: "the viewer — a present-day person who wakes up in this world"), with a full, fixed description, faceSignature and visualTag like any other character. You NEVER get a proper name (no "Sabina", no "Marcus") — not in the cast, outline, logline, sourceBeats, storySpine, retentionMap.heroIntro ("You — a present-day …, …") or thumbnail. Keep one look and outfit for the whole video; You appear in most scenes with the face visible. Point of view: logline, sourceBeats, every outline "summary" and "purpose", and every "narrationLine" are written in second person, present tense ("You wake…", "you notice…") — never third person about the protagonist. Only "imagePrompt" and "videoAudioPrompt" describe You from outside, by position + visualTag (per IMAGE-TO-VIDEO CHARACTER REFERENCE RULE), because the video model must SEE a person — never with a name and never as "you". Narration is voiceover, never spoken by an on-screen character; dialogue scenes, if the speech mode allows them, are locals speaking to You or You speaking (locals never call You by a name).
 THE TEN ACTS — the fixed narrative DNA. Every video follows this progression in this order, whatever the world; the actual events, challenges and discoveries are chosen fresh for THIS world from worldNotes — never reuse events that belong to a different period. Spread them across the whole outline (approximate shares of the rows, adjust to the length; for a short video, merge neighbouring acts, but keep the order and never drop Acts 1, 3, 7, 8 or 10):
   ACT 1 — THE WAKE-UP HOOK (~8%): the very first scene is the moment you wake inside the experience — already tense and specific, never a calm stretch or an explanation. Establish where and when you are, what feels wrong, the immediate danger, discomfort or uncertainty, and why your modern knowledge won't help. The viewer must think: where am I, can I survive this, what happens next? No intro, no background, no definitions.
   ACT 2 — THE IMMERSION (~8%): sensory, cinematic world-building — temperature, sounds, smells, light, weather, terrain or architecture, clothing, people, objects. Facts arrive only as things you experience.
@@ -2210,6 +2252,10 @@ PLAUSIBLE PROTAGONIST: you experience, learn, help and take part the way a confu
 MAKE IT GRIPPING — in this format ORIGINAL RETELLING (b) means curiosity and discovery: stakes are personal and moment to moment (a cold night ahead, a coin you don't have, a custom you are breaking), NOT one quest, ticking clock or mystery that runs through the whole video.
 CONTINUITY BETWEEN EXPERIENCES: ACTION CONTINUITY ("pick up exactly where the previous scene ended") applies INSIDE an experience. Between experiences, bridge with a short, natural transition — following someone, a sound or smell that draws you, hunger, time passing, the light changing — so the video feels like one day/journey without chaining every scene to the same problem.
 STORY SPINE MAPPING (when STORY SPINE & ARC applies): protagonist = You; want = to make sense of this world and get through it; need = to understand and respect how these people live; flaw = your modern assumptions; outerConflict = the many realities of this world, met one at a time (not one villain or one broken thing); inciting incident = Act 3's first reality check; point of no return = the moment in Act 3/4 you accept you must learn this world's ways; midpoint = a turning discovery in Act 5; dark moment = the hardest situation of Act 5 or early Act 8; climax = Act 8's final experience; takeaway = the reflection of Acts 9-10. Each turning point should come from a DIFFERENT experience. The STORY DOCTOR "secret" is Act 7's revelation; its "plants" are earlier observations and assumptions that the revelation pays off — not plot devices you must fix.
+EVERY ROW EARNS ITS PLACE: each row must do at least one of these, named in its purpose ("Act 4 — does: discovery — new: …"): a new DISCOVERY; a CHANGE in your situation; CURIOSITY (raises or answers a question); personal PROGRESSION (you can now do or understand something you couldn't); a meaningful world DETAIL that matters later; human CONNECTION; or a useful TRANSITION between experiences. Observation is welcome, but a row that is ONLY you watching, seeing, noticing, looking or listening is sightseeing: make the observation cause something in the same row — a reaction, a decision, an attempt, a question, a mistake, a contrast with what you assumed — or merge it into a neighbouring row. Never two observation-only rows in a row, and at most about one row in six is mainly observation (sensory immersion in Act 2 included: let each sensory moment push you to act or realise something).
+EARNED, PLAUSIBLE PROGRESS: nothing important is handed to you. Every gain — money, food, work, shelter, help, an invitation, trust, access to a place, a system or an important person — comes after an attempt, a cost, a mistake or a setback, and its row's purpose says how: "earned: …". Strangers get only what a stranger here would plausibly get: public places, paid entry, the hardest and lowest work, small kindnesses. You reveal the world by living in it, not by special access — never manufacture a job, a meal invitation, a tour behind the scenes or a meeting with someone important just to show the viewer something. Keep successes few and small (about one per 6-8 rows) and keep small setbacks coming, even late in the story; at least one hope should fail before something works.
+CURIOSITY THREADS: add "questions" to the treatment object — 6-10 questions the story raises and later answers, each { "id": "Q1", "question": string, "kind": "assumption" (a modern assumption that this world will overturn) | "mystery" (something strange you notice) | "challenge" (can you manage this?) | "human" (who is this person / why do they act this way?), "raisedRow": number, "answeredRow": number }. At least three are "assumption" contrasts between modern expectations and this world's reality. Spread them so a question is raised or answered at least every ~6 rows across the WHOLE video; answer almost all of them, and let an answer open the next question. Mark them in purposes ("raises Q3", "answers Q3"). Small setbacks, surprising human details and changes in your understanding are curiosity too — never artificial cliffhangers on every scene, and never a whole-video quest.
+ENDING PAYOFF: the ending must prove you changed. Act 8 mirrors an early moment: you face a situation like one from Acts 1-3 and handle it differently because of what you learned (purpose: "callback: row N"). Act 9 reflects on 2-3 SPECIFIC moments from THIS journey (each a "callback: row N"), not general facts about the period. Act 10's final thought returns to the very first assumption, fear or question from the opening (a "callback" to a row in the first third) and shows what you now understand or feel that you didn't when you woke. The pictures can stay calm and quiet; the meaning must land — no generic moral, no "and that's how life was in…".
 NARRATIVE BALANCE CHECK — before writing any scene, review the finished plan: Is the world explored broadly enough? Does any one storyline, object, place or person take too much space? Are there enough distinct experiences, all right for this world? Do discoveries come throughout? Are there quiet moments as well as challenges? Do events connect believably? Is the ending earned? If one thread dominates, rebalance the outline first.
 MICRO-HOOKS: create fresh curiosity roughly every 20-40 seconds (every 2-4 scenes) with a bridge that grows out of THIS moment — the bigger problem you haven't noticed yet, what the locals already know, the surprise still ahead. These are techniques, not stock phrases: never repeat a bridge, don't lean on "But…", no false suspense, close every loop you open and let each answer open the next question. Alternate tension, discovery, action, calm, emotion and reflection; no lecture-like stretches, and not every moment is dramatic.
 VISUAL PURPOSE: every scene must have a clear visual reason to exist — establishing and environment shots, You in action, close-ups of objects, tools and food, human interactions, dramatic moments, quiet atmospheric scenes and visual transitions — all period-accurate. Keep the normal scene format: nothing here changes the JSON fields.
@@ -2779,7 +2825,7 @@ function planHygieneWarnings(outline, roster){
   return { warn, ok };
 }
 // High-impact problems cost more points.
-const PLAN_HIGH_RE = /World balance — (one thread dominates|one thing dominates|narrow world|mission drift)|Story arc — CRITICAL|Open-loop gaps|Stalling|Too long in one place|too late|too early|never clearly introduced|No row shows the incident|no hero introduction|no planned use|look alike|filler|no story purpose|only mood|hint the secret|No reveal row|didn't return a retention map/i;
+const PLAN_HIGH_RE = /World balance — (one thread dominates|one thing dominates|narrow world|mission drift|perspective|too convenient)|Story arc — CRITICAL|Open-loop gaps|Stalling|Too long in one place|too late|too early|never clearly introduced|No row shows the incident|no hero introduction|no planned use|look alike|filler|no story purpose|only mood|hint the secret|No reveal row|didn't return a retention map/i;
 function scorePlanWarnings(warns){
   let score = 100;
   (warns || []).forEach(w => { score -= PLAN_HIGH_RE.test(w) ? 9 : isArcNote(w) ? 2 : 4; });
@@ -2789,7 +2835,7 @@ function scorePlanWarnings(warns){
 function auditPlanCandidate(cand){
   const saved = { t: job.treatment, chars: job.styleBlock && job.styleBlock.characters };
   try{
-    job.treatment = Object.assign({}, job.treatment || {}, { outline: cand.outline, retentionMap: cand.retentionMap }, cand.experienceMap ? { experienceMap: cand.experienceMap } : {});
+    job.treatment = Object.assign({}, job.treatment || {}, { outline: cand.outline, retentionMap: cand.retentionMap }, cand.experienceMap ? { experienceMap: cand.experienceMap } : {}, cand.questions ? { questions: cand.questions } : {});
     if(job.styleBlock) job.styleBlock.characters = cand.characters;
     let warns = [];
     if(job.retentionMode && cand.retentionMap){
@@ -2849,7 +2895,10 @@ ${JSON.stringify(cand.spine || {})}` : ''}
 ${wokeUp ? `
 
 CURRENT experienceMap (return the updated one as "experienceMap", and give every row "experience"):
-${JSON.stringify(cand.experienceMap || [])}` : ''}
+${JSON.stringify(cand.experienceMap || [])}
+
+CURRENT questions (return the updated list as "questions", row numbers matching the new outline):
+${JSON.stringify(cand.questions || [])}` : ''}
 
 CURRENT PLAN (${N} rows):
 ${cand.outline.map(fmt).join('\n')}`;
@@ -2863,6 +2912,7 @@ ${cand.outline.map(fmt).join('\n')}`;
   let next = { outline, retentionMap: (res.retentionMap && typeof res.retentionMap === 'object') ? res.retentionMap : cand.retentionMap, spine: spineOut, characters: clonePlan(cand.characters || []), renames: (cand.renames || []).slice(), changes: Array.isArray(res.changes) ? res.changes.slice(0, 12) : [] };
   if(wokeUp){
     next.experienceMap = Array.isArray(res.experienceMap) && res.experienceMap.length ? res.experienceMap : (cand.experienceMap || null);
+    next.questions = Array.isArray(res.questions) && res.questions.length ? res.questions : (cand.questions || null);
     // A repair that dropped the row ids keeps the old ones row by row.
     if(!outline.some(r => r.experience)) outline.forEach((r, i) => { const o = cand.outline[i] || {}; if(o.experience) r.experience = o.experience; });
   }
@@ -2889,6 +2939,7 @@ async function runPlanGate(opts){
   const lockedUpTo = lastWrittenRow();
   const base = { outline: clonePlan(getOutline()), retentionMap: clonePlan(getRetentionMap() || null), spine: clonePlan(getSpine()), characters: clonePlan((job.styleBlock && job.styleBlock.characters) || []), renames: [], changes: [] };
   if(isWokeUpJob() && job.treatment.experienceMap) base.experienceMap = clonePlan(job.treatment.experienceMap);
+  if(isWokeUpJob() && job.treatment.questions) base.questions = clonePlan(job.treatment.questions);
   const versions = [{ label: 'Original plan', cand: base, audit: auditPlanCandidate(base) }];
   let best = versions[0];
   // AI story editor: ONCE per plan (or when asked again), inside round 1.
@@ -3192,7 +3243,7 @@ function uniquenessPlanWarnings(characters){
   if(!past.length) return [];
   const warns = [];
   (characters || []).forEach(c => {
-    if(!c || !c.name) return;
+    if(!c || !c.name || (/^you$/i.test(String(c.name).trim()) && isWokeUpJob())) return;
     const keys = nameKeys(c.name);
     const hit = past.find(s => (s.names || []).some(n => { const k = nameKeys(n); for(const x of keys) if(k.has(x)) return true; return false; }));
     if(hit) warns.push(`Name reused from a past story: "${c.name}" was already used in "${hit.title || hit.topic || 'an earlier video'}" — give this character a brand-new name so every video feels unique.`);
@@ -4707,6 +4758,13 @@ function qualityFindings(){
     if(unknown.length) add({ key: `castless:${s.sceneNumber}:${qHash(unknown.join(','))}`, category: 'character', level: 'warn', text: `Clip ${s.sceneNumber} lists ${unknown.join(', ')}, who ${unknown.length > 1 ? 'are' : 'is'} not in the cast.`, rows: [], clips: [s.sceneNumber], sources: ['Character check'], panel: null, why: 'A character without a description and reference photo can\'t be drawn consistently.', fix: 'Pick the right cast member in the clip\'s character picker.', action: { type: 'gotoClip' } });
     if(!String(s.imagePrompt || '').trim() || !String(s.videoAudioPrompt || '').trim()) add({ key: `noprompt:${s.sceneNumber}`, category: 'production', level: 'fail', text: `Clip ${s.sceneNumber} has no ${!String(s.imagePrompt || '').trim() ? 'image' : 'video'} prompt.`, rows: [], clips: [s.sceneNumber], sources: ['Production check'], panel: null, why: 'This clip can\'t be produced without its prompts.', fix: 'Generate the clip\'s prompts again.', action: { type: 'regen', clip: s.sceneNumber } });
   });
+  if(isWokeUpJob() && /^english/i.test(job.language || 'English')){
+    const nar = scenes.filter(s => s.narrationLine && !/outro/i.test(s.beat || ''));
+    const third = nar.filter(s => !/\byou(r|rs|rself)?\b/i.test(s.narrationLine)).map(s => s.sceneNumber);
+    const namedPov = characters.filter(c => !/^you$/i.test(String(c.name || '').trim()) && /viewer|present-day|modern|time[- ]travel|wakes up|protagonist/i.test(String(c.role || ''))).map(c => String(c.name).split(/\s+/)[0]);
+    const named = namedPov.length ? nar.filter(s => namedPov.some(n => new RegExp('\\b' + n + '\\b', 'i').test(s.narrationLine))).map(s => s.sceneNumber) : [];
+    if(named.length || (nar.length >= 4 && third.length > nar.length * 0.3)) add({ key: `pov:${qHash(named.concat(third).join(','))}`, category: 'narration', level: 'warn', text: `Narration leaves the "you" perspective in clip${named.concat(third).length > 1 ? 's' : ''} ${[...new Set(named.concat(third))].slice(0, 10).join(', ')}.`, rows: [], clips: [...new Set(named.concat(third))].slice(0, 10), sources: ['Narration check'], panel: null, why: 'What If You Woke Up only works when the viewer is "you" all the way through — a named or third-person hero breaks the immersion.', fix: 'Rewrite those lines in second person ("you …"), without a name.', action: { type: 'gotoClip' } });
+  }
   if(!isSilentJob()){
     silentClips().forEach(s => add({ key: `noline:${s.sceneNumber}`, category: 'narration', level: 'warn', text: `Clip ${s.sceneNumber} has no spoken line.`, rows: [], clips: [s.sceneNumber], sources: ['Narration check'], panel: null, why: 'Every clip needs a voice — a silent clip feels like a gap and CloneVoice has nothing to read for it.', fix: 'Write the missing line (it matches the clips around it).', action: { type: 'fillLine', clip: s.sceneNumber } }));
   }
@@ -4879,6 +4937,7 @@ async function fixOnePlanProblem(f){
   if(f.rows.length && f.rows.every(r => r <= locked)) return { rejected: true, detail: `rows ${f.rows.join(', ')} are already written as clips, so the plan can't change them — use the clip fix instead` };
   const base = { outline: clonePlan(outline), retentionMap: clonePlan(getRetentionMap() || null), spine: clonePlan(getSpine()), characters: clonePlan((job.styleBlock && job.styleBlock.characters) || []), renames: [], changes: [] };
   if(isWokeUpJob() && job.treatment.experienceMap) base.experienceMap = clonePlan(job.treatment.experienceMap);
+  if(isWokeUpJob() && job.treatment.questions) base.questions = clonePlan(job.treatment.questions);
   const beforeA = auditPlanCandidate(base);
   const problem = (f.action && f.action.fullText) || f.text;
   const cand = await repairPlanCandidate(base, [problem], locked, null, { single: true });
@@ -5044,6 +5103,7 @@ function renderQualityReport(openAttr){
 function applyPlanWinner(win){
   job.treatment.outline = win.outline;
   if(win.experienceMap) job.treatment.experienceMap = win.experienceMap;
+  if(win.questions) job.treatment.questions = win.questions;
   if(win.retentionMap) job.treatment.retentionMap = win.retentionMap;
   if(win.spine) job.treatment.storySpine = win.spine;
   if(job.styleBlock) job.styleBlock.characters = win.characters;
