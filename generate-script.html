@@ -2109,7 +2109,7 @@ function wokeUpBalanceWarnings(outline, roster, expMap){
   const rows = (outline || []).filter(r => r.kind !== 'outro');
   const N = rows.length;
   if(N < 6) return { warn, ok };
-  const list = ns => ns.length > 8 ? ns.slice(0, 8).join(', ') + '…' : ns.join(', ');
+  const list = ns => ns.length > 20 ? ns.slice(0, 19).concat(ns[ns.length - 1]).join(', ') : ns.join(', '); // full list, so the quality report knows which rows are involved
   const cap = N < 35 ? 4 : Math.max(5, Math.ceil(N * 0.12));
   const minExp = Math.max(4, Math.round(N / 5));
   // 1) Experiences: enough of them, none dominating, no long runs, varied aspects.
@@ -3027,7 +3027,7 @@ HARD RULES:
 - Keep retentionMap complete and its row numbers consistent with the new outline (incidentRow, heroIntroRow, heroIntro, mysteryAAnsweredRow, revealRow, stakesRow, plants, openLoopRows, flashbackRows, mirrorEnding, secret, hookQuestion, mysteryA, mysteryB, stakes).
 - English only. Each summary one sentence, max 22 words. "changes" = short list of what you changed.${hasArc ? `
 - Keep the story spine: return "storySpine" (protagonist, want, need, flaw, outerConflict, innerConflict, stakes, resolution, takeaway, and the five turningPoints — inciting incident, point of no return, midpoint, dark moment, climax — each {name, row, event, note}) with row numbers matching the new outline, and give every row "tension" (1-5), "emotion" (one word) and "breather" (true only for a deliberate quiet scene — it still has its spoken line). Story-arc NOTES are optional: change something for a note only if it clearly helps this story.` : ''}${editor ? storyEditorBlock() : ''}${ropts && ropts.single ? `
-THIS IS A SINGLE-PROBLEM FIX: change ONLY what the one listed problem needs. Keep the premise, every character, the outcome and every other row exactly as they are.` : ''}`;
+THIS IS A SINGLE-PROBLEM FIX: change ONLY what the one listed problem needs. Keep the premise, every character, the outcome and every other row exactly as they are.${wokeUp && /^World balance/.test(String(warns[0] || '')) ? ` This problem is about the DISTRIBUTION of the whole episode, so fixing it usually means rewriting several rows (merge or replace the excess rows with new experiences, return "experienceMap" with any new experiences); change as many rows as it takes to get fully under the limit, and nothing else.` : ''}` : ''}`;
   const user = `Story: ${t.logline || job.topic || ''}
 Characters: ${(cand.characters || []).map(c => `${c.name} (${c.role || ''})`).join(', ')}
 
@@ -4793,7 +4793,7 @@ const Q_CATS = [
 ];
 const Q_LEVEL_LABEL = { fail: 'FAIL', warn: 'WARN', note: 'NOTE' };
 function qHash(s){ let h = 5381; s = String(s); for(let i = 0; i < s.length; i++) h = ((h << 5) + h + s.charCodeAt(i)) | 0; return (h >>> 0).toString(36); }
-const qSig = t => String(t || '').replace(/"[^"]*"/g, '"…"').replace(/\d+/g, '#').toLowerCase();
+const qSig = t => { let x = String(t || ''); if(/^World balance/.test(x)) x = x.replace(/\d+(?:\s*(?:,|\/|–|-)\s*\d+)+/g, '#'); return x.replace(/"[^"]*"/g, '"…"').replace(/\d+/g, '#').toLowerCase(); }; // World balance: a shorter row list is the same problem
 function qRowsIn(text){
   const out = new Set();
   // "Rows that look almost the same: 8/9, 3/4"
@@ -5135,7 +5135,17 @@ async function fixOnePlanProblem(f){
   const changed = JSON.stringify(cand.outline) !== JSON.stringify(base.outline) || JSON.stringify(cand.spine || null) !== JSON.stringify(base.spine || null) || (cand.renames || []).length > 0 || JSON.stringify(cand.retentionMap || null) !== JSON.stringify(base.retentionMap || null);
   if(!changed) return { rejected: true, detail: 'the AI returned the plan unchanged' };
   const inAudit = beforeA.warns.includes(f.text) || beforeA.warns.includes(problem);
-  if(inAudit && afterA.warns.some(w => qSig(w) === qSig(problem) || qSig(w) === qSig(f.text))) return { rejected: true, detail: 'the repaired plan still has this problem, so it was not applied' };
+  const stillW = inAudit ? afterA.warns.find(w => qSig(w) === qSig(problem) || qSig(w) === qSig(f.text)) : null;
+  let partial = null;
+  if(stillW){
+    // What If You Woke Up: distribution problems are often fixed in steps — keep a repair that clearly shrinks
+    // the problem and makes the whole plan better, and say it is still over the limit.
+    const size = t => { const m = String(t).match(/\d+/); if(!m) return null; return /\bonly\b/i.test(t) ? -(+m[0]) : +m[0]; };
+    const sc = a => (a.raw != null ? a.raw : a.score);
+    const b0 = size(f.text), b1 = size(stillW);
+    if(isWokeUpJob() && /^World balance/.test(f.text) && b0 != null && b1 != null && b1 < b0 && sc(afterA) >= sc(beforeA)) partial = { before: Math.abs(b0), after: Math.abs(b1) };
+    else return { rejected: true, detail: `the repaired plan still has this problem, so it was not applied${locked ? ` — rows 1-${locked} are already written as scenes and a plan fix can't change them; if most of the problem sits in those rows, regenerate those clips or accept it as intentional` : ''}` };
+  }
   if(afterA.score < beforeA.score) return { rejected: true, detail: `the repair made the plan worse (${beforeA.score} → ${afterA.score}): ${afterA.warns.filter(w => !beforeA.warns.includes(w)).slice(0, 2).join(' / ') || 'new problems'} — the old plan was kept` };
   // Renames that touch already-written clips need the user's OK.
   const pairs = cand.renames || [];
@@ -5145,6 +5155,7 @@ async function fixOnePlanProblem(f){
   applyPlanWinner(cand);
   if(touched) job.scenes = applyNameChanges({ s: job.scenes }, pairs).s;
   await saveJobToStorage(true);
+  if(partial) return { applied: true, detail: `Improved ${partial.before} → ${partial.after}, still over the limit — click "Fix in plan" again to finish${locked ? ` (rows 1-${locked} are already written and can't change)` : ''}. ${(cand.changes || []).slice(0, 2).join(' · ')}` };
   return { applied: true, detail: (cand.changes || []).slice(0, 3).join(' · ') };
 }
 function gotoPlanRow(n){
