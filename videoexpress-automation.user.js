@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         VideoExpress Scene Automation
 // @namespace    videocreation-automation
-// @version      2.9
+// @version      3.3
 // @description  Pastes a scene's Image Prompt + Video/Audio Prompt into VideoExpress's Create Video From Prompt modal, sets options, auto-picks the reference photo from the library, and drives it through Create Image -> Create Video. Auto-runs as soon as a new scene payload appears on the clipboard — no button click needed after the first one.
 // @match        https://app.videoexpress.ai/*
 // @grant        none
@@ -19,7 +19,7 @@
     console.warn('[VE-Automation] Another copy of this script is already running on this page (v' + window.__veAutomationLoaded + ') — this copy will stay idle. Open Tampermonkey and disable/delete the duplicate script.');
     return;
   }
-  window.__veAutomationLoaded = '2.9';
+  window.__veAutomationLoaded = '3.3';
   // ============================================================
   // CONFIG — edit these to change behavior without touching the
   // engine logic below. Mirrors videoexpress-automation-flow.json.
@@ -315,7 +315,7 @@
         const winner = items.find(item => !pairItemIsLoading(item));
         if (!winner) return; // both still loading — keep watching
         log(`Pair image (index ${winner.getAttribute('data-pair-index')}) finished rendering first — auto-selecting it.`);
-        winner.click();
+        vxClick(winner);
         // Give the click a moment to actually register as "selected" — if
         // it never does, the click target guessed here (the pair-item
         // container) may not be what the site listens on.
@@ -332,6 +332,45 @@
       tryPick(); // in case both are already ready (or one preselected) by the time we start watching
     });
   }
+  // ============================================================
+  // v3.3: TRUSTED CLICKS. VideoExpress's editor (videoeditor.min.js) now wraps
+  // every "click …" handler in isTrustedClick(e) → (e.originalEvent || e).isTrusted.
+  // Script clicks are never isTrusted, so since that change every .click() was
+  // silently ignored (Create Image, Use consistent character, Reference Photo,
+  // the library…). vxClick() builds the click through the page's own jQuery with
+  // an originalEvent that says isTrusted: true and hands it to VideoExpress's
+  // own handlers — the same path a real mouse click takes. For checkboxes the
+  // tick is set first (like a real click) and the handlers then read it.
+  // Falls back to a plain .click() when the page has no jQuery.
+  // ============================================================
+  function vxClick(el) {
+    if (!el) return 'none';
+    const $ = window.jQuery;
+    const isToggle = el.matches && el.matches('input[type="checkbox"], input[type="radio"]');
+    if (!$ || !$.event || !$.event.fix || !$.event.dispatch || !$._data) { el.click(); return 'native'; }
+    if (isToggle) el.checked = el.type === 'radio' ? true : !el.checked;
+    const r = el.getBoundingClientRect();
+    const cx = r.left + r.width / 2, cy = r.top + r.height / 2;
+    const fake = {
+      type: 'click', target: el, isTrusted: true, bubbles: true, cancelable: true, view: window, detail: 1,
+      button: 0, buttons: 1, which: 1, clientX: cx, clientY: cy, screenX: cx, screenY: cy, pageX: cx + window.scrollX, pageY: cy + window.scrollY,
+      offsetX: r.width / 2, offsetY: r.height / 2, altKey: false, ctrlKey: false, metaKey: false, shiftKey: false, relatedTarget: null,
+      timeStamp: Date.now(), defaultPrevented: false,
+      preventDefault() { this.defaultPrevented = true; }, stopPropagation() {}, stopImmediatePropagation() {}
+    };
+    const ev = $.event.fix(fake);
+    let ran = 0;
+    // Bubble through every ancestor that has jQuery click handlers (VideoExpress
+    // delegates them from .bbm-wrapper), exactly like jQuery does for a real click.
+    for (let n = el; n; n = n.parentNode) {
+      const evs = $._data(n, 'events');
+      if (evs && evs.click) { ran++; $.event.dispatch.call(n, ev); if (ev.isPropagationStopped()) break; }
+      if (n === document) break;
+    }
+    if (isToggle) el.dispatchEvent(new Event('change', { bubbles: true }));
+    if (!ran) el.click(); // nothing listens through jQuery here — a plain click is all there is
+    return ran ? 'jquery' : 'native';
+  }
   function setNativeValue(el, value) {
     const proto = el.tagName === 'TEXTAREA' ? window.HTMLTextAreaElement.prototype
                 : el.tagName === 'SELECT' ? window.HTMLSelectElement.prototype
@@ -343,7 +382,7 @@
   }
   async function setCheckbox(el, desired, label) {
     if (el.checked !== desired) {
-      el.click(); // click() rather than toggling .checked directly, so any listeners fire
+      vxClick(el); // v3.3: trusted click — VideoExpress ignores plain script clicks
       await sleep(200); // give the site's own JS a moment to settle before we move on / read back state
     }
     if (el.checked !== desired) {
@@ -606,7 +645,7 @@
         if (!shown) throw new Error(`the right-click menu for video ${next.id} never showed "Add to Timeline"`);
         if (tlStop) break;
         tlCurrentIdent = next.id;
-        visibleMenuLink().click();
+        vxClick(visibleMenuLink());
         tlCount++;
         renderTimelineBtn();
         log(`Timeline: added video ${next.id} (${tlCount} so far).`);
@@ -811,7 +850,7 @@
       const top = popups[popups.length - 1];
       const closeBtn = Array.from(top.querySelectorAll('button')).find(b => isVisible(b) && btnText(b) === 'close');
       if (!closeBtn) break;
-      closeBtn.click();
+      vxClick(closeBtn);
       await waitForCondition(() => !document.body.contains(top) || !isVisible(closeBtn), 2000);
       await sleep(300);
     }
@@ -842,6 +881,7 @@
         }
       }
       if (openLibraryCount() === 0) {
+        unhideRefArea(`before clicking ${btnText}`);
         log(`${label}: opening the library for image ${ident}...`);
         const refBtn = await waitForVisibleElement(
           rp.buttonSelector,
@@ -849,10 +889,18 @@
           el => el.textContent.replace(/\s+/g, ' ').trim().toLowerCase() === btnText.toLowerCase()
         );
         console.log(`[VE-Automation] ${label}: clicking slot button (open libraries before click: ${openLibraryCount()})`, refBtn);
-        refBtn.click();
+        vxClick(refBtn);
         await sleep(1500);
-        const n = openLibraryCount();
+        let n = openLibraryCount();
         console.log(`[VE-Automation] ${label}: open library popups after click: ${n}`);
+        if (n === 0 && !visibleIn(document, '.library-item')) {
+          // v3.2: the plain click did nothing — send a full mouse press, like a real click.
+          log(`${label}: the library didn't open — clicking "${btnText}" again with a full mouse press...`);
+          vxClick(refBtn); realClick(refBtn);
+          await sleep(1500);
+          n = openLibraryCount();
+          console.log(`[VE-Automation] ${label}: open library popups after the full mouse press: ${n}`);
+        }
         if (n > 1) console.warn(`[VE-Automation] ${label}: ${n} library popups are open after ONE click — the site itself opened two.`);
       }
 
@@ -874,14 +922,14 @@
         log(`${label}: opening "My Artistly Images" folder...`);
         const folder = await waitForCondition(() => visibleIn(lib, folderSelector), t);
         if (!folder) throw new Error(`Folder ${rp.libraryFolderId} never appeared in the library`);
-        visibleIn(lib, folderSelector).click();
+        vxClick(visibleIn(lib, folderSelector));
       }
 
       log(`${label}: selecting image ${ident}...`);
       const gotImage = await waitForCondition(() => visibleIn(lib, imageSelector), t);
       if (!gotImage) throw new Error(`Image ${ident} never appeared in the folder — check the ID in the generator`);
       await sleep(300);
-      visibleIn(lib, imageSelector).click();
+      vxClick(visibleIn(lib, imageSelector));
 
       log(`${label}: clicking Choose...`);
       const isChoose = el => isVisible(el) && el.textContent.trim().toLowerCase() === 'choose' && !el.disabled;
@@ -889,7 +937,7 @@
       if (!gotChoose) throw new Error('"Choose" button never became clickable (was the image selected?)');
       const chooseBtn = Array.from(lib.querySelectorAll(rp.chooseButtonSelector)).find(isChoose) || Array.from(document.querySelectorAll(rp.chooseButtonSelector)).find(isChoose);
       await sleep(200);
-      chooseBtn.click();
+      vxClick(chooseBtn);
 
       // Confirm the photo actually landed in THIS slot.
       await waitForCondition(() => !isVisible(chooseBtn), 5000);
@@ -929,6 +977,72 @@
       buttonDisabled: !!(btn && (btn.disabled || btn.classList.contains('disabled')))
     };
   }
+  // v3.0: after "Use consistent character" is ticked, VideoExpress should show the
+  // Reference Photo / Reference Photo 2 slots. If the box looks ticked but the slots
+  // stay hidden, the site didn't receive the tick the way it listens for it — so
+  // nudge it the other ways a site can listen (change event, jQuery, clicking the
+  // visible custom checkbox), then report which element is still hiding the slots.
+  function refAreaEl() { return document.querySelector('.consistent-character-image-container'); }
+  function refAreaShown() {
+    const area = refAreaEl();
+    if (!area || !isVisible(area)) return false;
+    return Array.from(area.querySelectorAll(CONFIG.referencePhoto.buttonSelector)).some(isVisible);
+  }
+  function whatHidesRefArea() {
+    const area = refAreaEl();
+    if (!area) return 'the photo area (.consistent-character-image-container) is not on the page';
+    for (let n = area; n && n !== document.body; n = n.parentElement) {
+      const cs = getComputedStyle(n);
+      if (cs.display === 'none' || cs.visibility === 'hidden' || n.classList.contains('hidden') || n.classList.contains('d-none')) {
+        return `<${n.tagName.toLowerCase()} class="${n.className}"> is hidden (${cs.display === 'none' ? 'display:none' : cs.visibility === 'hidden' ? 'visibility:hidden' : 'class hidden'})`;
+      }
+    }
+    return 'the photo slots exist but no Reference Photo button is visible';
+  }
+  // v3.2: a full, real-looking mouse press on an element (for buttons that ignore .click()).
+  function realClick(el) {
+    el.scrollIntoView({ block: 'center' });
+    const r = el.getBoundingClientRect();
+    const o = { bubbles: true, cancelable: true, view: window, button: 0, buttons: 1, clientX: r.left + r.width / 2, clientY: r.top + r.height / 2 };
+    try { el.dispatchEvent(new PointerEvent('pointerdown', o)); } catch (e) {}
+    el.dispatchEvent(new MouseEvent('mousedown', o));
+    try { el.dispatchEvent(new PointerEvent('pointerup', o)); } catch (e) {}
+    el.dispatchEvent(new MouseEvent('mouseup', o));
+    el.dispatchEvent(new MouseEvent('click', o));
+  }
+  // v3.1: VideoExpress sometimes leaves class "hidden" on
+  // <div class="… consistent-character-image-container hidden"> after the box is
+  // ticked, so the Reference Photo buttons never show. Remove it ourselves.
+  function unhideRefArea(when) {
+    const area = refAreaEl();
+    if (!area) return false;
+    let changed = false;
+    ['hidden', 'd-none'].forEach(c => { if (area.classList.contains(c)) { area.classList.remove(c); changed = true; } });
+    if (getComputedStyle(area).display === 'none') { area.style.display = ''; if (getComputedStyle(area).display === 'none') area.style.display = 'grid'; changed = true; }
+    if (changed) console.log(`[VE-Automation] Removed "hidden" from the Reference Photo area (${when}).`);
+    return changed;
+  }
+  async function ensureReferenceAreaVisible(cbEl) {
+    unhideRefArea('after ticking Use consistent character');
+    if (await waitForCondition(refAreaShown, 1500, 150)) return true;
+    console.warn('[VE-Automation] "Use consistent character" is ticked but the Reference Photo slots did not appear — ' + whatHidesRefArea() + '. Nudging VideoExpress...');
+    const tries = [
+      ['change event', () => { cbEl.dispatchEvent(new Event('input', { bubbles: true })); cbEl.dispatchEvent(new Event('change', { bubbles: true })); }],
+      ['jQuery change', () => { const $ = window.jQuery || window.$; if ($ && $.fn && $.fn.trigger) $(cbEl).trigger('change'); }],
+      ['re-tick via the visible checkbox', async () => {
+        vxClick(cbEl); await sleep(400);
+        if (!cbEl.checked) { vxClick(cbEl); await sleep(400); }
+      }]
+    ];
+    for (const [label, fn] of tries) {
+      try { await fn(); } catch (e) { console.warn('[VE-Automation] ' + label + ' failed:', e); }
+      if (await waitForCondition(refAreaShown, 1500, 150)) { log(`Reference Photo slots appeared after a ${label}.`); return true; }
+    }
+    const why = whatHidesRefArea();
+    log(`"Use consistent character" is ticked but VideoExpress did not show the Reference Photo slots — ${why}. Untick and tick the box by hand once to see if they appear.`);
+    console.warn('[VE-Automation] Reference Photo slots still hidden: ' + why, { checked: cbEl.checked, area: refAreaEl() });
+    return false;
+  }
   // NEW (v1.4): clears every reference slot that still holds a photo (e.g.
   // left over from the previous scene in a reused modal) by clicking each
   // visible trash/"Clear selection" button. Re-queries after every click,
@@ -947,7 +1061,7 @@
       const btn = candidates[0];
       if (!btn) break;
       clicked.add(btn);
-      btn.click();
+      vxClick(btn);
       await waitForCondition(() => !isVisible(btn), 3000);
       await sleep(400);
     }
@@ -1028,9 +1142,10 @@
         await setCheckbox(el, desired, `${name} (${passLabel})`);
         // Right after "Use consistent character" is ticked, pick each
         // character's reference photo from the library, then carry on.
-        if (name === 'use_consistent_character' && desired && el.checked && CONFIG.referencePhoto.enabled) {
+        if (name === 'use_consistent_character' && desired && el.checked) {
           await sleep(300); // let the reference-photo UI appear after the checkbox toggles
-          await selectReferencePhotosForScene(payload);
+          await ensureReferenceAreaVisible(el); // v3.0: make sure VideoExpress actually showed the photo slots
+          if (CONFIG.referencePhoto.enabled) await selectReferencePhotosForScene(payload);
         }
       }
     }
@@ -1049,7 +1164,7 @@
         await checkPause();
         log('Opening Create Video From Prompt modal...');
         const openPanel = await waitForElement('.panel.panel-default.js-panel-button.button-generate-from-prompt');
-        openPanel.click();
+        vxClick(openPanel);
       }
       await checkPause();
       log('Pasting Image Prompt...');
@@ -1068,7 +1183,7 @@
         const el = document.querySelector("input[type='checkbox'][name='auto_enhance_prompt']");
         if (!el) { console.warn(`[VE-Automation] "Auto enhance image prompt" checkbox not found (${when}).`); return; }
         if (el.checked) {
-          el.click();
+          vxClick(el);
           await sleep(250);
           if (el.checked) { el.checked = false; el.dispatchEvent(new Event('change', { bubbles: true })); }
           console.log(`[VE-Automation] Unticked "Automatically enhance my image prompt" (${when}) → now ${el.checked ? 'STILL ticked' : 'off'}.`);
@@ -1090,7 +1205,7 @@
         const el = findEnhanceVideoBox();
         if (!el) { console.warn(`[VE-Automation] "Enhance video prompt" checkbox not found (${when}).`); return; }
         if (el.checked) {
-          el.click();
+          vxClick(el);
           await sleep(250);
           if (el.checked) { el.checked = false; el.dispatchEvent(new Event('change', { bubbles: true })); }
           console.log(`[VE-Automation] Unticked "Automatically enhance my video prompt" (${when}) → now ${el.checked ? 'STILL ticked' : 'off'}.`);
@@ -1195,7 +1310,7 @@
       // nothing starts — before v2.8 the script then waited 5 minutes for a slide that
       // never came. Now: one retry, then stop with the reason.
       const generationStarted = () => !!document.querySelector("img[src*='loading-paint3-horiz.gif']") || getSwiperTotalCount() > totalSlidesBefore;
-      createImageBtn.click();
+      vxClick(createImageBtn);
       await checkPause();
       log('Confirming image generation actually started...');
       let loadingStarted = await waitForCondition(generationStarted, 15000, 300);
@@ -1204,7 +1319,7 @@
         console.warn('[VE-Automation] Create Image did not start an image. Diagnostics:', why);
         log(`Create Image didn't start${why.message ? ` — VideoExpress says: "${why.message}"` : ''} — trying once more...`);
         await sleep(2000);
-        if (!createImageBtn.disabled) createImageBtn.click();
+        if (!createImageBtn.disabled) vxClick(createImageBtn);
         loadingStarted = await waitForCondition(generationStarted, 15000, 300);
         if (!loadingStarted) {
           const w2 = imageRefusalReason(imagePromptEl, createImageBtn);
@@ -1261,7 +1376,7 @@
       const createVideoBtn = await waitForElement('button.button-generate-video-submit:not(.hidden)');
       await checkPause();
       log('Clicking Create Video...');
-      createVideoBtn.click();
+      vxClick(createVideoBtn);
       await checkPause();
       log('Done — video generation started.');
       returnToGeneratorTab(payload);
